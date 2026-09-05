@@ -230,14 +230,38 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
 - [ ] Identify which physical wire in the existing DS470FR/PC380 6-pin
       harness is RX/TX/+12V/GND, and confirm it's wired both directions
       (see `docs/hardware.md`'s "Reusing the existing OEM 6-pin harness")
-- [ ] Implement the counterpart protocol handler in `smartebl` (separate
-      repo, separate PR)
-- [ ] Extend the display-side link handler to the full key list in
-      `docs/protocol.md` (all 16 fuses, remaining switches, Truma climate)
-- [ ] Build out the remaining pages per `docs/pages.md`'s catalog (Home,
-      Electric, Levels, Climate, Boiler, Fans, Light/Features,
-      Sensors+Levelling) — this repo's own answer to what
-      `smartebl_display`'s five sections should grow into here
+- [x] **First release: three real pages built.** Mainscreen/Home (SBB
+      clock — reused as-is from `m5dial_clock_sbb` — + 5 switch tiles +
+      a permanently-reserved Fridge tile), Electric (Victron-style
+      overview: Shore/Battery/AC-charger-voltage wired to real link
+      data; AC Loads, Solar Yield and DC Loads render invalid on
+      purpose — `smartebl` has no current-sense hardware to back a
+      watt figure for any of them, see `docs/pages.md`'s Electric row),
+      and Climate (Truma Combi 4 room-heating side via HA/
+      `womolin_controller`, touch +/- buttons in place of
+      `m5dial_fram`'s rotary-encoder arm/disarm step). Persistent top
+      status bar (time/date + link status) and left nav rail
+      implemented as LVGL `top_layer` widgets, so both survive page
+      switches without being redefined per page. First-pass rectangular
+      layout grid recorded in `docs/design_rules.md` §4. The
+      quick-switch popup (`docs/pages.md` §3) is **not** built yet —
+      this release's switches live directly on the Mainscreen instead,
+      which covers the same controls without that infrastructure.
+- [x] Implemented the counterpart protocol handler in `smartebl`'s own
+      `smart-ebl.yaml`, for groups 1-4 (fuses, tanks, electrical,
+      switches) — everything this release's pages need. Groups 5
+      (Truma) and 6 (system) are not sent yet: the Climate page reads
+      Truma via HA/`womolin_controller` instead of this link, so
+      there's no consumer for group 5 over the wire yet.
+- [ ] Extend the display-side link handler to group 1 (fuses, for a
+      future fuse-grid Electric sub-page and the status bar's alarm
+      ranking) and group 6 (system) — both are already broadcast by
+      `smartebl` but not yet parsed here, since no page in this release
+      shows either.
+- [ ] Build out the remaining pages per `docs/pages.md`'s catalog
+      (Levels, Boiler, Fans, Light/Features, Sensors+Levelling, and the
+      Electric section's fuse-grid sub-page) — this repo's own answer
+      to what `smartebl_display`'s five sections should grow into here
 
 ## Building & Flashing
 

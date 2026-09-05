@@ -7,9 +7,12 @@
 # Nextion used - see docs/protocol.md for the link and docs/hardware.md
 # for every pin used below, INCLUDING which ones are still placeholders.
 #
-# STATUS: basic bring-up config - one live page, a first slice of the
-# link protocol. See README.md "Status & Roadmap" before assuming this
-# covers everything smartebl exposes.
+# STATUS: first release - three real pages (Mainscreen/Home, Electric/
+# Victron-style overview, Climate), per docs/pages.md's page catalog.
+# See README.md "Status & Roadmap" before assuming this covers
+# everything smartebl exposes - most of the catalog (Levels, Boiler,
+# Fans, Light/Features, Sensors+Levelling) is still follow-up work, and
+# the Electric page only has its overview sub-page, not the fuse grid.
 # =============================================================================
 
 substitutions:
@@ -28,6 +31,23 @@ substitutions:
   link_tx_pin: GPIO37
   link_rx_pin: GPIO38
 
+  # ---- Rectangular layout grid (design_rules.md §4's open item) -------
+  # `lvgl: rotation: 90` below turns the panel's native 800x1280
+  # (portrait) into a 1280x800 landscape canvas - every page's widgets
+  # are placed against those dimensions. First pass, established by
+  # this release's three pages (page_home, page_electric, page_climate)
+  # - refine once seen on the real device, per design_rules.md's own
+  # "decided by looking at the actual device, not guessed in advance"
+  # reasoning. Kept as substitutions (not just comments) so a future
+  # page copies the same numbers instead of inventing a second,
+  # possibly-drifting grid.
+  screen_w: "1280"  # landscape canvas width after rotation: 90
+  screen_h: "800"   # landscape canvas height after rotation: 90
+  bar_h: "64"       # top status bar - full width, every page
+  nav_w: "130"      # left nav rail - full remaining height, every page
+  content_x: "130"  # = nav_w - x where every page's own content starts
+  content_y: "64"   # = bar_h - y where every page's own content starts
+
 # Both networks (README.md "Networking") can be up at once - this just
 # decides which one wins the default route when they are, rather than
 # leaving it to chance. Ethernet first: prefer the wired path for
@@ -43,13 +63,17 @@ esphome:
   friendly_name: ${friendly_name}
   on_boot:
     # design_rules.md §2's "one script per page, also called from
-    # on_boot" pattern: draw whatever's in the link buffer right now
-    # (all "---"/"NO LINK" until the first telemetry frame arrives)
+    # on_boot" pattern: draw whatever's in the link/HA buffers right
+    # now (all "---"/"NO LINK" until the first frame/API push arrives)
     # instead of leaving LVGL's default placeholder text up until then.
+    # Safe to call for a page that isn't the one currently shown - LVGL
+    # builds every page's widgets at setup regardless of visibility.
     priority: -100
     then:
-      - script.execute: draw_home
-      - script.execute: draw_battery
+      - script.execute: draw_status_bar
+      - script.execute: draw_nav
+      - script.execute: draw_electric
+      - script.execute: draw_climate
 
 esp32:
   variant: esp32p4
@@ -230,6 +254,44 @@ touchscreen:
     display: disp_main
 
 # =============================================================================
+# SBB clock widget (Mainscreen) - reused verbatim from m5dial_clock_sbb
+# =============================================================================
+# pages.md §6: "the widget scales by width/height alone ... no changes
+# needed to reuse it here at a much larger size than the M5Dial's
+# 240x240". Pulled as a git external_component, same as the user's
+# other Smart EBL/FRAM devices that use it.
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CzarofAK/m5dial_clock_sbb
+      ref: main
+    components: [sbb_clock]
+
+sbb_clock: # marker key - without it ESPHome won't load the component
+
+color:
+  - id: col_clock_ink
+    hex: FFFFFF
+  - id: col_clock_bg
+    hex: "000000"
+  - id: col_clock_second
+    hex: E74C3C
+
+# ---- Day/night for the clock face (pages.md §4's brightness/day-night
+# icon) - AUTO only for this release, driven by HA's sun.sun, same
+# source m5dial_fram's clock page uses. The popup's manual DAY/NIGHT
+# override and the brightness slider are both still open items (the
+# slider is blocked on an unconfirmed backlight PWM pin, docs/hardware.md
+# §7/pages.md §7) - not built here.
+text_sensor:
+  - platform: homeassistant
+    id: s_sun
+    entity_id: sun.sun
+    on_value:
+      - script.execute: apply_daynight
+
+# =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
 # =============================================================================
 
@@ -252,52 +314,46 @@ globals:
     initial_value: '""'
 
   # millis() timestamp of the last successfully-checksummed telemetry
-  # frame, any group. 0 = none received yet. Used by draw_home's
-  # invalid-value check (design_rules.md §2 / protocol.md §4) - a single
-  # global is enough for this repo's one implemented page; a future
-  # multi-page build extending to more groups may want one per group
-  # instead, per protocol.md §4's own note.
+  # frame, any group. 0 = none received yet. Used by draw_status_bar's
+  # invalid-value check (design_rules.md §2 / protocol.md §4) - one
+  # global for the whole link, per protocol.md §7's own note that a
+  # future multi-page build extending to more groups may want one per
+  # group instead.
   - id: link_last_rx_ms
     type: uint32_t
     restore_value: false
     initial_value: "0"
 
+  # ---- Navigation (nav rail, top_layer widgets below) -----------------
+  # 0 = home, 1 = electric, 2 = climate. Drives draw_nav's highlight.
+  - id: g_current_page
+    type: int
+    restore_value: false
+    initial_value: "0"
+
 # ---- Local mirrors of smartebl's entities (protocol.md §5, groups 2-4) ----
-# Only the slice this bring-up page actually shows - extend by adding
-# both a sensor/switch here AND the matching `else if` in the reader
-# lambda below, per protocol.md §5's "implemented vs planned" note.
-#
-# NOTE on staleness: only lbl_link_status (draw_home) currently reflects
-# a dead link. These four values keep showing their last received
-# reading if the link drops, which is exactly what design_rules.md §2's
-# invalid-value rule says NOT to do - acceptable for this bring-up proof
-# but not for a real page. Wire each label's update through the same
-# `connected` check draw_home already does when building real pages.
+# Only the slice this release's three pages actually show - extend by
+# adding both a sensor/switch here AND the matching `else if` in the
+# reader lambda below, per protocol.md §5's "implemented vs planned"
+# note. Group 1 (fuses) and group 6 (system) are broadcast by smartebl
+# now (see that repo's smart-ebl.yaml) but not yet consumed here - no
+# page in this release shows a fuse grid or system diagnostics.
 
 sensor:
+  # Tanks - not shown on any page in this release (no Levels page yet),
+  # kept wired since smartebl already broadcasts them and the parser
+  # needs somewhere to publish to; reserved for that future page.
   - platform: template
     id: s_tank1_level
     name: "Freshwater Level (via link)"
     unit_of_measurement: "%"
     accuracy_decimals: 0
-    on_value:
-      - lambda: |-
-          char buf[16];
-          snprintf(buf, sizeof(buf), "FRESH %.0f%%", x);
-          lv_label_set_text(id(lbl_tank1), buf);
-          lv_obj_set_style_text_color(id(lbl_tank1), lv_color_hex(0xBDC1C6), 0);
 
   - platform: template
     id: s_tank2_level
     name: "Greywater Level (via link)"
     unit_of_measurement: "%"
     accuracy_decimals: 0
-    on_value:
-      - lambda: |-
-          char buf[16];
-          snprintf(buf, sizeof(buf), "GREY %.0f%%", x);
-          lv_label_set_text(id(lbl_tank2), buf);
-          lv_obj_set_style_text_color(id(lbl_tank2), lv_color_hex(0xBDC1C6), 0);
 
   - platform: template
     id: s_leisure_battery_voltage
@@ -305,7 +361,7 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 2
     on_value:
-      - script.execute: draw_battery
+      - script.execute: draw_electric
 
   - platform: template
     id: s_starter_battery_voltage
@@ -313,36 +369,99 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 2
     on_value:
-      - script.execute: draw_battery
+      - script.execute: draw_electric
+
+  - platform: template
+    id: s_ac_charger_voltage
+    name: "AC Charger Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_electric
+
+binary_sensor:
+  - platform: template
+    id: s_shore_power_connected
+    name: "Shore Power Connected (via link)"
+    device_class: plug
+    on_state:
+      - script.execute: draw_electric
 
 switch:
-  # Optimistic local mirror of smartebl's switch_pump - flipped
-  # immediately on tap for a responsive button, then corrected by the
-  # next group-4 telemetry frame regardless (protocol.md §4's
-  # "converges within one cycle even if a command frame is lost").
+  # Optimistic local mirrors of smartebl's switches - flipped
+  # immediately on tap for a responsive tile (Mainscreen), then
+  # corrected by the next group-4 telemetry frame regardless
+  # (protocol.md §4's "converges within one cycle even if a command
+  # frame is lost").
   - platform: template
     id: sw_pump_mirror
     name: "Water Pump (via link)"
     icon: mdi:water-pump
     optimistic: true
     turn_on_action:
-      - script.execute:
-          id: send_link_command
-          key: "switch_pump"
-          value: "1"
+      - script.execute: {id: send_link_command, key: "switch_pump", value: "1"}
     turn_off_action:
-      - script.execute:
-          id: send_link_command
-          key: "switch_pump"
-          value: "0"
+      - script.execute: {id: send_link_command, key: "switch_pump", value: "0"}
     on_turn_on:
-      - lambda: |-
-          lv_label_set_text(id(lbl_pump), "PUMP ON");
-          lv_obj_set_style_text_color(id(lbl_pump), lv_color_hex(0x2ECC71), 0);
+      - script.execute: draw_home_tiles
     on_turn_off:
-      - lambda: |-
-          lv_label_set_text(id(lbl_pump), "PUMP OFF");
-          lv_obj_set_style_text_color(id(lbl_pump), lv_color_hex(0xBDC1C6), 0);
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_light_mirror
+    name: "Light Group (via link)"
+    icon: mdi:lightbulb-group
+    optimistic: true
+    turn_on_action:
+      - script.execute: {id: send_link_command, key: "switch_light", value: "1"}
+    turn_off_action:
+      - script.execute: {id: send_link_command, key: "switch_light", value: "0"}
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_12v_mirror
+    name: "12V Group (via link)"
+    icon: mdi:power-socket-eu
+    optimistic: true
+    turn_on_action:
+      - script.execute: {id: send_link_command, key: "switch_12v", value: "1"}
+    turn_off_action:
+      - script.execute: {id: send_link_command, key: "switch_12v", value: "0"}
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_aux_mirror
+    name: "AUX Group (via link)"
+    icon: mdi:power
+    optimistic: true
+    turn_on_action:
+      - script.execute: {id: send_link_command, key: "switch_aux", value: "1"}
+    turn_off_action:
+      - script.execute: {id: send_link_command, key: "switch_aux", value: "0"}
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_eisex_mirror
+    name: "EisEx Heater (via link)"
+    icon: mdi:heating-coil
+    optimistic: true
+    turn_on_action:
+      - script.execute: {id: send_link_command, key: "eisex_output", value: "1"}
+    turn_off_action:
+      - script.execute: {id: send_link_command, key: "eisex_output", value: "0"}
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
 
 # =============================================================================
 # Link reader - parses protocol.md §3 telemetry frames off link_uart
@@ -386,6 +505,7 @@ interval:
                       std::string key = kv.substr(0, eq);
                       std::string val = kv.substr(eq + 1);
                       float f = atof(val.c_str());
+                      bool on = val == "1";
                       if (key == "tank1_level") {
                         id(s_tank1_level).publish_state(f);
                       } else if (key == "tank2_level") {
@@ -394,18 +514,27 @@ interval:
                         id(s_leisure_battery_voltage).publish_state(f);
                       } else if (key == "starter_battery_voltage") {
                         id(s_starter_battery_voltage).publish_state(f);
+                      } else if (key == "ac_charger_voltage") {
+                        id(s_ac_charger_voltage).publish_state(f);
+                      } else if (key == "shore_power_connected") {
+                        id(s_shore_power_connected).publish_state(on);
                       } else if (key == "switch_pump") {
                         // Reflects smartebl's actual state, not a local
                         // toggle - this is what "converges within one
                         // cycle" (protocol.md §4) means in code.
-                        if (f > 0.5f) {
-                          id(sw_pump_mirror).turn_on();
-                        } else {
-                          id(sw_pump_mirror).turn_off();
-                        }
+                        on ? id(sw_pump_mirror).turn_on() : id(sw_pump_mirror).turn_off();
+                      } else if (key == "switch_light") {
+                        on ? id(sw_light_mirror).turn_on() : id(sw_light_mirror).turn_off();
+                      } else if (key == "switch_12v") {
+                        on ? id(sw_12v_mirror).turn_on() : id(sw_12v_mirror).turn_off();
+                      } else if (key == "switch_aux") {
+                        on ? id(sw_aux_mirror).turn_on() : id(sw_aux_mirror).turn_off();
+                      } else if (key == "eisex_output") {
+                        on ? id(sw_eisex_mirror).turn_on() : id(sw_eisex_mirror).turn_off();
                       }
-                      // Unknown keys are ignored on purpose - protocol.md
-                      // §3's forward-compatibility rule.
+                      // Unknown keys (fuses, tank3, system) ignored on
+                      // purpose - protocol.md §3's forward-compatibility
+                      // rule; nothing in this release's pages shows them.
                     }
                     pos = semi + 1;
                   }
@@ -427,7 +556,8 @@ interval:
   # new frame arrived - see this block's own header comment above.
   - interval: 1s
     then:
-      - script.execute: draw_home
+      - script.execute: draw_status_bar
+      - script.execute: draw_electric
 
 # =============================================================================
 # Link writer - composes protocol.md §7 command frames
@@ -449,41 +579,398 @@ script:
           snprintf(hex, sizeof(hex), "%02X", chk);
           id(link_uart)->write_str((payload + "*" + std::string(hex) + "\n").c_str());
 
-  # design_rules.md §2's one-script-per-related-values pattern: leisure
-  # and starter battery are shown on the same line, so they're redrawn
-  # together rather than racing each other's on_value handler.
-  - id: draw_battery
-    mode: restart
+  # ---- Day/night (see the sbb_clock section above) ---------------------
+  - id: apply_daynight
     then:
       - lambda: |-
-          char buf[32];
-          snprintf(buf, sizeof(buf), "BATT %.1f/%.1fV",
-              id(s_leisure_battery_voltage).state, id(s_starter_battery_voltage).state);
-          lv_label_set_text(id(lbl_battery), buf);
-          lv_obj_set_style_text_color(id(lbl_battery), lv_color_hex(0xBDC1C6), 0);
+          bool night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+          id(clock_face).set_night_mode(night);
 
-  # The only script this bring-up page runs on a timer rather than
-  # on_value, because "no frame arrived" isn't a value change to hook.
-  - id: draw_home
+  # ---- Nav rail (top_layer, persists on every page) --------------------
+  - id: nav_show_home
+    then:
+      - globals.set: {id: g_current_page, value: "0"}
+      - lvgl.page.show: page_home
+      - script.execute: draw_nav
+      - script.execute: draw_home_tiles
+
+  - id: nav_show_electric
+    then:
+      - globals.set: {id: g_current_page, value: "1"}
+      - lvgl.page.show: page_electric
+      - script.execute: draw_nav
+      - script.execute: draw_electric
+
+  - id: nav_show_climate
+    then:
+      - globals.set: {id: g_current_page, value: "2"}
+      - lvgl.page.show: page_climate
+      - script.execute: draw_nav
+
+  - id: draw_nav
+    then:
+      - lambda: |-
+          int cur = id(g_current_page);
+          lv_obj_set_style_text_color(id(lbl_nav_home),
+              lv_color_hex(cur == 0 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_electric),
+              lv_color_hex(cur == 1 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_climate),
+              lv_color_hex(cur == 2 ? 0x2ECC71 : 0xBDC1C6), 0);
+
+  # ---- Status bar (top_layer, persists on every page) -------------------
+  # The only script this release runs on a timer rather than purely
+  # on_value, because "no frame arrived" isn't a value change to hook,
+  # and the clock needs a once-a-second tick regardless of the link.
+  # Cross-category alarm ranking (pages.md §4/§7) is NOT implemented
+  # yet - deliberately left as that document's own open item; this bar
+  # only ever shows time/date + link status for this release.
+  - id: draw_status_bar
     mode: restart
     then:
       - lambda: |-
           bool connected = id(link_last_rx_ms) != 0 &&
               (millis() - id(link_last_rx_ms)) < 3000;
           if (connected) {
-            lv_label_set_text(id(lbl_link_status), "LINK OK");
-            lv_obj_set_style_text_color(id(lbl_link_status), lv_color_hex(0x2ECC71), 0);
+            lv_label_set_text(id(lbl_status_link), "LINK OK");
+            lv_obj_set_style_text_color(id(lbl_status_link), lv_color_hex(0x2ECC71), 0);
           } else {
-            lv_label_set_text(id(lbl_link_status), "NO LINK");
-            lv_obj_set_style_text_color(id(lbl_link_status), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_status_link), "NO LINK");
+            lv_obj_set_style_text_color(id(lbl_status_link), lv_color_hex(0x555555), 0);
+          }
+          auto t = id(homeassistant_time).now();
+          if (t.is_valid()) {
+            lv_label_set_text(id(lbl_status_time), t.strftime("%H:%M:%S   %d.%m.%Y").c_str());
+          } else {
+            lv_label_set_text(id(lbl_status_time), "--:--:--   --.--.----");
           }
 
+  # ---- Mainscreen (page_home) tiles -------------------------------------
+  # design_rules.md §2's one-script-per-related-values pattern: all five
+  # switch tiles are redrawn together rather than five separate lambdas
+  # racing each other.
+  - id: draw_home_tiles
+    mode: restart
+    then:
+      - lambda: |-
+          auto set_tile = [](lv_obj_t *lbl, bool on) {
+            lv_label_set_text(lbl, on ? "ON" : "OFF");
+            lv_obj_set_style_text_color(lbl,
+                lv_color_hex(on ? 0x2ECC71 : 0xBDC1C6), 0);
+          };
+          set_tile(id(lbl_tile_12v), id(sw_12v_mirror).state);
+          set_tile(id(lbl_tile_aux), id(sw_aux_mirror).state);
+          set_tile(id(lbl_tile_light), id(sw_light_mirror).state);
+          set_tile(id(lbl_tile_pump), id(sw_pump_mirror).state);
+          set_tile(id(lbl_tile_eisex), id(sw_eisex_mirror).state);
+
+  # ---- Electric / Victron-style overview (page_electric) ----------------
+  # pages.md §5: "Victron-style power flow ... reuse [smartebl_display's
+  # mockup] directly, don't redesign". Reused for the boxes smartebl
+  # actually has data for (Shore, Inverter/Charger status, Battery); AC
+  # Loads/Solar Yield/DC Loads have NO backing sensor anywhere in this
+  # project - smartebl measures fuse/output VOLTAGE, never current, so
+  # it cannot derive a watt figure for any of them. Shown in the same
+  # 0x555555 invalid style as a stale link value rather than a fake
+  # number - a deviation from the exact mockup, noted here per this
+  # repo's own "if a page deviates, fix the page or the doc" rule
+  # (design_rules.md's header) since docs/pages.md's Electric row still
+  # describes the full Venus OS-style set.
+  - id: draw_electric
+    mode: restart
+    then:
+      - lambda: |-
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+
+          // ---- Shore ----------------------------------------------------
+          if (!connected) {
+            lv_label_set_text(id(lbl_electric_shore), "---");
+            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x555555), 0);
+          } else if (id(s_shore_power_connected).state) {
+            lv_label_set_text(id(lbl_electric_shore), "CONNECTED");
+            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_electric_shore), "DISCONNECTED");
+            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0xBDC1C6), 0);
+          }
+
+          // ---- Inverter/Charger - shows the one extra data point smartebl
+          // actually has here (AC charger input voltage), not a made-up
+          // charger/inverter mode.
+          if (!connected || !id(s_ac_charger_voltage).has_state()) {
+            lv_label_set_text(id(lbl_electric_charger), "AC IN ---V");
+            lv_obj_set_style_text_color(id(lbl_electric_charger), lv_color_hex(0x555555), 0);
+          } else {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "AC IN %.1fV", id(s_ac_charger_voltage).state);
+            lv_label_set_text(id(lbl_electric_charger), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_charger), lv_color_hex(0xBDC1C6), 0);
+          }
+
+          // ---- AC Loads / Solar Yield / DC Loads - no current-sense
+          // hardware anywhere in this project (see header). Genuinely
+          // invalid, not "not received yet".
+          lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
+          lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
+          lv_label_set_text(id(lbl_electric_solar), "--- W");
+          lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
+          lv_label_set_text(id(lbl_electric_dc_loads), "--- W");
+          lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0x555555), 0);
+
+          // ---- Battery (emphasized box) - leisure + starter voltage.
+          // Thresholds reused verbatim from m5dial_fram/design_rules.md
+          // §6 (design_rules.md §2's "reuse the fleet's thresholds"
+          // rule) - starter battery only, since there's no SOC sensor
+          // behind leisure_battery_voltage to threshold against.
+          if (!connected) {
+            lv_label_set_text(id(lbl_electric_batt_main), "---V");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_electric_batt_sub), "START ---V");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(0x555555), 0);
+          } else {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%.2fV", id(s_leisure_battery_voltage).state);
+            lv_label_set_text(id(lbl_electric_batt_main), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0xFFFFFF), 0);
+
+            float start_v = id(s_starter_battery_voltage).state;
+            snprintf(buf, sizeof(buf), "START %.2fV", start_v);
+            lv_label_set_text(id(lbl_electric_batt_sub), buf);
+            uint32_t col = 0xBDC1C6;
+            if (start_v < 12.0f) col = 0xE74C3C;
+            else if (start_v < 12.4f) col = 0xF39C12;
+            lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(col), 0);
+          }
+
+  # ---- Climate (page_climate) --------------------------------------------
+  # pages.md §5: Truma Combi 4 room-heating side, via the
+  # womolin_controller MQTT integration - "same entities
+  # m5dial_fram/page_climate.yaml already uses". Data source is HA over
+  # Wi-Fi (api:), NOT the RS232 link - unlike page_home/page_electric.
+  #
+  # Adapted from that page for a touchscreen rather than a rotary
+  # encoder: no arm/disarm "SET then turn the knob" step (there's no
+  # knob to fight over with page navigation on this device) - the +/-
+  # buttons write directly, debounced the same way. That's the only
+  # real difference; the optimistic-heater-toggle and invalid-value
+  # handling are carried over unchanged.
+  - id: poll_climate
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+
+  - id: act_climate_heater
+    then:
+      - lambda: |-
+          bool cur = id(g_climate_heater_optimistic_valid)
+              ? id(g_climate_heater_optimistic)
+              : (id(s_climate_heater_on).has_state() && id(s_climate_heater_on).state);
+          id(g_climate_heater_optimistic) = !cur;
+          id(g_climate_heater_optimistic_valid) = true;
+      - script.execute: draw_climate
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+
+  # 1°C step, clamped 5-30 (a guess at a sane range, not the Truma's
+  # actual documented min/max - verify on the device, same caveat
+  # m5dial_fram/page_climate.yaml carries).
+  - id: act_climate_temp_up
+    then:
+      - lambda: |-
+          float v = id(g_climate_temp_pending) + 1.0f;
+          if (v > 30.0f) v = 30.0f;
+          id(g_climate_temp_pending) = v;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+      - script.execute: climate_temp_write_debounced
+
+  - id: act_climate_temp_down
+    then:
+      - lambda: |-
+          float v = id(g_climate_temp_pending) - 1.0f;
+          if (v < 5.0f) v = 5.0f;
+          id(g_climate_temp_pending) = v;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+      - script.execute: climate_temp_write_debounced
+
+  - id: climate_temp_write_now
+    then:
+      - homeassistant.service:
+          service: climate.set_temperature
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+          data_template:
+            temperature: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_climate_temp_pending));"
+
+  - id: climate_temp_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: climate_temp_write_now
+
+  - id: draw_climate
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_climate_temp
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("---°C");
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return std::string("---°C");
+            return str_sprintf("%.0f°C", id(s_climate_room_temp).state);
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return lv_color_hex(0x555555);
+            return lv_color_hex(0xFFFFFF);
+
+      - lvgl.label.update:
+          id: lbl_climate_target
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("SOLL ---°C");
+            #endif
+            if (!id(g_climate_temp_known)) return std::string("SOLL ---°C");
+            return str_sprintf("SOLL %.0f°C", id(g_climate_temp_pending));
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(g_climate_temp_known)) return lv_color_hex(0x555555);
+            return lv_color_hex(0xBDC1C6);
+
+      - lvgl.label.update:
+          id: lbl_climate_heater
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("HEIZ ---");
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? std::string("HEIZ EIN") : std::string("HEIZ AUS");
+            }
+            if (!id(s_climate_heater_on).has_state()) return std::string("HEIZ ---");
+            return id(s_climate_heater_on).state ? std::string("HEIZ EIN")
+                                          : std::string("HEIZ AUS");
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0xBDC1C6);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x555555);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
+                                          : lv_color_hex(0xBDC1C6);
+
+      - lvgl.widget.update:
+          id: btn_climate_heater
+          bg_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x202124);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x1B5E3A) : lv_color_hex(0x202124);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x202124);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x1B5E3A)
+                                          : lv_color_hex(0x202124);
+          border_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x3C4043);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0x3C4043);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x3C4043);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
+                                          : lv_color_hex(0x3C4043);
+
 # =============================================================================
-# LVGL - one bring-up page, proving the whole chain end to end
+# Climate data source - Home Assistant (womolin_controller), not the link
+# =============================================================================
+
+globals:
+  - id: g_climate_temp_pending
+    type: float
+    restore_value: false
+    initial_value: "20"
+
+  # Gates the "---" placeholder - g_climate_temp_pending can't be told
+  # apart from "genuinely 20°C" on its own.
+  - id: g_climate_temp_known
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # Optimistic HEIZ state shown instantly on tap, ahead of
+  # s_climate_heater_on's own confirmation.
+  - id: g_climate_heater_optimistic
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_climate_heater_optimistic_valid
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+sensor:
+  - platform: homeassistant
+    id: s_climate_room_temp
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: current_temperature
+    on_value:
+      - script.execute: draw_climate
+
+  - platform: homeassistant
+    id: s_climate_target
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          id(g_climate_temp_pending) = id(s_climate_target).state;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+
+binary_sensor:
+  - platform: homeassistant
+    id: s_climate_heater_on
+    entity_id: switch.womolin_controller_mqtt_activate_room_heater
+    on_state:
+      # Real state just arrived - stop trusting the optimistic guess.
+      - globals.set:
+          id: g_climate_heater_optimistic_valid
+          value: "false"
+      - script.execute: draw_climate
+
+# =============================================================================
+# LVGL - Mainscreen, Electric (Victron-style), Climate
 # =============================================================================
 # rotation: 90 - mounting orientation decided (landscape), resolving
-# design_rules.md §4's first open item. Full page layout is deliberately
-# out of scope here; see that document before adding more.
+# design_rules.md §4's first open item. Canvas is 1280x800 - see the
+# layout-grid substitutions at the top of this file.
+#
+# top_layer carries the status bar and left nav rail: both are
+# persistent on every page per pages.md §2/§4, and LVGL's top_layer is
+# exactly ESPHome's mechanism for "drawn once, shown on top of whatever
+# page is active" (the same mechanism m5dial_fram uses for its
+# overlays). The quick-switch popup (pages.md §3) is NOT built yet -
+# this release's switch tiles live directly on the Mainscreen instead
+# (pages.md §6), which covers the same controls without the popup
+# infrastructure; add the popup when a page without room for it exists.
 
 lvgl:
   id: lvgl_main
@@ -495,53 +982,614 @@ lvgl:
   bottom_layer:
     bg_color: 0x000000
     bg_opa: COVER
+  top_layer:
+    widgets:
+      # ---- Status bar (y 0-64, full width) ----
+      - label:
+          id: lbl_status_time
+          align: TOP_LEFT
+          x: 20
+          y: 20
+          text_font: montserrat_24
+          text: "--:--:--   --.--.----"
+          text_color: 0xBDC1C6
+      - label:
+          id: lbl_status_link
+          align: TOP_RIGHT
+          x: -20
+          y: 24
+          text_font: montserrat_16
+          text: "NO LINK"
+          text_color: 0x555555
+      - obj:
+          id: obj_statusbar_rule
+          align: TOP_LEFT
+          x: 0
+          y: 63 # = bar_h - 1
+          width: ${screen_w}
+          height: 1
+          bg_color: 0x3C4043
+          bg_opa: COVER
+          border_width: 0
+          radius: 0
+
+      # ---- Left nav rail (x 0-nav_w, y bar_h-screen_h) ----
+      - obj:
+          id: obj_nav_rule
+          align: TOP_LEFT
+          x: 129 # = nav_w - 1
+          y: ${bar_h}
+          width: 1
+          height: 736 # = screen_h - bar_h
+          bg_color: 0x3C4043
+          bg_opa: COVER
+          border_width: 0
+          radius: 0
+      - button:
+          id: btn_nav_home
+          align: TOP_LEFT
+          x: 0
+          y: ${bar_h}
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_home
+                align: CENTER
+                text: "HOME"
+                text_font: montserrat_16
+                text_color: 0x2ECC71
+          on_click:
+            - script.execute: nav_show_home
+      - button:
+          id: btn_nav_electric
+          align: TOP_LEFT
+          x: 0
+          y: 184 # = bar_h + 120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_electric
+                align: CENTER
+                text: "ELECTRIC"
+                text_font: montserrat_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_electric
+      - button:
+          id: btn_nav_climate
+          align: TOP_LEFT
+          x: 0
+          y: 304 # = bar_h + 2*120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_climate
+                align: CENTER
+                text: "CLIMATE"
+                text_font: montserrat_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_climate
+
   pages:
+    # =========================================================================
+    # Mainscreen (page_home) - pages.md §5/§6
+    # =========================================================================
     - id: page_home
       widgets:
-        - label:
-            id: lbl_link_status
-            align: TOP_MID
-            y: 20
-            text_font: montserrat_16
-            text: "NO LINK"
-            text_color: 0x555555
-        - label:
-            id: lbl_tank1
-            align: CENTER
-            y: -80
-            text_font: montserrat_24
-            text: "FRESH ---%"
-            text_color: 0x555555
-        - label:
-            id: lbl_tank2
-            align: CENTER
-            y: -30
-            text_font: montserrat_24
-            text: "GREY ---%"
-            text_color: 0x555555
-        - label:
-            id: lbl_battery
-            align: CENTER
-            y: 20
-            text_font: montserrat_24
-            text: "BATT ---/---V"
-            text_color: 0x555555
+        # ---- Right half: SBB clock --------------------------------------
+        - sbb_clock:
+            id: clock_face
+            time_id: homeassistant_time
+            width: 600
+            height: 600
+            align: TOP_LEFT
+            x: 650
+            y: 130
+            foreground: col_clock_ink
+            background: col_clock_bg
+            second_hand_color: col_clock_second
+            show_date: true
+
+        # ---- Left half: one tile per switch (pages.md §6) ---------------
+        # Fridge is reserved regardless of outcome (pages.md §6: "user is
+        # still checking whether this vehicle wires the fridge to its own
+        # controllable line ... render the tile in the invalid-value
+        # style permanently rather than removing it, so the layout
+        # doesn't shift later"). Alarmo is NOT included - pages.md §6
+        # itself marks its entity_id as still TBD, and there's nothing
+        # real to wire a PIN popup to yet.
         - button:
-            id: btn_pump
-            align: CENTER
+            id: btn_tile_12v
+            align: TOP_LEFT
+            x: 160
+            y: 90
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "POWER (12V)"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_12v
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_12v_mirror
+
+        - button:
+            id: btn_tile_aux
+            align: TOP_LEFT
+            x: 390
+            y: 90
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "AUX"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_aux
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_aux_mirror
+
+        - button:
+            id: btn_tile_light
+            align: TOP_LEFT
+            x: 160
+            y: 260
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "LIGHT"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_light
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_light_mirror
+
+        - button:
+            id: btn_tile_pump
+            align: TOP_LEFT
+            x: 390
+            y: 260
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "PUMP"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_pump
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_pump_mirror
+
+        - button:
+            id: btn_tile_eisex
+            align: TOP_LEFT
+            x: 160
+            y: 430
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "ICEEX"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_eisex
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_eisex_mirror
+
+        # Reserved slot - permanently invalid style, no on_click. See
+        # header comment above.
+        - button:
+            id: btn_tile_fridge
+            align: TOP_LEFT
+            x: 390
+            y: 430
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "FRIDGE"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_fridge
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_24
+                  text_color: 0x555555
+
+    # =========================================================================
+    # Electric - Victron-style overview (page_electric) - pages.md §5
+    # =========================================================================
+    - id: page_electric
+      widgets:
+        # ---- Row 1: Shore -> Inverter/Charger -> AC Loads ----------------
+        - obj:
+            id: obj_electric_shore
+            align: TOP_LEFT
+            x: 160
             y: 100
-            width: 200
-            height: 60
+            width: 300
+            height: 130
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "SHORE"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_electric_shore
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+        - label:
+            align: TOP_LEFT
+            x: 468
+            y: 150
+            text_font: montserrat_24
+            text: "→"
+            text_color: 0x707070
+        - obj:
+            id: obj_electric_charger
+            align: TOP_LEFT
+            x: 500
+            y: 100
+            width: 300
+            height: 130
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "INVERTER / CHARGER"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_electric_charger
+                  align: CENTER
+                  y: 8
+                  text: "AC IN ---V"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+        - label:
+            align: TOP_LEFT
+            x: 808
+            y: 150
+            text_font: montserrat_24
+            text: "→"
+            text_color: 0x707070
+        - obj:
+            id: obj_electric_ac_loads
+            align: TOP_LEFT
+            x: 840
+            y: 100
+            width: 300
+            height: 130
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "AC LOADS"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_electric_ac_loads
+                  align: CENTER
+                  y: 8
+                  text: "--- W"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+
+        - label:
+            align: TOP_LEFT
+            x: 640
+            y: 240
+            text_font: montserrat_24
+            text: "↓"
+            text_color: 0x707070
+
+        # ---- Row 2: Solar -> Battery (emphasized) -> DC Loads ------------
+        - obj:
+            id: obj_electric_solar
+            align: TOP_LEFT
+            x: 160
+            y: 420
+            width: 260
+            height: 130
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "SOLAR YIELD"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_electric_solar
+                  align: CENTER
+                  y: 8
+                  text: "--- W"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+        - label:
+            align: TOP_LEFT
+            x: 428
+            y: 470
+            text_font: montserrat_24
+            text: "→"
+            text_color: 0x707070
+        - obj:
+            id: obj_electric_battery
+            align: TOP_LEFT
+            x: 460
+            y: 400
+            width: 340
+            height: 170
+            radius: 16
+            bg_color: 0x14324F
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "BATTERY"
+                  text_font: montserrat_16
+                  text_color: 0xBDC1C6
+              - label:
+                  id: lbl_electric_batt_main
+                  align: CENTER
+                  y: -4
+                  text: "---V"
+                  text_font: montserrat_40
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_sub
+                  align: BOTTOM_MID
+                  y: -12
+                  text: "START ---V"
+                  text_font: montserrat_16
+                  text_color: 0x555555
+        - label:
+            align: TOP_LEFT
+            x: 812
+            y: 470
+            text_font: montserrat_24
+            text: "→"
+            text_color: 0x707070
+        - obj:
+            id: obj_electric_dc_loads
+            align: TOP_LEFT
+            x: 860
+            y: 420
+            width: 260
+            height: 130
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "DC LOADS"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_electric_dc_loads
+                  align: CENTER
+                  y: 8
+                  text: "--- W"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+
+    # =========================================================================
+    # Climate (page_climate) - pages.md §5
+    # =========================================================================
+    - id: page_climate
+      on_load:
+        - script.execute: poll_climate
+      widgets:
+        - label:
+            align: TOP_LEFT
+            x: 160
+            y: 100
+            text_font: montserrat_20
+            text: "CLIMATE - TRUMA COMBI 4 (ROOM)"
+            text_color: 0x707070
+
+        - label:
+            id: lbl_climate_temp
+            align: TOP_LEFT
+            x: 400
+            y: 220
+            text_font: montserrat_48
+            text: "---°C"
+            text_color: 0x555555
+
+        - button:
+            id: btn_climate_temp_down
+            align: TOP_LEFT
+            x: 400
+            y: 420
+            width: 90
+            height: 70
             radius: 15
             bg_color: 0x202124
             border_width: 1
             border_color: 0x3C4043
             widgets:
               - label:
-                  id: lbl_pump
                   align: CENTER
-                  text: "PUMP ---"
-                  text_font: montserrat_16
+                  text: "-"
+                  text_font: montserrat_24
+                  text_color: 0xBDC1C6
+            on_click:
+              - script.execute: act_climate_temp_down
+
+        - label:
+            id: lbl_climate_target
+            align: TOP_LEFT
+            x: 520
+            y: 442
+            width: 220
+            text_font: montserrat_20
+            text: "SOLL ---°C"
+            text_color: 0x555555
+
+        - button:
+            id: btn_climate_temp_up
+            align: TOP_LEFT
+            x: 770
+            y: 420
+            width: 90
+            height: 70
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "+"
+                  text_font: montserrat_24
+                  text_color: 0xBDC1C6
+            on_click:
+              - script.execute: act_climate_temp_up
+
+        - button:
+            id: btn_climate_heater
+            align: TOP_LEFT
+            x: 530
+            y: 560
+            width: 220
+            height: 70
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  id: lbl_climate_heater
+                  align: CENTER
+                  text: "HEIZ ---"
+                  text_font: montserrat_20
                   text_color: 0x555555
             on_click:
-              - switch.toggle: sw_pump_mirror
+              - script.execute: act_climate_heater
