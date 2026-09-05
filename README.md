@@ -219,9 +219,10 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       user-supplied [Waveshare wiki page](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
       for this exact panel once off this session's network block
 - [ ] Confirm the cross-category alarm ranking draft in `docs/pages.md` §7
-- [ ] Add the Light/Features floor-plan source photo to the repo
-      (`docs/pages.md` §7 has the zone breakdown; the photo itself
-      couldn't be saved from chat in the session that wrote this)
+- [x] Light/Features floor-plan source photo added
+      (`docs/assets/floorplan-source.jpg`, zone breakdown in
+      `docs/pages.md` §7) — real entity_ids and pixel coordinates for
+      the overlay are still open
 - [ ] Pick+confirm free header GPIOs for the RS232 link against the
       actual board (see the TODO in `docs/hardware.md` and in
       `smart-ebl-display.yaml`) — match them to the user's own
