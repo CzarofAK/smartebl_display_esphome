@@ -336,12 +336,18 @@ text_sensor:
       - script.execute: draw_climate
       - script.execute: draw_boiler
 
-  # ---- Fan level (Lüfterstufe), room-heating side only. Read-only for
-  # now - see lbl_climate_fan_mode's own comment on the LVGL page for
-  # why the write side (select.select_option) isn't wired up yet.
+  # ---- Fan level (Lüfterstufe), room-heating side only. NOT a separate
+  # select entity - repo owner confirmed climate.womolin_controller_
+  # mqtt_truma_room carries its own `fan_mode` attribute (HA's standard
+  # climate-domain concept), with fan_modes: off/low/medium/high (real
+  # values, confirmed) - so this reads/writes that climate entity
+  # directly (attribute: fan_mode / climate.set_fan_mode), same entity
+  # s_climate_room_temp/s_climate_target already use, just a third
+  # attribute off it.
   - platform: homeassistant
-    id: s_truma_fan_mode
-    entity_id: select.womolin_controller_mqtt_fan_mode
+    id: s_climate_fan_mode
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: fan_mode
     on_value:
       - script.execute: draw_climate
 
@@ -366,6 +372,14 @@ text_sensor:
           if (s == "charger_only") return std::string("CHG");
           if (s == "inverter_only") return std::string("INV");
           return std::string("OFF");
+    on_value:
+      - script.execute: draw_electric
+
+  # ---- Solar (MPPT) status - shares the Charger box's "main value +
+  # humanized state" pattern, see draw_electric.
+  - platform: homeassistant
+    id: s_mppt_zustand
+    entity_id: sensor.mppt_190w_zustand
     on_value:
       - script.execute: draw_electric
 
@@ -560,6 +574,27 @@ sensor:
   - platform: homeassistant
     id: s_multiplus_wr_w
     entity_id: sensor.multiplus_0_wr_leistung
+    on_value:
+      - script.execute: draw_electric
+
+  # ---- Solar Yield - real MPPT charge controller, confirmed by the
+  # repo owner (a "MPPT 190W" unit, many more entities exist than these
+  # two - zustand/mppt_betriebsmodus/fehlercode/dc_batterie_bus_
+  # stromstarke also exist but aren't wired up yet, not needed for this
+  # box specifically).
+  - platform: homeassistant
+    id: s_mppt_pv_yield
+    entity_id: sensor.mppt_190w_leistung_pv_ertrag
+    on_value:
+      - script.execute: draw_electric
+
+  # ---- DC Loads - real GX device aggregate DC consumption figure,
+  # confirmed by the repo owner - this is what smartebl's own hardware
+  # could never provide (no current-sense on smartebl's own fuses),
+  # not the SmartShunt's net current already shown in the Battery box.
+  - platform: homeassistant
+    id: s_dc_loads
+    entity_id: sensor.gx_device_dc_verbrauch
     on_value:
       - script.execute: draw_electric
 
@@ -1082,16 +1117,15 @@ script:
   # ---- Electric / Victron-style overview (page_electric) ----------------
   # pages.md §5: "Victron-style power flow ... reuse [smartebl_display's
   # mockup] directly, don't redesign". Now wired to the REAL Victron
-  # gear this installation has - a SmartShunt (battery monitor) and a
-  # MultiPlus (inverter/charger) - via the exact same HA entities
-  # m5dial_fram's page_power_1/2/3.yaml already use, confirmed real by
-  # the repo owner, not this repo's own smartebl-side guess. Shore
-  # connected/disconnected still comes from smartebl's own link (that
-  # detection is real, cheap, and already wired) - everything else on
-  # this page is Victron/HA now. Solar Yield and DC Loads remain
-  # invalid: no solar-yield entity has been named yet, and the
-  # SmartShunt's net current (shown in the Battery box) isn't the same
-  # thing as a DC-loads-only figure - open items, not silently guessed.
+  # gear this installation has - a SmartShunt (battery monitor), a
+  # MultiPlus (inverter/charger), and an MPPT solar charge controller -
+  # via real HA entities confirmed by the repo owner (SmartShunt/
+  # MultiPlus are the exact same ones m5dial_fram's page_power_1/2/3.yaml
+  # already use; the MPPT and the GX device's DC-consumption figure are
+  # new to this repo). Shore connected/disconnected still comes from
+  # smartebl's own link (that detection is real, cheap, and already
+  # wired) - every value box on this page now has a real source; none
+  # of it is this repo's own smartebl-side guess anymore.
   - id: draw_electric
     mode: restart
     then:
@@ -1174,12 +1208,36 @@ script:
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(col), 0);
           }
 
-          // ---- Solar Yield / DC Loads - still no entity for either,
-          // see header. Genuinely invalid, not "not received yet".
-          lv_label_set_text(id(lbl_electric_solar), "--- W");
-          lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
-          lv_label_set_text(id(lbl_electric_dc_loads), "--- W");
-          lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0x555555), 0);
+          // ---- Solar Yield - real MPPT charge controller (see
+          // sensor: block's header comment). Main = PV yield power,
+          // sub = humanized zustand, same shape as the Charger box.
+          if (!api_ok || !id(s_mppt_pv_yield).has_state()) {
+            lv_label_set_text(id(lbl_electric_solar), "--- W");
+            lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_mppt_pv_yield).state);
+            lv_label_set_text(id(lbl_electric_solar), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0xFFFFFF), 0);
+          }
+          if (!api_ok || !id(s_mppt_zustand).has_state()) {
+            lv_label_set_text(id(lbl_electric_solar_sub), "");
+          } else {
+            std::string s = id(s_mppt_zustand).state;
+            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
+            lv_label_set_text(id(lbl_electric_solar_sub), s.c_str());
+          }
+
+          // ---- DC Loads - real GX device aggregate DC consumption
+          // figure (see sensor: block's header comment) - not the
+          // SmartShunt's net current already shown in the Battery box.
+          if (!api_ok || !id(s_dc_loads).has_state()) {
+            lv_label_set_text(id(lbl_electric_dc_loads), "--- W");
+            lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_dc_loads).state);
+            lv_label_set_text(id(lbl_electric_dc_loads), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0xFFFFFF), 0);
+          }
 
           // ---- Battery (emphasized box) - SmartShunt SOC/V/A, same
           // thresholds and format as m5dial_fram/page_power_1.yaml's
@@ -1284,6 +1342,18 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: number.multiplus_strombegrenzung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_leistung_pv_ertrag
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_zustand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gx_device_dc_verbrauch
 
   - id: show_charger_popup
     then:
@@ -1426,9 +1496,9 @@ script:
           data:
             entity_id: switch.womolin_controller_mqtt_activate_room_heater
 
-  # 1°C step, clamped 5-30 (a guess at a sane range, not the Truma's
-  # actual documented min/max - verify on the device, same caveat
-  # m5dial_fram/page_climate.yaml carries).
+  # 1°C step, clamped 5-30 - confirmed real (climate.womolin_controller_
+  # mqtt_truma_room's own min_temp/max_temp/target_temp_step attributes,
+  # not a guess anymore).
   - id: act_climate_temp_up
     then:
       - lambda: |-
@@ -1465,6 +1535,28 @@ script:
     then:
       - delay: 400ms
       - script.execute: climate_temp_write_now
+
+  # ---- Fan level (Lüfterstufe) - tap-to-cycle through the confirmed
+  # real fan_modes (off/low/medium/high), same single-button-cycle
+  # shape as m5dial_fram/page_power_3.yaml's MODE button (ON->CHG->INV
+  # ->OFF) rather than a 4-button popup - four fan speeds fit fine in
+  # one tap-through button, and there's less room on this half of the
+  # page than the Electric popup has to spare.
+  - id: act_climate_fan_cycle
+    then:
+      - homeassistant.service:
+          service: climate.set_fan_mode
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+          data_template:
+            fan_mode: "{{ mode }}"
+          variables:
+            mode: !lambda |-
+              std::string m = id(s_climate_fan_mode).has_state() ? id(s_climate_fan_mode).state : "off";
+              if (m == "off") return std::string("low");
+              if (m == "low") return std::string("medium");
+              if (m == "medium") return std::string("high");
+              return std::string("off");
 
   - id: draw_climate
     mode: restart
@@ -1590,8 +1682,8 @@ script:
             lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x707070), 0);
           }
 
-      # ---- Fan level (Lüfterstufe) - read-only, see the widget's own
-      # comment for why the tap-to-cycle write side isn't built yet.
+      # ---- Fan level (Lüfterstufe) - tap-to-cycle, see
+      # act_climate_fan_cycle's own comment.
       - lambda: |-
           #ifdef USE_API
           if (!api_is_connected()) {
@@ -1599,13 +1691,16 @@ script:
             lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
           } else
           #endif
-          if (!id(s_truma_fan_mode).has_state()) {
+          if (!id(s_climate_fan_mode).has_state()) {
             lv_label_set_text(id(lbl_climate_fan_mode), "LÜFTER ---");
             lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
           } else {
-            std::string txt = "LÜFTER " + id(s_truma_fan_mode).state;
-            lv_label_set_text(id(lbl_climate_fan_mode), txt.c_str());
-            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0xBDC1C6), 0);
+            std::string m = id(s_climate_fan_mode).state;
+            std::string disp = m;
+            for (auto &c : disp) c = ::toupper(c);
+            lv_label_set_text(id(lbl_climate_fan_mode), ("LÜFTER " + disp).c_str());
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode),
+                lv_color_hex(m == "off" ? 0xBDC1C6 : 0x4A9EFF), 0);
           }
 
       # ---- Truma status/error footer - shared unit, see sensor: block's
@@ -2453,10 +2548,17 @@ lvgl:
               - label:
                   id: lbl_electric_solar
                   align: CENTER
-                  y: 8
+                  y: -4
                   text: "--- W"
                   text_font: montserrat_20
                   text_color: 0x555555
+              - label:
+                  id: lbl_electric_solar_sub
+                  align: BOTTOM_MID
+                  y: -10
+                  text: ""
+                  text_font: montserrat_16
+                  text_color: 0x707070
         - label:
             align: TOP_LEFT
             x: 505
@@ -2895,22 +2997,31 @@ lvgl:
                   text: "AKTIV ---"
                   text_color: 0x555555
 
-              # ---- Fan level (Lüfterstufe) - READ-ONLY for now. See
-              # README's roadmap: select.womolin_controller_mqtt_fan_mode
-              # exists and is displayed here, but writing to it needs the
-              # entity's real option strings (unlike select.multiplus on
-              # the Electric page, where m5dial_fram's own page_power_3.yaml
-              # already documented ON/CHG/INV/OFF's real values) - nobody
-              # has confirmed fan_mode's option list yet, and guessing
-              # would send select.select_option an option string that
-              # might not exist.
-              - label:
-                  id: lbl_climate_fan_mode
+              # ---- Fan level (Lüfterstufe) - tap-to-cycle through the
+              # confirmed real fan_modes (off/low/medium/high), climate.
+              # womolin_controller_mqtt_truma_room's own attribute - see
+              # act_climate_fan_cycle's comment for why one cycling button
+              # instead of the Electric popup's 4-button shape.
+              - button:
+                  id: btn_climate_fan_mode
                   align: TOP_MID
                   y: 500
-                  text_font: montserrat_16
-                  text: "LÜFTER ---"
-                  text_color: 0x555555
+                  width: 200
+                  height: 44
+                  radius: 10
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  shadow_width: 0
+                  widgets:
+                    - label:
+                        id: lbl_climate_fan_mode
+                        align: CENTER
+                        text_font: montserrat_16
+                        text: "LÜFTER ---"
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_climate_fan_cycle
 
         # ---- Right half: Boiler (water) -----------------------------------
         - obj:

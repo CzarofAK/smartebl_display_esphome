@@ -333,24 +333,27 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       one nav entry instead of two. Both halves gained an arc (temp as
       % of a defined range - 5-30°C room, 40-80°C water - same
       "always a percentage" rule `m5dial_fram/design_rules.md` §8
-      uses). Fan level (`select.womolin_controller_mqtt_fan_mode`)
-      added, read-only - the write side needs the entity's real option
-      strings, unconfirmed, see `docs/pages.md`'s Climate/Boiler row.
+      uses). Fan level added and fully working (read AND write, tap-to-
+      cycle) - turned out to be `climate.womolin_controller_mqtt_truma_room`'s
+      own `fan_mode` attribute (off/low/medium/high, confirmed real),
+      not a separate `select.*` entity as first assumed.
 - [x] **Home page tiles rearranged and centered** per repo-owner spec:
       2×3 grid (LIGHT/ICE-EX top, AUX/FRIDGE middle, POWER/PUMP bottom),
       vertically centered in the content area and horizontally centered
       between the nav rail and the clock - previously just placed at
       fixed coordinates, not actually centered or in the requested order.
-- [x] **Electric page recentered, and rebuilt on real Victron entities.**
-      The repo owner confirmed a real SmartShunt + MultiPlus behind
-      `smartebl` (same HA entities `m5dial_fram/page_power_1/2/3.yaml`
-      already use) - Battery (SOC/V/A), Inverter/Charger mode+state, and
-      AC Loads (WR output power) all now show real data instead of the
-      permanently-invalid placeholders the first release shipped with.
-      Inverter/Charger is now a button opening a popup to set the
-      MultiPlus mode directly (ON/CHG/INV/OFF) and adjust the shore/grid
-      current limit. Solar Yield and DC Loads remain invalid - no entity
-      named for either yet, see `docs/pages.md`'s Electric row.
+- [x] **Electric page recentered, and rebuilt on real Victron/MPPT/GX
+      entities - every box now has a real source.** The repo owner
+      confirmed a real SmartShunt + MultiPlus behind `smartebl` (same HA
+      entities `m5dial_fram/page_power_1/2/3.yaml` already use), plus an
+      MPPT 190W solar charge controller and the GX device's own DC-
+      consumption sensor (both new to this repo). Battery (SOC/V/A),
+      Inverter/Charger mode+state (now a button opening a popup to set
+      the MultiPlus mode directly - ON/CHG/INV/OFF - and adjust the
+      shore/grid current limit), AC Loads (WR output power), Solar
+      Yield (MPPT PV yield + status), and DC Loads (GX aggregate
+      consumption) all show real data now - none of this page's boxes
+      are placeholder-invalid anymore.
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
