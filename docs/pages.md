@@ -65,7 +65,7 @@ Full width, persistent on every page (including the home page).
 
 | Zone | Normal state | Alert state |
 |---|---|---|
-| Left/center | Time + date | Master Warning (red) / Caution (orange) scrolling text — `smartebl_display/docs/design.md`'s existing color/priority scheme, reused unchanged |
+| Left/center | Time + date, plus inside/outside temperature — **implemented**: inside reuses `page_climate`'s own Truma room sensor (no second HA entity needed); outside (`s_temp_outside`) is a LOCAL two-wire NTC probe moved over from the old Nextion panel, read directly over ADC (`adc_temp_outside`→`r_temp_outside`→`s_temp_outside`), not an HA entity - GPIO and NTC calibration constants are unverified guesses, see `README.md`'s roadmap | Master Warning (red) / Caution (orange) scrolling text — `smartebl_display/docs/design.md`'s existing color/priority scheme, reused unchanged |
 | Right, icon cluster | WLAN status · RS232 link status (`docs/protocol.md`'s existing "LINK OK"/"NO LINK", already implemented in `smart-ebl-display.yaml`) · Brightness/Day-Night | — |
 
 **Alarmo is explicitly not in this bar** — homepage tile + PIN popup only
@@ -107,6 +107,7 @@ listed in the nav rail's intended top-to-bottom order.
 | 3 | Climate | — | Truma Combi 4 room-heating side: current/target temp, on/off, via the `womolin_controller` MQTT integration — same entities `m5dial_fram/page_climate.yaml` already uses | HA |
 | — | *implemented* | — | Adapted for a touchscreen rather than that device's rotary encoder: direct +/- buttons (debounced write, same 400ms as `m5dial_fram`) instead of an arm/disarm "SET then turn the knob" step — there's no knob here to contend with page navigation over. | — |
 | 4 | Boiler | — | Truma Combi 4 water-heating side: 3 fixed tiers (ECO/mid/BOOST), same `womolin_controller` integration as Climate — kept as its own section rather than a Climate sub-page, matching `m5dial_fram`'s own separation | HA |
+| — | *implemented* | — | Own nav rail entry (not a Climate sub-page). Same touch-adapted +/- shape as Climate, stepping between exactly 40/60/80°C (never in between) — copied from `m5dial_fram/page_boiler.yaml`'s `act_boiler_temp_up/down`. The middle tier's real name is still unconfirmed (`SOLL 60°C`, untagged) — don't guess it. | — |
 | 5 | Fans | — | Fan board speed + Sprinter HVAC fan, same two entities as `m5dial_fram/page_fans.yaml` | HA |
 | 6 | Light/Features | — | Floor-plan view (§8) — room lights, lock/unlock, step, awning, iPixel LEDs | HA |
 | 7 | Sensors | 1: Sensors, 2: Levelling | Page 1: door/window/presence contacts, grid layout per `smartebl_display/docs/design.md`'s "Status Grid Overview" template; page 2: spirit level + per-corner cm-to-add, same 4 entities `m5dial_fram/page_levelling.yaml` reads | HA |

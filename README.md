@@ -258,8 +258,74 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       ranking) and group 6 (system) — both are already broadcast by
       `smartebl` but not yet parsed here, since no page in this release
       shows either.
+- [x] **Fixed a real bug found on first hardware flash:** the five
+      switch mirrors (`sw_pump_mirror` etc.) used to have
+      `turn_on_action`/`turn_off_action` calling `send_link_command`
+      directly. ESPHome unconditionally runs those on every
+      `turn_on()`/`turn_off()` call — including the one it makes at
+      boot to enact the switch's initial state, and the one this repo's
+      own link reader made on every incoming telemetry frame to reflect
+      smartebl's real state. Net effect: every reboot silently sent
+      "everything OFF" to smartebl, and every ~800ms telemetry cycle
+      re-sent (and so re-pulsed) whichever bistable relay was already
+      in that state, indefinitely, whether or not anything actually
+      changed. Fixed: the mirrors now only hold state (the link reader
+      calls `publish_state()`, not `turn_on()`/`turn_off()`), and each
+      Mainscreen tile's `on_click` sends the command explicitly — the
+      only place one is supposed to originate from now.
+- [x] **Boiler page built** (`page_boiler`) — Truma Combi 4
+      water-heating side, same `womolin_controller` integration as
+      Climate, own nav rail entry. Ported from
+      `m5dial_fram/page_boiler.yaml`'s three-fixed-tier stepping
+      (ECO/mid/BOOST), touch-adapted the same way Climate was.
+- [x] **Status bar: inside/outside temperature added**, per user
+      feedback on the first hardware test. Inside reuses
+      `page_climate`'s own Truma room sensor. Outside turned out to be
+      the old Nextion panel's existing two-wire NTC probe, moved over
+      to this board - so `s_temp_outside` is a LOCAL ADC/NTC sensor
+      (`adc_temp_outside` → `r_temp_outside` → `s_temp_outside`), not
+      an HA entity. **Unverified, flagged in the yaml itself:** the
+      GPIO (placeholder GPIO4 - this session has no confirmed ESP32-P4
+      ADC-pin map) and the NTC calibration constants (10kΩ/B=3950 is a
+      generic guess, not this specific sender's real datasheet values -
+      wrong constants mean a plausible-looking but wrong reading, not
+      an obvious failure). Confirm both before trusting the number;
+      measuring the sender's actual resistance at a known room
+      temperature would let this be calibrated properly instead of
+      guessed.
+- [x] **HA entity_ids confirmed by the repo owner** against their real
+      `womolin_controller` MQTT integration - `climate.*_truma_room`/
+      `_water` and `switch.*_activate_room_heater`/`_water_heater` were
+      right. Also added, all real: `binary_sensor.*_room_heater_active`/
+      `_water_heater_active` (is the Truma actually heating right now,
+      shown next to the on/off button, not instead of it), and the
+      shared (not per-room/water) `binary_sensor.*_heater_has_error`,
+      `binary_sensor.*_cp_plus_alive`, `sensor.*_operating_status`,
+      `sensor.*_heating_mode`, `sensor.*_heater_error_code` - all shown
+      in a status/error footer on both Climate and Boiler. `select.*_
+      fan_mode` and the three timer entities exist too but aren't wired
+      up yet - fan mode selection and timer display are still follow-up
+      work, not in this round.
+- [x] **GPIO37/GPIO38 confirmed bad, moved to GPIO21/GPIO20.** The
+      repo owner's own header photo settled it: GPIO37/38 are this
+      board's silkscreen-labelled TXD/RXD (console UART), not a free
+      pair at all. See `docs/hardware.md`'s "Not confirmed" section.
+- [x] **Two real bugs from the same hardware test, fixed:** every
+      page's background wasn't actually black (an LVGL page's own
+      background sits on top of `lvgl: bottom_layer:` and needs its own
+      `bg_color`/`bg_opa`, now set on all four pages) — and the
+      `sbb_clock` widget rendered as a plain filled square, not a
+      circle, because neither `transparent:` nor `show_face:` was set;
+      both fixed, and the day/night colors corrected to the real SBB
+      look (white face/black hands by day, inverted at night) that
+      `smart-ebl-display.yaml`'s comments had backwards before.
+- [x] **Manual day/night toggle** — a small `AUTO`/`DAY`/`NIGHT` button
+      in the status bar (`cycle_daynight`), since the full popup
+      (`pages.md` §3) isn't built yet and a manual override was
+      requested on the same hardware test. No brightness control still
+      (blocked on the unconfirmed backlight pin).
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
-      (Levels, Boiler, Fans, Light/Features, Sensors+Levelling, and the
+      (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
       to what `smartebl_display`'s five sections should grow into here
 
