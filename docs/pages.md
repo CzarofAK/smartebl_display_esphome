@@ -102,12 +102,11 @@ listed in the nav rail's intended top-to-bottom order.
 |---|---|---|---|---|
 | 0 | Home | — | Clock (`sbb_clock`, right half) + 5 switch tiles + Fridge tile + Alarmo tile (§6) | link (switches) + HA (clock temp) |
 | 1 | Electric | 1: Overview, 2: Fuses | Victron-style power flow (Shore→Inverter→AC Loads / Solar→Battery→DC Loads) per `smartebl_display/docs/design.md`'s existing mockup — reuse directly, don't redesign; page 2: 16-fuse grid, `fuse_fN_ok = voltage > 1.0 V` per `design_rules.md` §2 | link (`docs/protocol.md` groups 1, 3) |
-| — | *implemented, page 1* | — | **Deviation, recorded per this document's own header rule:** `smartebl` measures fuse/output *voltage* only, never current, so it has no wattage figure for AC Loads, Solar Yield, or DC Loads — those three boxes render in the invalid-value style (`0x555555`, "--- W") permanently, not just while the link is down. Shore and the emphasized Battery box use real data (`shore_power_connected`, `ac_charger_voltage`, `leisure_/starter_battery_voltage`); the Inverter/Charger box shows `ac_charger_voltage` rather than a charger/inverter mode, since `smartebl` has no such entity either. Page 2 (fuse grid) is not built yet. | — |
+| — | *implemented, page 1* | — | **Superseded finding, corrected:** this repo initially assumed the vehicle had no Victron gear behind `smartebl`, so AC Loads/Solar Yield/DC Loads rendered permanently invalid. The repo owner confirmed a real SmartShunt (battery monitor) and MultiPlus (inverter/charger), integrated into HA via the exact same entities `m5dial_fram`'s `page_power_1/2/3.yaml` already use — now wired: **Battery** box shows SmartShunt SOC%/voltage/current (same 20%/40% thresholds as `page_power_1`); **Inverter/Charger** box (now a button) shows the MultiPlus's real mode (`select.multiplus` — ON/CHG/INV/OFF) and state (`sensor.multiplus_zustand`), tapping it opens a popup to set the mode directly and adjust the shore/grid current limit (`number.multiplus_strombegrenzung`, clamped 0-16A per `page_power_2`'s own real-wiring-ceiling note); **AC Loads** shows the MultiPlus's WR output power (`sensor.multiplus_0_wr_leistung`) as a % of the installed model's 1600W nominal rating, same caveat as `page_power_3`'s identical calculation (not exact, thermal derating untracked). **Solar Yield and DC Loads remain invalid** — no solar-yield entity has been named yet, and the SmartShunt's net current (already shown in the Battery box) isn't a clean "loads-only" figure; still open items, not guessed. Shore connected/disconnected stays `smartebl`'s own link reading (`shore_power_connected`) — that detection is real and cheap regardless. Page 2 (fuse grid) is not built yet. Page also recentered (both horizontally and vertically within the content area) per repo-owner feedback that it wasn't. | — |
 | 2 | Levels | — | Fresh / Waste / Gas A / Gas I / Diesel as vertical tank columns, per `smartebl_display/docs/design.md`'s existing Levels mockup. Gas combined-supply logic reused verbatim from `m5dial_fram/design_rules.md` §6 (`GAS LEER` only when **both** < 10%). Tank alarms surface in the status bar (§4), not a page footer — a deviation from `m5dial_fram`'s per-page-footer convention, deliberate per §1 above | link (group 2) |
 | 3 | Climate | — | Truma Combi 4 room-heating side: current/target temp, on/off, via the `womolin_controller` MQTT integration — same entities `m5dial_fram/page_climate.yaml` already uses | HA |
-| — | *implemented* | — | Adapted for a touchscreen rather than that device's rotary encoder: direct +/- buttons (debounced write, same 400ms as `m5dial_fram`) instead of an arm/disarm "SET then turn the knob" step — there's no knob here to contend with page navigation over. | — |
-| 4 | Boiler | — | Truma Combi 4 water-heating side: 3 fixed tiers (ECO/mid/BOOST), same `womolin_controller` integration as Climate — kept as its own section rather than a Climate sub-page, matching `m5dial_fram`'s own separation | HA |
-| — | *implemented* | — | Own nav rail entry (not a Climate sub-page). Same touch-adapted +/- shape as Climate, stepping between exactly 40/60/80°C (never in between) — copied from `m5dial_fram/page_boiler.yaml`'s `act_boiler_temp_up/down`. The middle tier's real name is still unconfirmed (`SOLL 60°C`, untagged) — don't guess it. | — |
+| 4 | Boiler | — | Truma Combi 4 water-heating side: 3 fixed tiers (ECO/mid/BOOST), same `womolin_controller` integration as Climate | HA |
+| — | *implemented, merged* | — | **Per repo-owner request, Climate and Boiler share ONE page and ONE nav entry ("TRUMA")** — left half Heizung (room), right half Boiler (water), not two separate sections as originally cataloged above. Each half now has an arc (room temp as % of 5-30°C, water temp as % of 40-80°C — same "arc is always a % of a sensible range" rule as `m5dial_fram/design_rules.md` §8, since there's no natural 0-100% for a temperature otherwise) plus the touch-adapted +/- buttons (no arm/disarm step — there's no rotary encoder here to contend with page navigation over). Fan level (`select.womolin_controller_mqtt_fan_mode`) is shown read-only on the room-heating side — the write side (`select.select_option`) needs the entity's real option strings, which nobody has confirmed yet; don't guess them the way `select.multiplus`'s options were already confirmed real (see the Electric row below). A shared status/error footer (Truma CP Plus connectivity, error code, operating status) spans the bottom of the page once, not duplicated per half. | — |
 | 5 | Fans | — | Fan board speed + Sprinter HVAC fan, same two entities as `m5dial_fram/page_fans.yaml` | HA |
 | 6 | Light/Features | — | Floor-plan view (§8) — room lights, lock/unlock, step, awning, iPixel LEDs | HA |
 | 7 | Sensors | 1: Sensors, 2: Levelling | Page 1: door/window/presence contacts, grid layout per `smartebl_display/docs/design.md`'s "Status Grid Overview" template; page 2: spirit level + per-corner cm-to-add, same 4 entities `m5dial_fram/page_levelling.yaml` reads | HA |
@@ -121,8 +120,23 @@ device stays the one place for it.
 Right half: `sbb_clock` widget, sized to fill it (the widget scales by
 `width`/`height` alone — see `m5dial_clock_sbb`'s README, no changes
 needed to reuse it here at a much larger size than the M5Dial's 240×240).
+No date/day shown (`show_date` left at its default `false`) — asked for
+explicitly, also a small mercy on the PSRAM-canvas redraw cost the
+README's roadmap already flags.
 
-Left half / remainder: tiles, one per switch —
+Left half / remainder: tiles, one per switch, as a 2×3 grid **vertically
+centered in the content area and horizontally centered between the nav
+rail and the clock** (repo-owner-specified layout, not the reading
+order of the table below):
+
+```
+LIGHT   ICE-EX
+AUX     FRIDGE
+POWER   PUMP
+```
+
+Table below still lists which tile maps to which switch, just not the
+on-screen position:
 
 | Tile | Source | Notes |
 |---|---|---|

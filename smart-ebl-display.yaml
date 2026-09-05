@@ -336,6 +336,39 @@ text_sensor:
       - script.execute: draw_climate
       - script.execute: draw_boiler
 
+  # ---- Fan level (Lüfterstufe), room-heating side only. Read-only for
+  # now - see lbl_climate_fan_mode's own comment on the LVGL page for
+  # why the write side (select.select_option) isn't wired up yet.
+  - platform: homeassistant
+    id: s_truma_fan_mode
+    entity_id: select.womolin_controller_mqtt_fan_mode
+    on_value:
+      - script.execute: draw_climate
+
+  # ---- Electric page (page_electric) - MultiPlus state/mode strings,
+  # real entities from m5dial_fram/page_power_3.yaml.
+  - platform: homeassistant
+    id: s_multiplus_state
+    entity_id: sensor.multiplus_zustand
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_mode
+    entity_id: select.multiplus
+    # Same filter as m5dial_fram/page_power_3.yaml's s_power_3_mode -
+    # options of select.multiplus: charger_only · inverter_only · on ·
+    # off (confirmed real values, from that file's own comment).
+    filters:
+      - lambda: |-
+          std::string s = x;
+          if (s == "on") return std::string("ON");
+          if (s == "charger_only") return std::string("CHG");
+          if (s == "inverter_only") return std::string("INV");
+          return std::string("OFF");
+    on_value:
+      - script.execute: draw_electric
+
 # =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
 # =============================================================================
@@ -383,6 +416,15 @@ globals:
   - id: g_daynight
     type: int
     restore_value: true
+    initial_value: "0"
+
+  # ---- Electric page (page_electric) popup - shore/grid current limit
+  # (number.multiplus_strombegrenzung) being locally edited, same
+  # debounced-write pattern as m5dial_fram/page_power_2.yaml's own
+  # g_power_2_assist_pending.
+  - id: g_multiplus_limit_pending
+    type: float
+    restore_value: false
     initial_value: "0"
 
   # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
@@ -479,6 +521,64 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 2
     on_value:
+      - script.execute: draw_electric
+
+  # ---- Electric page (page_electric) - real Victron entities, HA-fed,
+  # NOT the link. Exact same entities m5dial_fram's page_power_1/2/3.yaml
+  # already use for this installation's SmartShunt (battery monitor) and
+  # MultiPlus (inverter/charger) - real entity_ids, not a guess.
+  - platform: homeassistant
+    id: s_battery_soc
+    entity_id: sensor.smartshunt_ladestand
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_dc_v
+    entity_id: sensor.smartshunt_dc_bus_spannung
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_dc_a
+    entity_id: sensor.smartshunt_dc_bus_stromstarke
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_in_w
+    entity_id: sensor.multiplus_eingangsleistung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_in_a
+    entity_id: sensor.multiplus_eingangsstromstarke_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_wr_w
+    entity_id: sensor.multiplus_0_wr_leistung
+    on_value:
+      - script.execute: draw_electric
+
+  # number domain, not sensor - ESPHome's homeassistant sensor platform
+  # reads whatever numeric state HA reports regardless of domain, same
+  # as m5dial_fram/page_power_2.yaml's own s_power_2_limit.
+  - platform: homeassistant
+    id: s_multiplus_limit
+    entity_id: number.multiplus_strombegrenzung
+    on_value:
+      - lambda: |-
+          // Resync the locally-edited pending value from HA's confirmed
+          // one, same "don't fight an active edit" pattern as
+          // g_climate_temp_pending - but this popup has no separate
+          // armed/disarmed state, so only resync while the popup is
+          // closed (hidden) - nobody can be mid-edit if it's not open.
+          if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
+            id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
+          }
       - script.execute: draw_electric
 
   # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
@@ -877,16 +977,17 @@ script:
       - script.execute: draw_nav
       - script.execute: draw_electric
 
+  # Room heating (Climate) and water heating (Boiler) are now one page
+  # (page_climate widens to hold both, page_boiler removed) - repo
+  # owner's own Truma unit, one nav entry ("TRUMA"), left half
+  # Heizung/room, right half Boiler/water. draw_climate/draw_boiler
+  # (the two halves' drawing scripts) and every id/global under those
+  # names are otherwise unchanged - only the LVGL widget layout and nav
+  # wiring merged.
   - id: nav_show_climate
     then:
       - globals.set: {id: g_current_page, value: "2"}
       - lvgl.page.show: page_climate
-      - script.execute: draw_nav
-
-  - id: nav_show_boiler
-    then:
-      - globals.set: {id: g_current_page, value: "3"}
-      - lvgl.page.show: page_boiler
       - script.execute: draw_nav
 
   - id: draw_nav
@@ -899,8 +1000,6 @@ script:
               lv_color_hex(cur == 1 ? 0x2ECC71 : 0xBDC1C6), 0);
           lv_obj_set_style_text_color(id(lbl_nav_climate),
               lv_color_hex(cur == 2 ? 0x2ECC71 : 0xBDC1C6), 0);
-          lv_obj_set_style_text_color(id(lbl_nav_boiler),
-              lv_color_hex(cur == 3 ? 0x2ECC71 : 0xBDC1C6), 0);
 
   # ---- Status bar (top_layer, persists on every page) -------------------
   # The only script this release runs on a timer rather than purely
@@ -982,74 +1081,136 @@ script:
 
   # ---- Electric / Victron-style overview (page_electric) ----------------
   # pages.md §5: "Victron-style power flow ... reuse [smartebl_display's
-  # mockup] directly, don't redesign". Reused for the boxes smartebl
-  # actually has data for (Shore, Inverter/Charger status, Battery); AC
-  # Loads/Solar Yield/DC Loads have NO backing sensor anywhere in this
-  # project - smartebl measures fuse/output VOLTAGE, never current, so
-  # it cannot derive a watt figure for any of them. Shown in the same
-  # 0x555555 invalid style as a stale link value rather than a fake
-  # number - a deviation from the exact mockup, noted here per this
-  # repo's own "if a page deviates, fix the page or the doc" rule
-  # (design_rules.md's header) since docs/pages.md's Electric row still
-  # describes the full Venus OS-style set.
+  # mockup] directly, don't redesign". Now wired to the REAL Victron
+  # gear this installation has - a SmartShunt (battery monitor) and a
+  # MultiPlus (inverter/charger) - via the exact same HA entities
+  # m5dial_fram's page_power_1/2/3.yaml already use, confirmed real by
+  # the repo owner, not this repo's own smartebl-side guess. Shore
+  # connected/disconnected still comes from smartebl's own link (that
+  # detection is real, cheap, and already wired) - everything else on
+  # this page is Victron/HA now. Solar Yield and DC Loads remain
+  # invalid: no solar-yield entity has been named yet, and the
+  # SmartShunt's net current (shown in the Battery box) isn't the same
+  # thing as a DC-loads-only figure - open items, not silently guessed.
   - id: draw_electric
     mode: restart
     then:
       - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
           bool connected = id(link_last_rx_ms) != 0 &&
               (millis() - id(link_last_rx_ms)) < 3000;
+          char buf[32];
 
-          // ---- Shore ----------------------------------------------------
+          // ---- Shore: connected/disconnected from smartebl's own link,
+          // input W/A from the MultiPlus (HA) when actually connected.
           if (!connected) {
             lv_label_set_text(id(lbl_electric_shore), "---");
             lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_electric_shore_sub), "");
           } else if (id(s_shore_power_connected).state) {
             lv_label_set_text(id(lbl_electric_shore), "CONNECTED");
             lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x2ECC71), 0);
+            if (api_ok && id(s_multiplus_in_w).has_state() && id(s_multiplus_in_a).has_state()) {
+              snprintf(buf, sizeof(buf), "%.0fW  %.1fA", id(s_multiplus_in_w).state, id(s_multiplus_in_a).state);
+              lv_label_set_text(id(lbl_electric_shore_sub), buf);
+            } else {
+              lv_label_set_text(id(lbl_electric_shore_sub), "---W  ---A");
+            }
           } else {
             lv_label_set_text(id(lbl_electric_shore), "DISCONNECTED");
             lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0xBDC1C6), 0);
+            lv_label_set_text(id(lbl_electric_shore_sub), "");
           }
 
-          // ---- Inverter/Charger - shows the one extra data point smartebl
-          // actually has here (AC charger input voltage), not a made-up
-          // charger/inverter mode.
-          if (!connected || !id(s_ac_charger_voltage).has_state()) {
-            lv_label_set_text(id(lbl_electric_charger), "AC IN ---V");
+          // ---- Inverter/Charger (now a button - tap opens the mode/
+          // limit popup, see show_charger_popup) - MultiPlus mode +
+          // state, same colors/humanizing as
+          // m5dial_fram/page_power_3.yaml's identical logic.
+          if (!api_ok || !id(s_multiplus_mode).has_state()) {
+            lv_label_set_text(id(lbl_electric_charger), "---");
             lv_obj_set_style_text_color(id(lbl_electric_charger), lv_color_hex(0x555555), 0);
           } else {
-            char buf[24];
-            snprintf(buf, sizeof(buf), "AC IN %.1fV", id(s_ac_charger_voltage).state);
-            lv_label_set_text(id(lbl_electric_charger), buf);
-            lv_obj_set_style_text_color(id(lbl_electric_charger), lv_color_hex(0xBDC1C6), 0);
+            std::string m = id(s_multiplus_mode).state;
+            lv_label_set_text(id(lbl_electric_charger), m.c_str());
+            uint32_t col = 0xBDC1C6;
+            if (m == "ON") col = 0x2ECC71;
+            else if (m == "CHG") col = 0x4A9EFF;
+            else if (m == "INV") col = 0xF39C12;
+            lv_obj_set_style_text_color(id(lbl_electric_charger), lv_color_hex(col), 0);
+          }
+          if (!api_ok || !id(s_multiplus_state).has_state()) {
+            lv_label_set_text(id(lbl_electric_charger_sub), "---");
+            lv_obj_set_style_text_color(id(lbl_electric_charger_sub), lv_color_hex(0x555555), 0);
+          } else {
+            std::string s = id(s_multiplus_state).state;
+            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
+            lv_label_set_text(id(lbl_electric_charger_sub), s.c_str());
+            if (id(s_multiplus_state).state == "fault") {
+              lv_obj_set_style_text_color(id(lbl_electric_charger_sub), lv_color_hex(0xE74C3C), 0);
+            } else {
+              lv_obj_set_style_text_color(id(lbl_electric_charger_sub), lv_color_hex(0x707070), 0);
+            }
           }
 
-          // ---- AC Loads / Solar Yield / DC Loads - no current-sense
-          // hardware anywhere in this project (see header). Genuinely
-          // invalid, not "not received yet".
-          lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
-          lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
+          // ---- AC Loads: MultiPlus WR (inverter) output power, % of
+          // 1600W nominal (Multiplus 12/1600, same caveat
+          // m5dial_fram/page_power_3.yaml's own comment carries: not
+          // exact, thermal derating isn't tracked here).
+          if (!api_ok || !id(s_multiplus_wr_w).has_state()) {
+            lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
+            lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
+          } else {
+            float w = id(s_multiplus_wr_w).state;
+            snprintf(buf, sizeof(buf), "%.0fW", w);
+            lv_label_set_text(id(lbl_electric_ac_loads), buf);
+            float p = w / 1600.0f * 100.0f;
+            uint32_t col = 0xFFFFFF;
+            if (p >= 95.0f) col = 0xE74C3C;
+            else if (p >= 80.0f) col = 0xF39C12;
+            lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(col), 0);
+          }
+
+          // ---- Solar Yield / DC Loads - still no entity for either,
+          // see header. Genuinely invalid, not "not received yet".
           lv_label_set_text(id(lbl_electric_solar), "--- W");
           lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
           lv_label_set_text(id(lbl_electric_dc_loads), "--- W");
           lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0x555555), 0);
 
-          // ---- Battery (emphasized box) - leisure + starter voltage.
-          // Thresholds reused verbatim from m5dial_fram/design_rules.md
-          // §6 (design_rules.md §2's "reuse the fleet's thresholds"
-          // rule) - starter battery only, since there's no SOC sensor
-          // behind leisure_battery_voltage to threshold against.
-          if (!connected) {
-            lv_label_set_text(id(lbl_electric_batt_main), "---V");
+          // ---- Battery (emphasized box) - SmartShunt SOC/V/A, same
+          // thresholds and format as m5dial_fram/page_power_1.yaml's
+          // identical arc/label logic (20%/40% SOC). Starter battery
+          // voltage stays smartebl's own link reading (a separate real
+          // sensor smartebl has, kept as the small third line) - the
+          // SmartShunt only monitors the leisure battery.
+          if (!api_ok || !id(s_battery_soc).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_main), "---%");
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0x555555), 0);
+          } else {
+            float soc = id(s_battery_soc).state;
+            snprintf(buf, sizeof(buf), "%.0f%%", soc);
+            lv_label_set_text(id(lbl_electric_batt_main), buf);
+            uint32_t col = 0xFFFFFF;
+            if (soc < 20.0f) col = 0xE74C3C;
+            else if (soc < 40.0f) col = 0xF39C12;
+            lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(col), 0);
+          }
+          if (!api_ok || !id(s_battery_dc_v).has_state() || !id(s_battery_dc_a).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_mid), "---V  ---A");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_mid), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.1fV  %+.0fA", id(s_battery_dc_v).state, id(s_battery_dc_a).state);
+            lv_label_set_text(id(lbl_electric_batt_mid), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_mid), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!connected) {
             lv_label_set_text(id(lbl_electric_batt_sub), "START ---V");
             lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(0x555555), 0);
           } else {
-            char buf[24];
-            snprintf(buf, sizeof(buf), "%.2fV", id(s_leisure_battery_voltage).state);
-            lv_label_set_text(id(lbl_electric_batt_main), buf);
-            lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0xFFFFFF), 0);
-
             float start_v = id(s_starter_battery_voltage).state;
             snprintf(buf, sizeof(buf), "START %.2fV", start_v);
             lv_label_set_text(id(lbl_electric_batt_sub), buf);
@@ -1058,6 +1219,149 @@ script:
             else if (start_v < 12.4f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(col), 0);
           }
+
+          // ---- Charger/Inverter popup (hidden unless open, see
+          // show_charger_popup/close_charger_popup) - mode buttons'
+          // highlight + shore-limit value, redrawn here too so opening
+          // the popup never shows stale content.
+          std::string cur_mode = api_ok && id(s_multiplus_mode).has_state() ? id(s_multiplus_mode).state : "";
+          auto mode_btn = [&](lv_obj_t *btn, const char *tag, uint32_t on_bg, uint32_t on_border) {
+            bool active = (cur_mode == tag);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(active ? on_bg : 0x202124), 0);
+            lv_obj_set_style_border_color(btn, lv_color_hex(active ? on_border : 0x3C4043), 0);
+          };
+          mode_btn(id(btn_multiplus_mode_on), "ON", 0x1B5E3A, 0x2ECC71);
+          mode_btn(id(btn_multiplus_mode_chg), "CHG", 0x14324F, 0x4A9EFF);
+          mode_btn(id(btn_multiplus_mode_inv), "INV", 0x4F3814, 0xF39C12);
+          mode_btn(id(btn_multiplus_mode_off), "OFF", 0x202124, 0x3C4043);
+
+          if (!api_ok || !id(s_multiplus_limit).has_state()) {
+            lv_label_set_text(id(lbl_multiplus_limit), "LIMIT --A");
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_multiplus_limit_pending));
+            lv_label_set_text(id(lbl_multiplus_limit), buf);
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(0xBDC1C6), 0);
+          }
+
+  # ---- Electric page (page_electric) - MultiPlus mode/shore-limit popup
+  # Triggered from the Inverter/Charger box (btn_electric_charger).
+  - id: poll_electric
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_ladestand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_dc_bus_spannung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_dc_bus_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_eingangsleistung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_eingangsstromstarke_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_0_wr_leistung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_zustand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: select.multiplus
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.multiplus_strombegrenzung
+
+  - id: show_charger_popup
+    then:
+      - lambda: |-
+          id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
+              ? id(s_multiplus_limit).state : 0.0f;
+      - script.execute: draw_electric
+      - lvgl.widget.update:
+          id: obj_electric_popup_backdrop
+          hidden: false
+      - lvgl.widget.update:
+          id: obj_electric_popup_panel
+          hidden: false
+
+  - id: close_charger_popup
+    then:
+      - lvgl.widget.update:
+          id: obj_electric_popup_backdrop
+          hidden: true
+      - lvgl.widget.update:
+          id: obj_electric_popup_panel
+          hidden: true
+
+  # Direct-set, not a cycle (unlike m5dial_fram/page_power_3.yaml's
+  # single ON->CHG->INV->OFF button - this popup has room for four
+  # separate buttons, one per real option of select.multiplus, so
+  # picking any mode is one tap instead of up to three).
+  - id: act_multiplus_set_mode
+    parameters:
+      option: string
+    then:
+      - homeassistant.service:
+          service: select.select_option
+          data:
+            entity_id: select.multiplus
+          data_template:
+            option: "{{ opt }}"
+          variables:
+            opt: !lambda "return option;"
+
+  # 1A step, clamped 0-16A - same real-world wiring ceiling
+  # m5dial_fram/page_power_2.yaml's identical control uses for this
+  # installation's 2.5mm² shore cable (not number.multiplus_
+  # strombegrenzung's own 0-63A range).
+  - id: act_multiplus_limit_up
+    then:
+      - lambda: |-
+          float v = id(g_multiplus_limit_pending) + 1.0f;
+          if (v > 16.0f) v = 16.0f;
+          id(g_multiplus_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: multiplus_limit_write_debounced
+
+  - id: act_multiplus_limit_down
+    then:
+      - lambda: |-
+          float v = id(g_multiplus_limit_pending) - 1.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_multiplus_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: multiplus_limit_write_debounced
+
+  - id: multiplus_limit_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.multiplus_strombegrenzung
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_multiplus_limit_pending));"
+
+  - id: multiplus_limit_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: multiplus_limit_write_now
 
   # ---- Climate (page_climate) --------------------------------------------
   # pages.md §5: Truma Combi 4 room-heating side, via the
@@ -1165,6 +1469,30 @@ script:
   - id: draw_climate
     mode: restart
     then:
+      # ---- Arc: room temp as % of a 5-30°C range - same "arc is always
+      # a percentage of a sensible range" rule m5dial_fram/design_rules.md
+      # §8 uses (there's no natural 0-100% for a temperature otherwise).
+      # 5/30 matches act_climate_temp_up/down's own existing clamp, so
+      # the arc and the +/- buttons agree on what "full range" means.
+      - lvgl.arc.update:
+          id: arc_climate_temp
+          value: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return 0.0f;
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return 0.0f;
+            float p = (id(s_climate_room_temp).state - 5.0f) / (30.0f - 5.0f) * 100.0f;
+            if (p > 100.0f) p = 100.0f;
+            if (p < 0.0f) p = 0.0f;
+            return p;
+          indicator:
+            arc_color: !lambda |-
+              #ifdef USE_API
+              if (!api_is_connected()) return lv_color_hex(0x555555);
+              #endif
+              if (!id(s_climate_room_temp).has_state()) return lv_color_hex(0x555555);
+              return lv_color_hex(0x4A9EFF);
+
       - lvgl.label.update:
           id: lbl_climate_temp
           text: !lambda |-
@@ -1262,31 +1590,49 @@ script:
             lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x707070), 0);
           }
 
+      # ---- Fan level (Lüfterstufe) - read-only, see the widget's own
+      # comment for why the tap-to-cycle write side isn't built yet.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_climate_fan_mode), "LÜFTER ---");
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_truma_fan_mode).has_state()) {
+            lv_label_set_text(id(lbl_climate_fan_mode), "LÜFTER ---");
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
+          } else {
+            std::string txt = "LÜFTER " + id(s_truma_fan_mode).state;
+            lv_label_set_text(id(lbl_climate_fan_mode), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0xBDC1C6), 0);
+          }
+
       # ---- Truma status/error footer - shared unit, see sensor: block's
       # header comment. Priority: error > CP Plus not connected >
       # operating status/heating mode > empty.
       - lambda: |-
           #ifdef USE_API
           if (!api_is_connected()) {
-            lv_label_set_text(id(lbl_climate_status), "KEINE VERBINDUNG");
-            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_truma_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x555555), 0);
             return;
           }
           #endif
           if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
             std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
-            lv_label_set_text(id(lbl_climate_status), ("FEHLER " + code).c_str());
-            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0xE74C3C), 0);
+            lv_label_set_text(id(lbl_truma_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xE74C3C), 0);
           } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
-            lv_label_set_text(id(lbl_climate_status), "TRUMA NICHT VERBUNDEN");
-            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0xF39C12), 0);
+            lv_label_set_text(id(lbl_truma_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xF39C12), 0);
           } else if (id(s_truma_operating_status).has_state()) {
             std::string txt = id(s_truma_operating_status).state;
             if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
-            lv_label_set_text(id(lbl_climate_status), txt.c_str());
-            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0x707070), 0);
+            lv_label_set_text(id(lbl_truma_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x707070), 0);
           } else {
-            lv_label_set_text(id(lbl_climate_status), "");
+            lv_label_set_text(id(lbl_truma_status), "");
           }
 
   # ---- Boiler (page_boiler) ----------------------------------------------
@@ -1373,6 +1719,28 @@ script:
   - id: draw_boiler
     mode: restart
     then:
+      # ---- Arc: water temp as % of the 40-80°C range this Truma
+      # boiler's three fixed tiers span - same reasoning as
+      # arc_climate_temp above.
+      - lvgl.arc.update:
+          id: arc_boiler_temp
+          value: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return 0.0f;
+            #endif
+            if (!id(s_boiler_temp).has_state()) return 0.0f;
+            float p = (id(s_boiler_temp).state - 40.0f) / (80.0f - 40.0f) * 100.0f;
+            if (p > 100.0f) p = 100.0f;
+            if (p < 0.0f) p = 0.0f;
+            return p;
+          indicator:
+            arc_color: !lambda |-
+              #ifdef USE_API
+              if (!api_is_connected()) return lv_color_hex(0x555555);
+              #endif
+              if (!id(s_boiler_temp).has_state()) return lv_color_hex(0x555555);
+              return lv_color_hex(0x4A9EFF);
+
       - lvgl.label.update:
           id: lbl_boiler_temp
           text: !lambda |-
@@ -1477,25 +1845,25 @@ script:
       - lambda: |-
           #ifdef USE_API
           if (!api_is_connected()) {
-            lv_label_set_text(id(lbl_boiler_status), "KEINE VERBINDUNG");
-            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_truma_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x555555), 0);
             return;
           }
           #endif
           if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
             std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
-            lv_label_set_text(id(lbl_boiler_status), ("FEHLER " + code).c_str());
-            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0xE74C3C), 0);
+            lv_label_set_text(id(lbl_truma_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xE74C3C), 0);
           } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
-            lv_label_set_text(id(lbl_boiler_status), "TRUMA NICHT VERBUNDEN");
-            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0xF39C12), 0);
+            lv_label_set_text(id(lbl_truma_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xF39C12), 0);
           } else if (id(s_truma_operating_status).has_state()) {
             std::string txt = id(s_truma_operating_status).state;
             if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
-            lv_label_set_text(id(lbl_boiler_status), txt.c_str());
-            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0x707070), 0);
+            lv_label_set_text(id(lbl_truma_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x707070), 0);
           } else {
-            lv_label_set_text(id(lbl_boiler_status), "");
+            lv_label_set_text(id(lbl_truma_status), "");
           }
 
 # =============================================================================
@@ -1662,32 +2030,11 @@ lvgl:
             - label:
                 id: lbl_nav_climate
                 align: CENTER
-                text: "CLIMATE"
+                text: "TRUMA"
                 text_font: montserrat_16
                 text_color: 0xBDC1C6
           on_click:
             - script.execute: nav_show_climate
-      - button:
-          id: btn_nav_boiler
-          align: TOP_LEFT
-          x: 0
-          y: 424 # = bar_h + 3*120
-          width: ${nav_w}
-          height: 120
-          radius: 0
-          bg_color: 0x000000
-          bg_opa: COVER
-          border_width: 0
-          shadow_width: 0
-          widgets:
-            - label:
-                id: lbl_nav_boiler
-                align: CENTER
-                text: "BOILER"
-                text_font: montserrat_16
-                text_color: 0xBDC1C6
-          on_click:
-            - script.execute: nav_show_boiler
 
   pages:
     # =========================================================================
@@ -1731,7 +2078,9 @@ lvgl:
             background: col_clock_ink   # white face by day
             foreground: col_clock_bg    # black hands/ticks/text by day
             second_hand_color: col_clock_second
-            show_date: true
+            # show_date: false (the default) - repo owner doesn't want
+            # the date/day shown, and one less text draw per frame is a
+            # small mercy for the same PSRAM-canvas cost noted below.
             # render_interval default is 100ms; halved here because
             # `transparent: true` forces a full-canvas redraw every
             # frame (README: "transparent: true still does a full
@@ -1754,8 +2103,8 @@ lvgl:
         - button:
             id: btn_tile_12v
             align: TOP_LEFT
-            x: 160
-            y: 90
+            x: 215 # bottom-left, per repo owner's requested order
+            y: 527
             width: 210
             height: 150
             radius: 12
@@ -1787,8 +2136,8 @@ lvgl:
         - button:
             id: btn_tile_aux
             align: TOP_LEFT
-            x: 390
-            y: 90
+            x: 215 # middle-left
+            y: 357
             width: 210
             height: 150
             radius: 12
@@ -1820,8 +2169,8 @@ lvgl:
         - button:
             id: btn_tile_light
             align: TOP_LEFT
-            x: 160
-            y: 260
+            x: 215 # top-left
+            y: 187
             width: 210
             height: 150
             radius: 12
@@ -1853,8 +2202,8 @@ lvgl:
         - button:
             id: btn_tile_pump
             align: TOP_LEFT
-            x: 390
-            y: 260
+            x: 455 # bottom-right
+            y: 527
             width: 210
             height: 150
             radius: 12
@@ -1886,8 +2235,8 @@ lvgl:
         - button:
             id: btn_tile_eisex
             align: TOP_LEFT
-            x: 160
-            y: 430
+            x: 455 # top-right
+            y: 187
             width: 210
             height: 150
             radius: 12
@@ -1921,8 +2270,8 @@ lvgl:
         - button:
             id: btn_tile_fridge
             align: TOP_LEFT
-            x: 390
-            y: 430
+            x: 455 # middle-right
+            y: 357
             width: 210
             height: 150
             radius: 12
@@ -1951,13 +2300,21 @@ lvgl:
     - id: page_electric
       bg_color: 0x000000
       bg_opa: COVER
+      on_load:
+        - script.execute: poll_electric
       widgets:
-        # ---- Row 1: Shore -> Inverter/Charger -> AC Loads ----------------
+        # ---- Row 1 (y=252): Shore -> Inverter/Charger -> AC Loads -------
+        # Horizontally centered as a block between the nav rail (ends
+        # x130) and the right edge (x1280): 3x300 + 2x40 gap = 980px,
+        # centered in the 1150px content area -> starts x215. Row 2
+        # below centers its own, differently-sized block the same way.
+        # Vertically, the two-row block (row1 130 + 60 gap + row2 170)
+        # is centered in the content height (736) -> row1 starts y252.
         - obj:
             id: obj_electric_shore
             align: TOP_LEFT
-            x: 160
-            y: 100
+            x: 215
+            y: 252
             width: 300
             height: 130
             radius: 12
@@ -1968,62 +2325,81 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 12
+                  y: 10
                   text: "SHORE"
                   text_font: montserrat_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_shore
                   align: CENTER
-                  y: 8
+                  y: -4
                   text: "---"
                   text_font: montserrat_20
                   text_color: 0x555555
+              - label:
+                  id: lbl_electric_shore_sub
+                  align: BOTTOM_MID
+                  y: -10
+                  text: ""
+                  text_font: montserrat_16
+                  text_color: 0xBDC1C6
         - label:
             align: TOP_LEFT
-            x: 468
-            y: 150
+            x: 525
+            y: 300
             text_font: montserrat_24
             text: "→"
             text_color: 0x707070
-        - obj:
-            id: obj_electric_charger
+
+        # Inverter/Charger is now a BUTTON - tap opens the mode/shore-
+        # limit popup at the bottom of this page's widget list.
+        - button:
+            id: btn_electric_charger
             align: TOP_LEFT
-            x: 500
-            y: 100
+            x: 555
+            y: 252
             width: 300
             height: 130
             radius: 12
             bg_color: 0x202124
-            bg_opa: COVER
             border_width: 1
             border_color: 0x3C4043
+            shadow_width: 0
             widgets:
               - label:
                   align: TOP_MID
-                  y: 12
+                  y: 10
                   text: "INVERTER / CHARGER"
                   text_font: montserrat_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_charger
                   align: CENTER
-                  y: 8
-                  text: "AC IN ---V"
+                  y: -4
+                  text: "---"
                   text_font: montserrat_20
                   text_color: 0x555555
+              - label:
+                  id: lbl_electric_charger_sub
+                  align: BOTTOM_MID
+                  y: -10
+                  text: "---"
+                  text_font: montserrat_16
+                  text_color: 0x555555
+            on_click:
+              - script.execute: show_charger_popup
         - label:
             align: TOP_LEFT
-            x: 808
-            y: 150
+            x: 865
+            y: 300
             text_font: montserrat_24
             text: "→"
             text_color: 0x707070
         - obj:
             id: obj_electric_ac_loads
             align: TOP_LEFT
-            x: 840
-            y: 100
+            x: 895
+            y: 252
             width: 300
             height: 130
             radius: 12
@@ -2048,18 +2424,18 @@ lvgl:
 
         - label:
             align: TOP_LEFT
-            x: 640
-            y: 240
+            x: 695
+            y: 400
             text_font: montserrat_24
             text: "↓"
             text_color: 0x707070
 
-        # ---- Row 2: Solar -> Battery (emphasized) -> DC Loads ------------
+        # ---- Row 2 (battery-centered y=442): Solar -> Battery (emphasized) -> DC Loads
         - obj:
             id: obj_electric_solar
             align: TOP_LEFT
-            x: 160
-            y: 420
+            x: 235
+            y: 462
             width: 260
             height: 130
             radius: 12
@@ -2083,16 +2459,16 @@ lvgl:
                   text_color: 0x555555
         - label:
             align: TOP_LEFT
-            x: 428
-            y: 470
+            x: 505
+            y: 512
             text_font: montserrat_24
             text: "→"
             text_color: 0x707070
         - obj:
             id: obj_electric_battery
             align: TOP_LEFT
-            x: 460
-            y: 400
+            x: 535
+            y: 442
             width: 340
             height: 170
             radius: 16
@@ -2103,36 +2479,43 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 14
+                  y: 12
                   text: "BATTERY"
                   text_font: montserrat_16
                   text_color: 0xBDC1C6
               - label:
                   id: lbl_electric_batt_main
-                  align: CENTER
-                  y: -4
-                  text: "---V"
+                  align: TOP_MID
+                  y: 34
+                  text: "---%"
                   text_font: montserrat_40
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_mid
+                  align: TOP_MID
+                  y: 100
+                  text: "---V  ---A"
+                  text_font: montserrat_16
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_sub
                   align: BOTTOM_MID
-                  y: -12
+                  y: -10
                   text: "START ---V"
                   text_font: montserrat_16
                   text_color: 0x555555
         - label:
             align: TOP_LEFT
-            x: 812
-            y: 470
+            x: 885
+            y: 512
             text_font: montserrat_24
             text: "→"
             text_color: 0x707070
         - obj:
             id: obj_electric_dc_loads
             align: TOP_LEFT
-            x: 860
-            y: 420
+            x: 915
+            y: 462
             width: 260
             height: 130
             radius: 12
@@ -2155,235 +2538,510 @@ lvgl:
                   text_font: montserrat_20
                   text_color: 0x555555
 
+        # ---- Charger/Inverter popup: mode (select.multiplus) + shore
+        # current limit (number.multiplus_strombegrenzung). Hidden by
+        # default; shown/hidden by show_charger_popup/close_charger_popup.
+        # button:, not obj: - on_click only reliably registers on a
+        # button widget in this file's own established convention (see
+        # page_home's tile buttons - a plain obj: with on_click was the
+        # earlier bug there too).
+        - button:
+            id: obj_electric_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_charger_popup
+
+        - obj:
+            id: obj_electric_popup_panel
+            align: CENTER
+            width: 640
+            height: 420
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "INVERTER / CHARGER"
+                  text_font: montserrat_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "MODUS"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_multiplus_mode_on
+                  align: TOP_MID
+                  x: -225
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ON"
+                        text_font: montserrat_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "on"}
+
+              - button:
+                  id: btn_multiplus_mode_chg
+                  align: TOP_MID
+                  x: -75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "CHG"
+                        text_font: montserrat_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "charger_only"}
+
+              - button:
+                  id: btn_multiplus_mode_inv
+                  align: TOP_MID
+                  x: 75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "INV"
+                        text_font: montserrat_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "inverter_only"}
+
+              - button:
+                  id: btn_multiplus_mode_off
+                  align: TOP_MID
+                  x: 225
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "OFF"
+                        text_font: montserrat_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "off"}
+
+              - label:
+                  align: TOP_MID
+                  y: 190
+                  text: "LANDSTROM-LIMIT"
+                  text_font: montserrat_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_multiplus_limit_down
+                  align: TOP_MID
+                  x: -140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_multiplus_limit_down
+
+              - label:
+                  id: lbl_multiplus_limit
+                  align: TOP_MID
+                  y: 236
+                  width: 200
+                  text_font: montserrat_24
+                  text: "LIMIT --A"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_multiplus_limit_up
+                  align: TOP_MID
+                  x: 140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_multiplus_limit_up
+
+              - button:
+                  id: btn_electric_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: montserrat_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_charger_popup
+
     # =========================================================================
-    # Climate (page_climate) - pages.md §5
-    # =========================================================================
+    # Truma (page_climate) - pages.md §5, ONE page for both sides of the
+    # same Truma Combi 4 (repo owner's own unit): left = Heizung (room
+    # heating, the entities/scripts already named s_climate_*/
+    # act_climate_*/draw_climate), right = Boiler (water heating,
+    # s_boiler_*/act_boiler_*/draw_boiler) - previously two separate
+    # pages/nav entries, merged per repo-owner request. Two plain `obj:`
+    # containers (obj_truma_room/obj_truma_water) act as local coordinate
+    # origins so each half's widgets can use align/y offsets relative to
+    # THAT half, the same way a whole page normally would - see
+    # design_rules.md §9's arc/label pattern, now scoped per-container
+    # instead of per-page.
     - id: page_climate
       bg_color: 0x000000
       bg_opa: COVER
       on_load:
         - script.execute: poll_climate
-      widgets:
-        - label:
-            align: TOP_LEFT
-            x: 160
-            y: 100
-            text_font: montserrat_20
-            text: "CLIMATE - TRUMA COMBI 4 (ROOM)"
-            text_color: 0x707070
-
-        - label:
-            id: lbl_climate_temp
-            align: TOP_LEFT
-            x: 400
-            y: 220
-            text_font: montserrat_48
-            text: "---°C"
-            text_color: 0x555555
-
-        - button:
-            id: btn_climate_temp_down
-            align: TOP_LEFT
-            x: 400
-            y: 420
-            width: 90
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "-"
-                  text_font: montserrat_24
-                  text_color: 0xBDC1C6
-            on_click:
-              - script.execute: act_climate_temp_down
-
-        - label:
-            id: lbl_climate_target
-            align: TOP_LEFT
-            x: 520
-            y: 442
-            width: 220
-            text_font: montserrat_20
-            text: "SOLL ---°C"
-            text_color: 0x555555
-
-        - button:
-            id: btn_climate_temp_up
-            align: TOP_LEFT
-            x: 770
-            y: 420
-            width: 90
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "+"
-                  text_font: montserrat_24
-                  text_color: 0xBDC1C6
-            on_click:
-              - script.execute: act_climate_temp_up
-
-        - button:
-            id: btn_climate_heater
-            align: TOP_LEFT
-            x: 530
-            y: 560
-            width: 220
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            widgets:
-              - label:
-                  id: lbl_climate_heater
-                  align: CENTER
-                  text: "HEIZ ---"
-                  text_font: montserrat_20
-                  text_color: 0x555555
-            on_click:
-              - script.execute: act_climate_heater
-
-        - label:
-            id: lbl_climate_active
-            align: TOP_LEFT
-            x: 800
-            y: 580
-            text_font: montserrat_16
-            text: "AKTIV ---"
-            text_color: 0x555555
-
-        - label:
-            id: lbl_climate_status
-            align: TOP_LEFT
-            x: 160
-            y: 700
-            width: 900
-            text_font: montserrat_16
-            text: ""
-            text_color: 0x555555
-
-    # =========================================================================
-    # Boiler (page_boiler) - pages.md §5, water-heating side of the same
-    # Truma Combi 4 as Climate
-    # =========================================================================
-    - id: page_boiler
-      bg_color: 0x000000
-      bg_opa: COVER
-      on_load:
         - script.execute: poll_boiler
       widgets:
-        - label:
+        - obj:
+            id: obj_truma_divider
+            align: TOP_LEFT
+            x: 705
+            y: 90
+            width: 1
+            height: 650
+            bg_color: 0x3C4043
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+
+        # ---- Left half: Heizung (room) -----------------------------------
+        - obj:
+            id: obj_truma_room
             align: TOP_LEFT
             x: 160
-            y: 100
-            text_font: montserrat_20
-            text: "BOILER - TRUMA COMBI 4 (WATER)"
-            text_color: 0x707070
-
-        - label:
-            id: lbl_boiler_temp
-            align: TOP_LEFT
-            x: 400
-            y: 220
-            text_font: montserrat_48
-            text: "---°C"
-            text_color: 0x555555
-
-        - button:
-            id: btn_boiler_temp_down
-            align: TOP_LEFT
-            x: 400
-            y: 420
-            width: 90
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
+            y: 90
+            width: 530
+            height: 650
+            bg_opa: TRANSP
+            border_width: 0
             widgets:
               - label:
-                  align: CENTER
-                  text: "-"
-                  text_font: montserrat_24
-                  text_color: 0xBDC1C6
-            on_click:
-              - script.execute: act_boiler_temp_down
-
-        - label:
-            id: lbl_boiler_target
-            align: TOP_LEFT
-            x: 520
-            y: 442
-            width: 220
-            text_font: montserrat_20
-            text: "SOLL ---°C"
-            text_color: 0x555555
-
-        - button:
-            id: btn_boiler_temp_up
-            align: TOP_LEFT
-            x: 770
-            y: 420
-            width: 90
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "+"
-                  text_font: montserrat_24
-                  text_color: 0xBDC1C6
-            on_click:
-              - script.execute: act_boiler_temp_up
-
-        - button:
-            id: btn_boiler_heater
-            align: TOP_LEFT
-            x: 530
-            y: 560
-            width: 220
-            height: 70
-            radius: 15
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            widgets:
-              - label:
-                  id: lbl_boiler_heater
-                  align: CENTER
-                  text: "BOILER ---"
+                  align: TOP_MID
+                  y: 0
                   text_font: montserrat_20
+                  text: "HEIZUNG (RAUM)"
+                  text_color: 0x707070
+
+              - arc:
+                  id: arc_climate_temp
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+
+              - label:
+                  id: lbl_climate_temp
+                  align: TOP_MID
+                  y: 120
+                  text_font: montserrat_40
+                  text: "---°C"
                   text_color: 0x555555
-            on_click:
-              - script.execute: act_boiler_heater
 
-        - label:
-            id: lbl_boiler_active
-            align: TOP_LEFT
-            x: 800
-            y: 580
-            text_font: montserrat_16
-            text: "AKTIV ---"
-            text_color: 0x555555
+              - label:
+                  id: lbl_climate_target
+                  align: TOP_MID
+                  y: 262
+                  width: 260
+                  text_font: montserrat_20
+                  text: "SOLL ---°C"
+                  text_color: 0x555555
 
-        - label:
-            id: lbl_boiler_status
+              - button:
+                  id: btn_climate_temp_down
+                  align: TOP_MID
+                  x: -95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_climate_temp_down
+
+              - button:
+                  id: btn_climate_temp_up
+                  align: TOP_MID
+                  x: 95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_climate_temp_up
+
+              - button:
+                  id: btn_climate_heater
+                  align: TOP_MID
+                  y: 390
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_climate_heater
+                        align: CENTER
+                        text: "HEIZ ---"
+                        text_font: montserrat_20
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_climate_heater
+
+              - label:
+                  id: lbl_climate_active
+                  align: TOP_MID
+                  y: 462
+                  text_font: montserrat_16
+                  text: "AKTIV ---"
+                  text_color: 0x555555
+
+              # ---- Fan level (Lüfterstufe) - READ-ONLY for now. See
+              # README's roadmap: select.womolin_controller_mqtt_fan_mode
+              # exists and is displayed here, but writing to it needs the
+              # entity's real option strings (unlike select.multiplus on
+              # the Electric page, where m5dial_fram's own page_power_3.yaml
+              # already documented ON/CHG/INV/OFF's real values) - nobody
+              # has confirmed fan_mode's option list yet, and guessing
+              # would send select.select_option an option string that
+              # might not exist.
+              - label:
+                  id: lbl_climate_fan_mode
+                  align: TOP_MID
+                  y: 500
+                  text_font: montserrat_16
+                  text: "LÜFTER ---"
+                  text_color: 0x555555
+
+        # ---- Right half: Boiler (water) -----------------------------------
+        - obj:
+            id: obj_truma_water
             align: TOP_LEFT
-            x: 160
-            y: 700
-            width: 900
+            x: 730
+            y: 90
+            width: 530
+            height: 650
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: montserrat_20
+                  text: "BOILER (WASSER)"
+                  text_color: 0x707070
+
+              - arc:
+                  id: arc_boiler_temp
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+
+              - label:
+                  id: lbl_boiler_temp
+                  align: TOP_MID
+                  y: 120
+                  text_font: montserrat_40
+                  text: "---°C"
+                  text_color: 0x555555
+
+              - label:
+                  id: lbl_boiler_target
+                  align: TOP_MID
+                  y: 262
+                  width: 260
+                  text_font: montserrat_20
+                  text: "SOLL ---°C"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_boiler_temp_down
+                  align: TOP_MID
+                  x: -95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_boiler_temp_down
+
+              - button:
+                  id: btn_boiler_temp_up
+                  align: TOP_MID
+                  x: 95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: montserrat_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_boiler_temp_up
+
+              - button:
+                  id: btn_boiler_heater
+                  align: TOP_MID
+                  y: 390
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_boiler_heater
+                        align: CENTER
+                        text: "BOILER ---"
+                        text_font: montserrat_20
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_boiler_heater
+
+              - label:
+                  id: lbl_boiler_active
+                  align: TOP_MID
+                  y: 462
+                  text_font: montserrat_16
+                  text: "AKTIV ---"
+                  text_color: 0x555555
+
+        # ---- Shared footer - ONE Truma unit behind both halves, so its
+        # status/error shows once here instead of on two separate pages
+        # (see sensor:/text_sensor: blocks' own header comments).
+        - label:
+            id: lbl_truma_status
+            align: BOTTOM_MID
+            y: -12
+            width: 1000
             text_font: montserrat_16
             text: ""
             text_color: 0x555555
