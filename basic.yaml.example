@@ -3,9 +3,15 @@
 #
 # Unlike smartebl's own basic.yaml.example, there is deliberately no
 # `wifi:`/`captive_portal:` block here — this board's primary network
-# path is Ethernet (see README.md "Why Ethernet, not Wi-Fi 6"). Add a
-# wifi: block back only once esphome/esphome#10956 (Wi-Fi 6 via the
-# ESP32-C6 co-processor) is resolved and you actually want that path.
+# path is Ethernet (see README.md "Why Ethernet, not Wi-Fi 6"; the
+# board also has a Wi-Fi 6/BLE co-processor wired up as infrastructure
+# in smart-ebl-display.yaml's esp32_hosted: block, just not an active
+# `wifi:` block yet). Add a wifi: block once you actually want that
+# path - the SDIO plumbing and firmware updater are already there.
+#
+# `logger:` lives in smart-ebl-display.yaml itself, not here - it needs
+# this board's specific `hardware_uart: UART0`, so it can't also be
+# merged in from this shared file without a duplicate-key conflict.
 
 api:
   encryption:
@@ -15,14 +21,14 @@ ota:
   - platform: esphome
     id: ota_esphome
     password: !secret ota_password
+    # A modern ESPHome (2024.6+) accepts `ota: platform: esphome` with
+    # no `password:` at all and authenticates OTA via the api:
+    # encryption key above instead - the separate OTA password is now
+    # optional, not dropped here only to keep this template working on
+    # older ESPHome releases too.
 
 web_server:
   port: 80
-
-logger:
-  level: DEBUG
-  logs:
-    scheduler: DEBUG
 
 time:
   - platform: homeassistant
