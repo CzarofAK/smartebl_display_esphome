@@ -284,15 +284,19 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       the old Nextion panel's existing two-wire NTC probe, moved over
       to this board - so `s_temp_outside` is a LOCAL ADC/NTC sensor
       (`adc_temp_outside` → `r_temp_outside` → `s_temp_outside`), not
-      an HA entity. **Unverified, flagged in the yaml itself:** the
-      GPIO (placeholder GPIO4 - this session has no confirmed ESP32-P4
-      ADC-pin map) and the NTC calibration constants (10kΩ/B=3950 is a
+      an HA entity.
+- [x] **GPIO confirmed for the outside-temp ADC: GPIO22**, not the
+      original GPIO4 guess (which isn't an ADC pin on this chip at
+      all). Cross-checked against ESP-IDF's own ADC channel table (repo
+      owner supplied the link) — see `docs/hardware.md`'s new ADC
+      section for the full ADC1/ADC2 GPIO map and which of those pins
+      are already claimed by `esp32_hosted`/Ethernet/the RS232 link.
+- [ ] **NTC calibration constants still unverified.** 10kΩ/B=3950 is a
       generic guess, not this specific sender's real datasheet values -
       wrong constants mean a plausible-looking but wrong reading, not
-      an obvious failure). Confirm both before trusting the number;
-      measuring the sender's actual resistance at a known room
-      temperature would let this be calibrated properly instead of
-      guessed.
+      an obvious failure. Measuring the sender's actual resistance at a
+      known room temperature (repo owner has the hardware) would let
+      this be calibrated properly instead of guessed.
 - [x] **HA entity_ids confirmed by the repo owner** against their real
       `womolin_controller` MQTT integration - `climate.*_truma_room`/
       `_water` and `switch.*_activate_room_heater`/`_water_heater` were

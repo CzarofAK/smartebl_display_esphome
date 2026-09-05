@@ -500,14 +500,18 @@ sensor:
   # board directly, so it's read locally over ADC, not via Home
   # Assistant like everything else in this section.
   #
-  # ⚠ UNVERIFIED - flagging every guessed number explicitly rather than
-  # silently showing a plausible-looking but wrong temperature:
-  #   - GPIO4 is a placeholder pin - picked because it's plain/unused
-  #     on the repo owner's own header photo, but this session has no
-  #     confirmed ESP32-P4 ADC-channel-to-GPIO map (docs/hardware.md
-  #     never needed one before now). `esphome config` will reject it
-  #     outright if it isn't ADC-capable - check that before flashing,
-  #     and move link_tx_pin/rx_pin-style if it needs to change.
+  # GPIO22 (ADC1 channel 6) - confirmed against ESP-IDF's own
+  # esp32p4/include/soc/adc_channel.h (ADC1 = GPIO16-23, ADC2 =
+  # GPIO49-54; see docs/hardware.md's ADC section for the full table
+  # and which of those are already claimed by esp32_hosted/Ethernet/
+  # this link), not the placeholder-GPIO4 guess this line originally
+  # had - GPIO4 isn't an ADC pin on this chip at all. GPIO22 is both
+  # ADC-capable and free on this board's header per the repo owner's
+  # own photo.
+  #
+  # ⚠ STILL UNVERIFIED - the pin is now confirmed, the sensor's own
+  # numbers are not, flagged explicitly rather than silently showing a
+  # plausible-looking but wrong temperature:
   #   - 10kOhm reference/divider resistor and B=3950 are the single
   #     most common spec for a generic automotive/consumer NTC probe,
   #     NOT read off this specific sender's datasheet (none available
@@ -523,7 +527,7 @@ sensor:
   #     other way around.
   - platform: adc
     id: adc_temp_outside
-    pin: GPIO4
+    pin: GPIO22
     attenuation: 12db
     update_interval: 30s
 
