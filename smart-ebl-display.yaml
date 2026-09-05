@@ -331,6 +331,33 @@ globals:
     restore_value: false
     initial_value: "0"
 
+  # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
+  # link. Kept in this same globals: block rather than a second one
+  # further down - see draw_climate/act_climate_* below for how these
+  # are used.
+  - id: g_climate_temp_pending
+    type: float
+    restore_value: false
+    initial_value: "20"
+
+  # Gates the "---" placeholder - g_climate_temp_pending can't be told
+  # apart from "genuinely 20°C" on its own.
+  - id: g_climate_temp_known
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # Optimistic HEIZ state shown instantly on tap, ahead of
+  # s_climate_heater_on's own confirmation.
+  - id: g_climate_heater_optimistic
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_climate_heater_optimistic_valid
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
 # ---- Local mirrors of smartebl's entities (protocol.md §5, groups 2-4) ----
 # Only the slice this release's three pages actually show - extend by
 # adding both a sensor/switch here AND the matching `else if` in the
@@ -379,6 +406,25 @@ sensor:
     on_value:
       - script.execute: draw_electric
 
+  # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
+  # link. Same entities m5dial_fram/page_climate.yaml already uses.
+  - platform: homeassistant
+    id: s_climate_room_temp
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: current_temperature
+    on_value:
+      - script.execute: draw_climate
+
+  - platform: homeassistant
+    id: s_climate_target
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          id(g_climate_temp_pending) = id(s_climate_target).state;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+
 binary_sensor:
   - platform: template
     id: s_shore_power_connected
@@ -386,6 +432,17 @@ binary_sensor:
     device_class: plug
     on_state:
       - script.execute: draw_electric
+
+  # ---- Climate (page_climate) - HA-fed via womolin_controller ---------
+  - platform: homeassistant
+    id: s_climate_heater_on
+    entity_id: switch.womolin_controller_mqtt_activate_room_heater
+    on_state:
+      # Real state just arrived - stop trusting the optimistic guess.
+      - globals.set:
+          id: g_climate_heater_optimistic_valid
+          value: "false"
+      - script.execute: draw_climate
 
 switch:
   # Optimistic local mirrors of smartebl's switches - flipped
@@ -898,63 +955,6 @@ script:
             if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x3C4043);
             return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
                                           : lv_color_hex(0x3C4043);
-
-# =============================================================================
-# Climate data source - Home Assistant (womolin_controller), not the link
-# =============================================================================
-
-globals:
-  - id: g_climate_temp_pending
-    type: float
-    restore_value: false
-    initial_value: "20"
-
-  # Gates the "---" placeholder - g_climate_temp_pending can't be told
-  # apart from "genuinely 20°C" on its own.
-  - id: g_climate_temp_known
-    type: bool
-    restore_value: false
-    initial_value: "false"
-
-  # Optimistic HEIZ state shown instantly on tap, ahead of
-  # s_climate_heater_on's own confirmation.
-  - id: g_climate_heater_optimistic
-    type: bool
-    restore_value: false
-    initial_value: "false"
-  - id: g_climate_heater_optimistic_valid
-    type: bool
-    restore_value: false
-    initial_value: "false"
-
-sensor:
-  - platform: homeassistant
-    id: s_climate_room_temp
-    entity_id: climate.womolin_controller_mqtt_truma_room
-    attribute: current_temperature
-    on_value:
-      - script.execute: draw_climate
-
-  - platform: homeassistant
-    id: s_climate_target
-    entity_id: climate.womolin_controller_mqtt_truma_room
-    attribute: temperature
-    on_value:
-      - lambda: |-
-          id(g_climate_temp_pending) = id(s_climate_target).state;
-          id(g_climate_temp_known) = true;
-      - script.execute: draw_climate
-
-binary_sensor:
-  - platform: homeassistant
-    id: s_climate_heater_on
-    entity_id: switch.womolin_controller_mqtt_activate_room_heater
-    on_state:
-      # Real state just arrived - stop trusting the optimistic guess.
-      - globals.set:
-          id: g_climate_heater_optimistic_valid
-          value: "false"
-      - script.execute: draw_climate
 
 # =============================================================================
 # LVGL - Mainscreen, Electric (Victron-style), Climate
