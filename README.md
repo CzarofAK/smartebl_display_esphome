@@ -392,6 +392,11 @@ cp basic.yaml.example .basics.yaml
 # catches duplicate ids / dangling references as a hard error)
 esphome config smart-ebl-display.yaml
 
+# ⚠ Whenever you touch `psram:` (mode/speed) or anything else that maps to
+# an ESP-IDF sdkconfig option, `esphome clean` first - see the note right
+# below this block for why this isn't optional on this board.
+esphome clean smart-ebl-display.yaml
+
 # Compile
 esphome compile smart-ebl-display.yaml
 
@@ -401,3 +406,12 @@ esphome upload smart-ebl-display.yaml
 # Flash OTA afterwards, over Wi-Fi (or the wired Ethernet port, if plugged in)
 esphome upload smart-ebl-display.yaml --device smart-ebl-display.local
 ```
+
+### ⚠ `esphome clean` after any PSRAM/sdkconfig change - not optional here
+
+Confirmed on this exact board (chip revision v1.3, the ES silicon `engineering_sample: true` above already flags): changing `psram:` (e.g. `speed: 200MHz` → `100MHz`, done in an earlier round to try to fix a boot crash) reflashed and produced the **byte-identical crash** - same PC, same register dump, same stack contents down to the last hex digit - as before the change. That's not "the fix didn't work", that's ESPHome's incremental build reusing stale compiled objects that don't match the new sdkconfig, so the flashed binary never actually reflected the new PSRAM setting at all. This is a known ESPHome bug on ESP32-P4 specifically:
+[esphome/esphome#15336](https://github.com/esphome/esphome/issues/15336) (same v1.3 ES silicon, same crash family) → fixed by
+[esphome/esphome#15439](https://github.com/esphome/esphome/pull/15439) ("force a full rebuild if any sdkconfig options are changed" - the specific culprit named there is `execute_from_psram`), later relaxed in
+[esphome/esphome#18876](https://github.com/esphome/esphome/pull/18876).
+
+Whether or not your installed ESPHome version already includes that fix, `esphome clean smart-ebl-display.yaml` before `compile` is the safe manual equivalent - cheap, and removes any doubt about whether a config change actually reached the flashed binary. Do this any time `psram:`, `esp32: framework:`, or anything else that isn't plain application logic changes - not just once.
