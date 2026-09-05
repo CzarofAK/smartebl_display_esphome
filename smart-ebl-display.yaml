@@ -155,6 +155,24 @@ i2c:
     scan: true
 
 # =============================================================================
+# LDO - powers the MIPI DSI PHY (required by display.mipi_dsi below)
+# =============================================================================
+# The ESP32-P4's DSI/CSI PHY draws its power from the chip's internal
+# adjustable LDO, not directly from the 3.3V rail - `mipi_dsi` lists
+# esp_ldo as a hard DEPENDENCIES entry and esphome config fails
+# ("Component display.mipi_dsi requires component esp_ldo") without a
+# block like this present somewhere in the config. Channel 3 at 2.5V is
+# not a guess - it's exactly what ESPHome's own test fixture for this
+# component uses (tests/components/mipi_dsi/test.esp32-p4-idf.yaml).
+# Nothing else in this file references `ldo_id` - just having the block
+# satisfies the dependency; ESPHome wires it to the DSI PHY internally.
+
+esp_ldo:
+  - id: ldo_dsi
+    channel: 3
+    voltage: 2.5V
+
+# =============================================================================
 # Display - 10.1-DSI-TOUCH-A (800x1280, JD9365 panel, 2 DSI lanes)
 # =============================================================================
 # WAVESHARE-10.1-DSI-TOUCH-A already exists as a built-in model in
