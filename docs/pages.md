@@ -65,7 +65,7 @@ Full width, persistent on every page (including the home page).
 
 | Zone | Normal state | Alert state |
 |---|---|---|
-| Left/center | Time + date, plus inside/outside temperature — **implemented**: inside reuses `page_climate`'s own Truma room sensor (no second HA entity needed), outside is `s_temp_outside`, still a `PLACEHOLDER` entity_id pending the real one | Master Warning (red) / Caution (orange) scrolling text — `smartebl_display/docs/design.md`'s existing color/priority scheme, reused unchanged |
+| Left/center | Time + date, plus inside/outside temperature — **implemented**: inside reuses `page_climate`'s own Truma room sensor (no second HA entity needed); outside (`s_temp_outside`) is a LOCAL two-wire NTC probe moved over from the old Nextion panel, read directly over ADC (`adc_temp_outside`→`r_temp_outside`→`s_temp_outside`), not an HA entity - GPIO and NTC calibration constants are unverified guesses, see `README.md`'s roadmap | Master Warning (red) / Caution (orange) scrolling text — `smartebl_display/docs/design.md`'s existing color/priority scheme, reused unchanged |
 | Right, icon cluster | WLAN status · RS232 link status (`docs/protocol.md`'s existing "LINK OK"/"NO LINK", already implemented in `smart-ebl-display.yaml`) · Brightness/Day-Night | — |
 
 **Alarmo is explicitly not in this bar** — homepage tile + PIN popup only

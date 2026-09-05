@@ -280,9 +280,19 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       (ECO/mid/BOOST), touch-adapted the same way Climate was.
 - [x] **Status bar: inside/outside temperature added**, per user
       feedback on the first hardware test. Inside reuses
-      `page_climate`'s own Truma room sensor; outside
-      (`s_temp_outside`) is still a `PLACEHOLDER` entity_id — needs the
-      real HA entity for this installation's outdoor sensor.
+      `page_climate`'s own Truma room sensor. Outside turned out to be
+      the old Nextion panel's existing two-wire NTC probe, moved over
+      to this board - so `s_temp_outside` is a LOCAL ADC/NTC sensor
+      (`adc_temp_outside` → `r_temp_outside` → `s_temp_outside`), not
+      an HA entity. **Unverified, flagged in the yaml itself:** the
+      GPIO (placeholder GPIO4 - this session has no confirmed ESP32-P4
+      ADC-pin map) and the NTC calibration constants (10kΩ/B=3950 is a
+      generic guess, not this specific sender's real datasheet values -
+      wrong constants mean a plausible-looking but wrong reading, not
+      an obvious failure). Confirm both before trusting the number;
+      measuring the sender's actual resistance at a known room
+      temperature would let this be calibrated properly instead of
+      guessed.
 - [x] **HA entity_ids confirmed by the repo owner** against their real
       `womolin_controller` MQTT integration - `climate.*_truma_room`/
       `_water` and `switch.*_activate_room_heater`/`_water_heater` were
@@ -296,8 +306,6 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       fan_mode` and the three timer entities exist too but aren't wired
       up yet - fan mode selection and timer display are still follow-up
       work, not in this round.
-      `s_temp_outside`'s entity_id is still a `PLACEHOLDER`, not yet
-      confirmed.
 - [x] **GPIO37/GPIO38 confirmed bad, moved to GPIO21/GPIO20.** The
       repo owner's own header photo settled it: GPIO37/38 are this
       board's silkscreen-labelled TXD/RXD (console UART), not a free

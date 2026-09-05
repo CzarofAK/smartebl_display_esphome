@@ -494,16 +494,54 @@ sensor:
       - script.execute: draw_climate
       - script.execute: draw_status_bar
 
-  # ---- Status bar "outside" temperature ---------------------------------
-  # entity_id is a PLACEHOLDER (m5dial_fram's own naming convention for
-  # "not a real, confirmed entity yet" - see that repo's design_rules.md
-  # §15) - replace with the real outdoor-temperature entity_id (a
-  # weather integration, a vehicle sensor, whatever this installation
-  # actually has) once confirmed. Renders "OUT ---°C" until then, same
-  # invalid-value convention as everything else.
-  - platform: homeassistant
+  # ---- Status bar "outside" temperature - LOCAL sensor, not HA --------
+  # This is the two-wire resistive (NTC thermistor) sender already
+  # wired to the old Nextion panel - repo owner is moving it to this
+  # board directly, so it's read locally over ADC, not via Home
+  # Assistant like everything else in this section.
+  #
+  # ⚠ UNVERIFIED - flagging every guessed number explicitly rather than
+  # silently showing a plausible-looking but wrong temperature:
+  #   - GPIO4 is a placeholder pin - picked because it's plain/unused
+  #     on the repo owner's own header photo, but this session has no
+  #     confirmed ESP32-P4 ADC-channel-to-GPIO map (docs/hardware.md
+  #     never needed one before now). `esphome config` will reject it
+  #     outright if it isn't ADC-capable - check that before flashing,
+  #     and move link_tx_pin/rx_pin-style if it needs to change.
+  #   - 10kOhm reference/divider resistor and B=3950 are the single
+  #     most common spec for a generic automotive/consumer NTC probe,
+  #     NOT read off this specific sender's datasheet (none available
+  #     in this session). If the reading looks off once flashed:
+  #     measure the sender's actual resistance at a known room
+  #     temperature with a multimeter and tell me both numbers - two
+  #     such measurements (or one plus a trusted B-constant) are enough
+  #     to calibrate this properly instead of guessing.
+  #   - `configuration: DOWNSTREAM` assumes the sender sits between the
+  #     ADC pin and GND, with a fixed resistor between 3.3V and that
+  #     same pin (add that resistor if the old panel's circuit doesn't
+  #     already have one in-line) - swap to UPSTREAM if it's wired the
+  #     other way around.
+  - platform: adc
+    id: adc_temp_outside
+    pin: GPIO4
+    attenuation: 12db
+    update_interval: 30s
+
+  - platform: resistance
+    id: r_temp_outside
+    sensor: adc_temp_outside
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    reference_voltage: 3.3V
+
+  - platform: ntc
     id: s_temp_outside
-    entity_id: sensor.outside_temperature_PLACEHOLDER
+    sensor: r_temp_outside
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 10kOhm
+    name: "Outside Temperature"
     on_value:
       - script.execute: draw_status_bar
 
@@ -887,9 +925,9 @@ script:
             lv_label_set_text(id(lbl_status_time), "--:--:--   --.--.----");
           }
 
-          // ---- Inside/outside temperature ----------------------------
-          // Inside reuses the Truma room sensor (page_climate's own
-          // s_climate_room_temp) rather than a second HA entity.
+          // ---- Inside temperature - HA-fed (Truma room sensor via
+          // page_climate's own s_climate_room_temp), so it DOES need
+          // api_is_connected() like every other HA value in this file.
           #ifdef USE_API
           bool api_ok = api_is_connected();
           #else
@@ -904,7 +942,13 @@ script:
             lv_label_set_text(id(lbl_status_temp_in), "IN ---°C");
             lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0x555555), 0);
           }
-          if (api_ok && id(s_temp_outside).has_state()) {
+
+          // ---- Outside temperature - LOCAL NTC sensor (adc_temp_outside/
+          // r_temp_outside/s_temp_outside above), NOT HA-fed - works
+          // over the RS232 link's own local hardware regardless of
+          // Wi-Fi/API state, same reasoning as the link-fed values on
+          // page_home/page_electric. No api_ok guard on purpose.
+          if (id(s_temp_outside).has_state()) {
             snprintf(tbuf, sizeof(tbuf), "OUT %.0f°C", id(s_temp_outside).state);
             lv_label_set_text(id(lbl_status_temp_out), tbuf);
             lv_obj_set_style_text_color(id(lbl_status_temp_out), lv_color_hex(0xBDC1C6), 0);
