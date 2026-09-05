@@ -87,12 +87,17 @@ the actual device once real pages are built, not guessed in advance.
   in `smart-ebl-display.yaml`. The panel is natively 800×1280
   (portrait) - anything laid out against this orientation is laid out
   against a 1280×800 canvas, not the panel's native dimensions.
-- **Rectangular layout grid.** `m5dial_fram`'s §3 grid (y_main/y_row/…)
-  has no equivalent here yet. The first PR that builds a real page
-  (beyond this repo's single bring-up page) should establish one — a
-  shared `substitutions:` block of y/x positions, per that document's
-  own reasoning ("identical values in every page file, so merging
-  collapses to one block") — and record it in this section.
+- ~~**Rectangular layout grid.**~~ First pass established by the first
+  three real pages (`page_home`, `page_electric`, `page_climate`):
+  `smart-ebl-display.yaml`'s `substitutions:` block carries `screen_w`/
+  `screen_h` (1280x800, the landscape canvas after `rotation: 90`),
+  `bar_h` (64, top status bar), `nav_w` (130, left nav rail), and
+  `content_x`/`content_y` (where every page's own content starts) —
+  same reasoning as `m5dial_fram`'s §3 ("identical values in every page
+  file, so merging collapses to one block"). Still first-pass, not
+  final: per this section's own reasoning, refine the numbers once
+  seen on the real device, but reuse these names rather than inventing
+  a second grid.
 - **Performance at 800×1280.** LVGL software rendering at this
   resolution is a tracked concern upstream —
   [esphome/esphome#16873](https://github.com/esphome/esphome/issues/16873)
