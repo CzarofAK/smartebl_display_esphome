@@ -129,13 +129,9 @@ placeholder to guess at.
 
 ## Not confirmed — placeholders, must be verified before flashing
 
-**RS232 link UART pins — GPIO37/GPIO38 now suspected bad, not just
-unconfirmed.** Originally just "two free GPIOs *you* choose from the
-28 broken out on the board's 2×20 header, wired to whichever pins your
-RS232-to-TTL transceiver breakout lands on" (see the README's "RS232
-link" section for why that extra transceiver chip is needed) — but the
-first real flash of `smart-ebl-display.yaml` turned up a concrete
-finding, not just a hunch:
+**RS232 link UART pins — confirmed bad (GPIO37/38), moved to GPIO21/20.**
+The first real flash of `smart-ebl-display.yaml` (on GPIO37/GPIO38)
+turned up a concrete finding, not just a hunch:
 
 - ESPHome itself flagged both as strapping pins at compile time.
 - On the actual device, `C;switch_pump=0;...`-style command frames
@@ -143,27 +139,28 @@ finding, not just a hunch:
   inside the ESPHome log stream itself** — garbled mid-line, not as
   separate output on a different wire.
 
-Strapping pins on ESP32 chips are frequently the same pins as the
-boot/console UART, and interleaved raw bytes in the console log is
-exactly what you'd see if `link_uart` and the console UART (`logger:
-hardware_uart: UART0`) turned out to be the same physical wire on this
-board. Both symptoms point the same direction: **GPIO37/GPIO38 are not
-a safe pair to use for this link on this board**, not merely
-"unconfirmed." Do not wire a real RS232-to-TTL transceiver to them —
-pick a different pair once you've confirmed which header pins are
-actually free (continuity check against the schematic, or the
-Waveshare wiki page already referenced above), and update both
-`smart-ebl-display.yaml`'s `link_tx_pin`/`link_rx_pin` substitutions
-and this section with the real answer.
+The repo owner's own photo of the board's 2×20 header **confirms this
+outright**: GPIO37/GPIO38 are the header's silkscreen-labelled
+`TXD`/`RXD` pins (called out in purple as "UART" in that photo's own
+legend, distinct from the plain green "GPIO" pins) — i.e. exactly the
+console/UART0 wiring `logger: hardware_uart: UART0` already uses, not
+a free pair at all.
 
-Once a real pair is confirmed: just avoid the GPIOs already spoken for
-above (7, 8, 14–19, 28–31, 34, 35, 49–52, 54) plus GPIO37/38 now, and
-whatever else you use on the header. Most of those are almost
-certainly point-to-point traces to the onboard PHY/co-processor rather
-than pins ever routed to the header in the first place, so this is
-unlikely to actually crowd the 28 header GPIOs the way the raw count
-suggests — but it's not confirmed either way, so treat the list as
-"definitely don't use these," not as "only N GPIOs remain."
+`smart-ebl-display.yaml` now uses **GPIO21 (tx) / GPIO20 (rx)**
+instead — plain, unlabelled GPIOs on the same header, adjacent to each
+other, not claimed by anything else in this file. Per that same photo,
+none of touch I2C (7/8), the ESP32-C6 SDIO link (14–19/54), or the
+Ethernet RMII pins (28–31/34/35/49–52) are even broken out on this
+header in the first place — GPIO37/38 were the only real collision on
+it, and that's now fixed. GPIO21/20 are **not** independently confirmed
+against a schematic beyond "not the console UART, per the header
+photo" - if ESPHome logs a new strapping-pin warning for either on the
+next flash, take it exactly as seriously as GPIO37/38's turned out to
+be, not as cosmetic.
+
+Once wired: just avoid the GPIOs already spoken for above (7, 8,
+14–19, 28–31, 34, 35, 49–52, 54) plus GPIO37/38 now, and whatever else
+you use on the header.
 
 ## Reusing the existing OEM 6-pin harness (DS470FR ↔ PC380)
 

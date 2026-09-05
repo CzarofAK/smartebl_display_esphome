@@ -20,20 +20,26 @@ substitutions:
   friendly_name: Smart EBL Display
 
   # ---- RS232 link to the Smart EBL main unit (docs/protocol.md) -------
-  # ⚠ SUSPECTED BAD ON REAL HARDWARE - see docs/hardware.md's "Not
-  # confirmed" section. First real flash showed command frames
-  # (`C;switch_pump=0;...`) interleaved INSIDE the ESPHome log stream
-  # itself, garbled mid-line - strong evidence GPIO37/GPIO38 coincide
-  # with (or otherwise interfere with) this board's actual UART0/
-  # console wiring, not a free pair of header pins. Both are also
-  # flagged by ESPHome itself as strapping pins, which on ESP32 chips
-  # often *are* the boot/console UART pins - consistent with this
-  # theory. Do not wire a real RS232 transceiver to these two until
-  # this is resolved with different pins - check continuity against
-  # your board's actual free header pins (or the schematic) and update
-  # both this and docs/hardware.md once confirmed.
-  link_tx_pin: GPIO37
-  link_rx_pin: GPIO38
+  # Moved off GPIO37/GPIO38 (see docs/hardware.md's "Not confirmed"
+  # section for why - real hardware showed those interleaved with the
+  # console UART). Per the repo owner's own 2x20 header photo, GPIO37/38
+  # are the board's silkscreen-labelled TXD/RXD pair (purple "UART" in
+  # that photo's legend) - i.e. exactly the console/UART0 pins, not a
+  # free pair at all, confirming the earlier suspicion outright.
+  #
+  # GPIO21/GPIO20 chosen instead: plain, unlabelled GPIOs (green in that
+  # same photo) on the header, adjacent to each other for easy wiring,
+  # and not claimed by anything else in this file (touch I2C is 7/8,
+  # esp32_hosted SDIO is 14-19/54, Ethernet RMII is 28-31/34/35/49-52 -
+  # none of those are even on this header per the photo, so they were
+  # never really a collision risk; GPIO37/38 were the only two pins on
+  # the header this repo had gotten wrong). Still not confirmed against
+  # a schematic for anything OTHER than "not the console UART" - if
+  # ESPHome logs a new strapping-pin warning for either on the next
+  # flash, treat that the same way GPIO37/38's warning turned out to be
+  # meaningful, not cosmetic.
+  link_tx_pin: GPIO21
+  link_rx_pin: GPIO20
 
   # ---- Rectangular layout grid (design_rules.md §4's open item) -------
   # `lvgl: rotation: 90` below turns the panel's native 800x1280
@@ -79,6 +85,10 @@ esphome:
       - script.execute: draw_electric
       - script.execute: draw_climate
       - script.execute: draw_boiler
+      - lambda: |-
+          const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
+          lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+      - script.execute: apply_daynight
 
 esp32:
   variant: esp32p4
@@ -296,6 +306,36 @@ text_sensor:
     on_value:
       - script.execute: apply_daynight
 
+  # ---- Truma status/error - ONE shared Truma CP Plus unit behind both
+  # Climate and Boiler (room + water are two sides of the same Combi 4),
+  # so these have no room/water suffix in HA and are shown on BOTH
+  # pages' footers (draw_climate/draw_boiler), not duplicated per page.
+  # text_sensor, not sensor: these are status/mode/error STRINGS
+  # ("Heizen", an error code, etc.), not numbers - a plain `sensor:`
+  # would try to parse them as floats. Real entity_ids confirmed by the
+  # repo owner (womolin_controller MQTT integration) - not a guess like
+  # the rest of this section used to be.
+  - platform: homeassistant
+    id: s_truma_operating_status
+    entity_id: sensor.womolin_controller_mqtt_operating_status
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_heating_mode
+    entity_id: sensor.womolin_controller_mqtt_heating_mode
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_error_code
+    entity_id: sensor.womolin_controller_mqtt_heater_error_code
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
 # =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
 # =============================================================================
@@ -335,6 +375,14 @@ globals:
   - id: g_current_page
     type: int
     restore_value: false
+    initial_value: "0"
+
+  # ---- Day/night manual override (see apply_daynight/cycle_daynight) --
+  # restore_value: true, same as m5dial_fram's own g_daynight - a manual
+  # DAY/NIGHT pick should survive a reboot, not silently revert to AUTO.
+  - id: g_daynight
+    type: int
+    restore_value: true
     initial_value: "0"
 
   # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
@@ -515,6 +563,39 @@ binary_sensor:
       - globals.set:
           id: g_boiler_heater_optimistic_valid
           value: "false"
+      - script.execute: draw_boiler
+
+  # ---- "Actually heating" vs. "activated" - the activate switch above
+  # is the on/off gate the HEIZ/BOILER button toggles; these reflect
+  # whether the Truma is actually running right now, which can lag the
+  # gate (ignition, water already at temp, etc.) - shown as a small
+  # secondary indicator, not instead of the button's own state.
+  - platform: homeassistant
+    id: s_climate_heater_active
+    entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+    on_state:
+      - script.execute: draw_climate
+
+  - platform: homeassistant
+    id: s_boiler_heater_active
+    entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+    on_state:
+      - script.execute: draw_boiler
+
+  # ---- Truma status/error, shared by both pages - see the sensor:
+  # block above for why there's no room/water split here.
+  - platform: homeassistant
+    id: s_truma_has_error
+    entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+    on_state:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_cp_plus_alive
+    entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+    on_state:
+      - script.execute: draw_climate
       - script.execute: draw_boiler
 
 switch:
@@ -709,11 +790,35 @@ script:
           id(link_uart)->write_str((payload + "*" + std::string(hex) + "\n").c_str());
 
   # ---- Day/night (see the sbb_clock section above) ---------------------
+  # g_daynight: 0 AUTO (follows s_sun) / 1 DAY / 2 NIGHT, manual override
+  # via lbl_daynight_toggle in the status bar (top_layer) - the popup
+  # pages.md §4 describes isn't built, but a manual override was
+  # explicitly asked for on the first hardware test, so this is a
+  # minimal stand-in for it: no brightness slider (still blocked on the
+  # unconfirmed backlight pin), just the day/night half.
   - id: apply_daynight
     then:
       - lambda: |-
-          bool night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+          bool night;
+          int m = id(g_daynight);
+          if (m == 1) {
+            night = false;
+          } else if (m == 2) {
+            night = true;
+          } else {
+            night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+          }
           id(clock_face).set_night_mode(night);
+
+  - id: cycle_daynight
+    then:
+      - globals.set:
+          id: g_daynight
+          value: !lambda "return (id(g_daynight) + 1) % 3;"
+      - script.execute: apply_daynight
+      - lambda: |-
+          const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
+          lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
 
   # ---- Nav rail (top_layer, persists on every page) --------------------
   - id: nav_show_home
@@ -928,6 +1033,32 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: switch.womolin_controller_mqtt_activate_room_heater
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+      - script.execute: poll_truma_status
+
+  # Shared Truma status/error - see sensor: block's header comment.
+  # Called from both poll_climate and poll_boiler; the extra calls are
+  # cheap and this way neither page depends on the other having loaded
+  # first (m5dial_fram/design_rules.md §9's own reasoning for polling
+  # unconditionally rather than guessing what's "probably already
+  # fresh").
+  - id: poll_truma_status
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.womolin_controller_mqtt_operating_status
 
   - id: act_climate_heater
     then:
@@ -1062,6 +1193,54 @@ script:
             return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
                                           : lv_color_hex(0x3C4043);
 
+      # ---- "Actually heating" indicator - distinct from the button
+      # above, which reflects the on/off gate, not whether the Truma
+      # is really running right now.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_climate_heater_active).has_state()) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x555555), 0);
+          } else if (id(s_climate_heater_active).state) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV JA");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV NEIN");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x707070), 0);
+          }
+
+      # ---- Truma status/error footer - shared unit, see sensor: block's
+      # header comment. Priority: error > CP Plus not connected >
+      # operating status/heating mode > empty.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_climate_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0x555555), 0);
+            return;
+          }
+          #endif
+          if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
+            std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
+            lv_label_set_text(id(lbl_climate_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0xE74C3C), 0);
+          } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
+            lv_label_set_text(id(lbl_climate_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0xF39C12), 0);
+          } else if (id(s_truma_operating_status).has_state()) {
+            std::string txt = id(s_truma_operating_status).state;
+            if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
+            lv_label_set_text(id(lbl_climate_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_climate_status), lv_color_hex(0x707070), 0);
+          } else {
+            lv_label_set_text(id(lbl_climate_status), "");
+          }
+
   # ---- Boiler (page_boiler) ----------------------------------------------
   # Water-heating side of the same Truma Combi 4 as Climate, same
   # womolin_controller integration, same touch-adapted +/- shape - but
@@ -1080,6 +1259,11 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: switch.womolin_controller_mqtt_activate_water_heater
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+      - script.execute: poll_truma_status
 
   - id: act_boiler_heater
     then:
@@ -1219,6 +1403,53 @@ script:
             return id(s_boiler_heater_on).state ? lv_color_hex(0x2ECC71)
                                          : lv_color_hex(0x3C4043);
 
+      # ---- "Actually heating" indicator - see draw_climate's identical
+      # block for why this is separate from the button's own state.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_boiler_heater_active).has_state()) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x555555), 0);
+          } else if (id(s_boiler_heater_active).state) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV JA");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV NEIN");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x707070), 0);
+          }
+
+      # ---- Truma status/error footer - same shared unit/logic as
+      # draw_climate's identical block (see sensor: block's header
+      # comment for why there's no room/water split here).
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_boiler_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0x555555), 0);
+            return;
+          }
+          #endif
+          if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
+            std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
+            lv_label_set_text(id(lbl_boiler_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0xE74C3C), 0);
+          } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
+            lv_label_set_text(id(lbl_boiler_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0xF39C12), 0);
+          } else if (id(s_truma_operating_status).has_state()) {
+            std::string txt = id(s_truma_operating_status).state;
+            if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
+            lv_label_set_text(id(lbl_boiler_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_boiler_status), lv_color_hex(0x707070), 0);
+          } else {
+            lv_label_set_text(id(lbl_boiler_status), "");
+          }
+
 # =============================================================================
 # LVGL - Mainscreen, Electric (Victron-style), Climate, Boiler
 # =============================================================================
@@ -1272,6 +1503,27 @@ lvgl:
           text_font: montserrat_16
           text: "OUT ---°C"
           text_color: 0x555555
+      - button:
+          id: btn_daynight_toggle
+          align: TOP_RIGHT
+          x: -220
+          y: 14
+          width: 90
+          height: 36
+          radius: 8
+          bg_color: 0x202124
+          border_width: 1
+          border_color: 0x3C4043
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_daynight_toggle
+                align: CENTER
+                text: "AUTO"
+                text_font: montserrat_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: cycle_daynight
       - label:
           id: lbl_status_link
           align: TOP_RIGHT
@@ -1394,20 +1646,54 @@ lvgl:
     # Mainscreen (page_home) - pages.md §5/§6
     # =========================================================================
     - id: page_home
+      # bg_color/bg_opa here, not just lvgl: bottom_layer: above - an
+      # LVGL page has its own background that sits on top of
+      # bottom_layer, and was NOT black by default on the real device
+      # (reported by the repo owner) despite bottom_layer being black.
+      # Every page below repeats this explicitly for the same reason.
+      bg_color: 0x000000
+      bg_opa: COVER
       widgets:
         # ---- Right half: SBB clock --------------------------------------
         - sbb_clock:
             id: clock_face
             time_id: homeassistant_time
-            width: 600
-            height: 600
+            width: 450
+            height: 450
             align: TOP_LEFT
-            x: 650
-            y: 130
-            foreground: col_clock_ink
-            background: col_clock_bg
+            x: 750
+            y: 200
+            # Round, not square (bug reported on real hardware): a
+            # canvas is inherently rectangular, so without both of
+            # these it rendered as a plain filled square. transparent
+            # lets the square's corners show the page's own black
+            # background through instead of a solid fill; show_face
+            # draws the actual round dial - together they're what
+            # makes it read as a circle rather than a block.
+            transparent: true
+            show_face: true
+            # Real SBB clock look (design_rules.md §6's documented
+            # exception, m5dial_fram's clock page uses the same
+            # colors): WHITE face, BLACK hands by day - background/
+            # foreground here are the DAY baseline; set_night_mode()
+            # (apply_daynight, below) swaps them at runtime for BLACK
+            # face for BLACK, WHITE hands at night. Previously had
+            # these backwards (white ink on a black square, no face) -
+            # that's the other half of the same bug report.
+            background: col_clock_ink   # white face by day
+            foreground: col_clock_bg    # black hands/ticks/text by day
             second_hand_color: col_clock_second
             show_date: true
+            # render_interval default is 100ms; halved here because
+            # `transparent: true` forces a full-canvas redraw every
+            # frame (README: "transparent: true still does a full
+            # redraw every frame, since a plain rect can't erase to
+            # transparent") - combined with this canvas already having
+            # to live in PSRAM (see the boot-log warning noted in
+            # README's roadmap), redrawing that often was a real risk,
+            # not a style choice. Revisit if the second hand looks
+            # choppy on the real device - that's the direct trade-off.
+            render_interval: 200ms
 
         # ---- Left half: one tile per switch (pages.md §6) ---------------
         # Fridge is reserved regardless of outcome (pages.md §6: "user is
@@ -1615,6 +1901,8 @@ lvgl:
     # Electric - Victron-style overview (page_electric) - pages.md §5
     # =========================================================================
     - id: page_electric
+      bg_color: 0x000000
+      bg_opa: COVER
       widgets:
         # ---- Row 1: Shore -> Inverter/Charger -> AC Loads ----------------
         - obj:
@@ -1823,6 +2111,8 @@ lvgl:
     # Climate (page_climate) - pages.md §5
     # =========================================================================
     - id: page_climate
+      bg_color: 0x000000
+      bg_opa: COVER
       on_load:
         - script.execute: poll_climate
       widgets:
@@ -1914,11 +2204,32 @@ lvgl:
             on_click:
               - script.execute: act_climate_heater
 
+        - label:
+            id: lbl_climate_active
+            align: TOP_LEFT
+            x: 800
+            y: 580
+            text_font: montserrat_16
+            text: "AKTIV ---"
+            text_color: 0x555555
+
+        - label:
+            id: lbl_climate_status
+            align: TOP_LEFT
+            x: 160
+            y: 700
+            width: 900
+            text_font: montserrat_16
+            text: ""
+            text_color: 0x555555
+
     # =========================================================================
     # Boiler (page_boiler) - pages.md §5, water-heating side of the same
     # Truma Combi 4 as Climate
     # =========================================================================
     - id: page_boiler
+      bg_color: 0x000000
+      bg_opa: COVER
       on_load:
         - script.execute: poll_boiler
       widgets:
@@ -2009,3 +2320,22 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - script.execute: act_boiler_heater
+
+        - label:
+            id: lbl_boiler_active
+            align: TOP_LEFT
+            x: 800
+            y: 580
+            text_font: montserrat_16
+            text: "AKTIV ---"
+            text_color: 0x555555
+
+        - label:
+            id: lbl_boiler_status
+            align: TOP_LEFT
+            x: 160
+            y: 700
+            width: 900
+            text_font: montserrat_16
+            text: ""
+            text_color: 0x555555

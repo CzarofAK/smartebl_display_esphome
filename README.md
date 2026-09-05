@@ -283,21 +283,39 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       `page_climate`'s own Truma room sensor; outside
       (`s_temp_outside`) is still a `PLACEHOLDER` entity_id — needs the
       real HA entity for this installation's outdoor sensor.
-- [ ] **Confirm every HA entity_id actually matches this installation.**
-      `climate.womolin_controller_mqtt_truma_room`/`_water` and
-      `switch.womolin_controller_mqtt_activate_room_heater`/
-      `_water_heater` were carried over from `m5dial_fram` on the
-      assumption they're the same real integration — should be right,
-      but unconfirmed from this session (no access to a live HA
-      instance). `s_temp_outside`'s entity_id is a known placeholder,
-      not yet confirmed at all.
-- [ ] ⚠ **GPIO37/GPIO38 (RS232 link) suspected bad on the real board** —
-      see `docs/hardware.md`'s "Not confirmed" section. First hardware
-      flash showed command frames interleaved inside the console log
-      itself, strong evidence these two pins coincide with (or
-      otherwise interfere with) this board's actual UART0 wiring.
-      Needs a different pin pair, confirmed against the real board,
-      before a physical RS232 transceiver is wired to them.
+- [x] **HA entity_ids confirmed by the repo owner** against their real
+      `womolin_controller` MQTT integration - `climate.*_truma_room`/
+      `_water` and `switch.*_activate_room_heater`/`_water_heater` were
+      right. Also added, all real: `binary_sensor.*_room_heater_active`/
+      `_water_heater_active` (is the Truma actually heating right now,
+      shown next to the on/off button, not instead of it), and the
+      shared (not per-room/water) `binary_sensor.*_heater_has_error`,
+      `binary_sensor.*_cp_plus_alive`, `sensor.*_operating_status`,
+      `sensor.*_heating_mode`, `sensor.*_heater_error_code` - all shown
+      in a status/error footer on both Climate and Boiler. `select.*_
+      fan_mode` and the three timer entities exist too but aren't wired
+      up yet - fan mode selection and timer display are still follow-up
+      work, not in this round.
+      `s_temp_outside`'s entity_id is still a `PLACEHOLDER`, not yet
+      confirmed.
+- [x] **GPIO37/GPIO38 confirmed bad, moved to GPIO21/GPIO20.** The
+      repo owner's own header photo settled it: GPIO37/38 are this
+      board's silkscreen-labelled TXD/RXD (console UART), not a free
+      pair at all. See `docs/hardware.md`'s "Not confirmed" section.
+- [x] **Two real bugs from the same hardware test, fixed:** every
+      page's background wasn't actually black (an LVGL page's own
+      background sits on top of `lvgl: bottom_layer:` and needs its own
+      `bg_color`/`bg_opa`, now set on all four pages) — and the
+      `sbb_clock` widget rendered as a plain filled square, not a
+      circle, because neither `transparent:` nor `show_face:` was set;
+      both fixed, and the day/night colors corrected to the real SBB
+      look (white face/black hands by day, inverted at night) that
+      `smart-ebl-display.yaml`'s comments had backwards before.
+- [x] **Manual day/night toggle** — a small `AUTO`/`DAY`/`NIGHT` button
+      in the status bar (`cycle_daynight`), since the full popup
+      (`pages.md` §3) isn't built yet and a manual override was
+      requested on the same hardware test. No brightness control still
+      (blocked on the unconfirmed backlight pin).
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
