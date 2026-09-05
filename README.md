@@ -142,6 +142,16 @@ display side needs its own RS232-to-3.3V-TTL interface board between the
 RJ45 jack and `link_tx_pin`/`link_rx_pin` (user-built, purpose-made for
 this — not the onboard Ethernet PHY, not a generic USB-RS232 dongle).
 
+The plan is to reuse the vehicle's existing 6-pin cable between the old
+CBE DS470FR electroblock and PC380 display, already routed through the
+body, rather than pulling a new one — with a small 6-pin-to-RJ45 adapter
+at the `smartebl` end. See `docs/hardware.md`'s "Reusing the existing
+OEM 6-pin harness" section for `smartebl`'s exact RJ45 pin mapping, which
+pins are safe to bridge at that adapter (and which two must never be),
+and what's still open (identifying which physical wire in the old
+harness is which signal, and confirming it's actually wired for both
+directions).
+
 On top of that wire, `docs/protocol.md` defines a small ASCII line protocol:
 `smartebl` continuously broadcasts telemetry frames (one group of related
 values at a time — fuses, tanks, electrical, switches, Truma, system), and
@@ -195,6 +205,9 @@ display gets its own rectangular layout rules as pages are built.
       actual board (see the TODO in `docs/hardware.md` and in
       `smart-ebl-display.yaml`) — match them to the user's own
       RS232-to-TTL interface board
+- [ ] Identify which physical wire in the existing DS470FR/PC380 6-pin
+      harness is RX/TX/+12V/GND, and confirm it's wired both directions
+      (see `docs/hardware.md`'s "Reusing the existing OEM 6-pin harness")
 - [ ] Implement the counterpart protocol handler in `smartebl` (separate
       repo, separate PR)
 - [ ] Extend the display-side link handler to the full key list in
