@@ -1,1 +1,1 @@
-# smartebl_display_esphome
+FILE_CONTENT_PLACEHOLDER
