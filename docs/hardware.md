@@ -155,6 +155,21 @@ DSI config from the identical panel used on Waveshare's
 `ESP32-P4-Nano-10.1` kit. **Confidence: high** — read directly from
 ESPHome's own source, not from a Waveshare page.
 
+## Required companion component: esp_ldo
+
+`display.mipi_dsi` lists `esp_ldo` as a hard `DEPENDENCIES` entry -
+`esphome config` fails outright ("Component display.mipi_dsi requires
+component esp_ldo") without one somewhere in the file. The ESP32-P4's
+DSI/CSI PHY is powered from the chip's internal adjustable LDO, not the
+3.3V rail directly, so this isn't optional. `smart-ebl-display.yaml`'s
+`esp_ldo:` block (`channel: 3`, `voltage: 2.5V`) matches ESPHome's own
+test fixture for this exact component
+(`tests/components/mipi_dsi/test.esp32-p4-idf.yaml`) exactly - **not**
+a value guessed for this board. No `ldo_id:` reference exists anywhere
+else in the config; ESPHome wires the LDO to the DSI PHY internally
+once the component is present, whatever channel/id you give it.
+**Confidence: high** — read directly from ESPHome's own test fixture.
+
 ## Engineering-sample silicon
 
 ESPHome's board manifest sets `esp32: engineering_sample: true` for
