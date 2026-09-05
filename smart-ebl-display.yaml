@@ -28,6 +28,16 @@ substitutions:
   link_tx_pin: GPIO37
   link_rx_pin: GPIO38
 
+# Both networks (README.md "Networking") can be up at once - this just
+# decides which one wins the default route when they are, rather than
+# leaving it to chance. Ethernet first: prefer the wired path for
+# OTA/HA traffic when a cable happens to be plugged in, falling back to
+# Wi-Fi 6 (the actual always-on path, per user decision) otherwise.
+network:
+  priority:
+    - ethernet
+    - wifi
+
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
@@ -82,7 +92,13 @@ psram:
 
 # Include Wi-Fi/OTA/API/time/the restart watchdog - logger: lives above
 # instead, not in .basics.yaml (see that file's closing comment on why).
-<<: !include .basics.yaml
+# `packages:` rather than a plain `<<: !include` merge key: ESPHome
+# deep-merges a package recursively (nested keys combine; this file's
+# own values win on an actual collision) instead of the raw YAML merge
+# key's "whole top-level key wins or loses" behavior - more robust if
+# any future key ever needs contributions from both files at once.
+packages:
+  basics: !include .basics.yaml
 
 # =============================================================================
 # Ethernet (onboard PoE port - optional wired path, see README.md
@@ -179,20 +195,21 @@ esp_ldo:
 # ESPHome's mipi_dsi component (>=2025.8.0) - it carries the panel's full
 # init sequence and timing, so no custom init_sequence: is needed here.
 #
-# reset_pin/enable_pin (backlight) are placeholders on purpose: the only
-# concrete numbers found anywhere for these signals are documented for a
-# DIFFERENT Waveshare P4 board's DSI connector and must not be assumed to
-# carry over - see docs/hardware.md's "Not confirmed" section. These
-# invalid placeholder values are deliberately loud: `esphome config` will
-# refuse to validate until you replace them with real GPIOs from the
-# POE-ETH schematic.
+# reset_pin/enable_pin (backlight) are both optional in the mipi_dsi
+# schema and left out entirely rather than guessed - confirmed working
+# without them on the real board (panel comes up over pure DSI init,
+# no host-driven reset pulse needed; backlight is apparently either
+# always-on or controlled some other way this config doesn't touch
+# yet). If software backlight control is wanted later, that's a real
+# GPIO to find on the POE-ETH schematic (docs/hardware.md), not a
+# placeholder to fill in blind.
 
 display:
   - platform: mipi_dsi
     id: disp_main
     model: WAVESHARE-10.1-DSI-TOUCH-A
-    reset_pin: GPIO_TODO_VERIFY_RESET_PIN       # see docs/hardware.md
-    enable_pin: GPIO_TODO_VERIFY_BACKLIGHT_PIN  # see docs/hardware.md
+#    reset_pin: GPIO_TODO_VERIFY_RESET_PIN       # see docs/hardware.md
+#    enable_pin: GPIO_TODO_VERIFY_BACKLIGHT_PIN  # see docs/hardware.md
 
 # =============================================================================
 # Touchscreen - GT9271 (GT911-compatible), address 0x5D
@@ -464,9 +481,9 @@ script:
 # =============================================================================
 # LVGL - one bring-up page, proving the whole chain end to end
 # =============================================================================
-# Portrait (native panel orientation) until mounting orientation is
-# decided - design_rules.md §4's first open item. Full page layout is
-# deliberately out of scope here; see that document before adding more.
+# rotation: 90 - mounting orientation decided (landscape), resolving
+# design_rules.md §4's first open item. Full page layout is deliberately
+# out of scope here; see that document before adding more.
 
 lvgl:
   id: lvgl_main
@@ -474,7 +491,7 @@ lvgl:
     - disp_main
   touchscreens:
     - touch_main
-  rotation: 0
+  rotation: 90
   bottom_layer:
     bg_color: 0x000000
     bg_opa: COVER
