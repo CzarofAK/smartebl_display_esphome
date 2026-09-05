@@ -124,27 +124,29 @@ logger:
 # ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
 # variant - ESPHome's own psram component enforces this).
 #
-# DROPPED 200MHz -> 100MHz (real hardware): the real boot log showed an
-# immediate crash-reboot loop, before ESPHome's own logger even printed
-# a line -
+# Real boot log showed an immediate crash-reboot loop, before ESPHome's
+# own logger ever printed a line -
 #   assert failed: spi_flash_disable_interrupts_caches_and_other_cpu
 #   cache_utils.c:127 (esp_task_stack_is_sane_cache_disabled())
 # right after ESP-IDF's own "Disabling RNG early entropy source..." -
-# i.e. inside ESP-IDF's own early startup (esp_psram_init(), which runs
-# before app_main()/any component setup), not in anything this file's
-# own components do. That function is the same one flash ops use to
-# briefly gate the SPI bus PSRAM shares with flash; timing out/failing
-# that gate during PSRAM's own hex-mode bring-up crashes this early.
-# 200MHz is the fastest of the three modes ESPHome allows for esp32p4,
-# but per `esp32: engineering_sample: true` above (this board manifest's
-# own flag - current-production units apparently still ship ES P4
-# silicon), ES silicon is exactly the case Espressif's own PSRAM timing
-# notes call out as unreliable at the top speed grade - this crash is
-# that instability, not a config typo. This file's own prior comment
-# already anticipated needing this ("drop to 100MHz if boot is
-# unstable") - that's now confirmed, not hypothetical.
-# If 100MHz still crashes the same way, drop once more to 80MHz before
-# suspecting anything else here.
+# i.e. inside ESP-IDF's own early startup (esp_psram_init(), before
+# app_main()/any component setup), not in anything this file's own
+# components do.
+#
+# First attempt was `speed: 200MHz` -> `100MHz` on the theory that this
+# board's ES silicon (`esp32: engineering_sample: true` above - a real,
+# confirmed flag, not a guess) can't hold the top PSRAM speed grade. On
+# reflash, the crash was BYTE-IDENTICAL - same PC, same register dump,
+# same stack contents - which is itself the tell that the theory was
+# wrong, or at least unconfirmed: see README.md's "esphome clean after
+# any PSRAM/sdkconfig change" section for why an unchanged crash after
+# an edited `psram:` value most likely means the flashed binary never
+# actually picked up the new setting (a known ESPHome/ESP32-P4 stale-
+# incremental-build issue, esphome/esphome#15336 - same v1.3 ES chip
+# revision this board reports). `speed: 100MHz` is kept here as the
+# safer of the two values either way, but do an `esphome clean` before
+# the next flash attempt and re-test BEFORE assuming this speed value
+# itself is the fix or trying 80MHz - it may never have been tested yet.
 psram:
   mode: hex
   speed: 100MHz
