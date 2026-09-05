@@ -187,6 +187,14 @@ everything tied to the M5Dial's round 240×240 geometry (the arc widgets, the
 135°–45° gap, the two-column layout sized for an 80px inner radius) — this
 display gets its own rectangular layout rules as pages are built.
 
+[`docs/pages.md`](docs/pages.md) is the page catalog and navigation
+concept: a left nav rail, a bottom-left quick-switch popup, a persistent
+top status bar carrying every alarm (not per-page footers, unlike
+`m5dial_fram`), and the full page list (Home, Electric, Levels, Climate,
+Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
+`docs/design_rules.md`'s own layout-grid open item, since it answers
+*what* each page needs to hold before deciding *how* to lay it out.
+
 ## Status & Roadmap
 
 - [x] Basic ESPHome bring-up: Ethernet, PSRAM, MIPI-DSI display, GT911
@@ -201,6 +209,19 @@ display gets its own rectangular layout rules as pages are built.
       not needed (both commented out rather than guessed, see
       `docs/hardware.md`); mounting orientation decided (landscape,
       `lvgl: rotation: 90`, resolving `docs/design_rules.md` §4)
+- [x] Page catalog + navigation concept decided (`docs/pages.md`):
+      left nav rail, bottom-left quick-switch popup, one persistent
+      status bar carrying every alarm — resolving `docs/design_rules.md`
+      §4's navigation and alarm-precedence open items at the concept
+      level (pixel layout is still open, per that document's own
+      reasoning)
+- [ ] Find the backlight PWM pin (`docs/pages.md` §7) — check the
+      user-supplied [Waveshare wiki page](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
+      for this exact panel once off this session's network block
+- [ ] Confirm the cross-category alarm ranking draft in `docs/pages.md` §7
+- [ ] Add the Light/Features floor-plan source photo to the repo
+      (`docs/pages.md` §7 has the zone breakdown; the photo itself
+      couldn't be saved from chat in the session that wrote this)
 - [ ] Pick+confirm free header GPIOs for the RS232 link against the
       actual board (see the TODO in `docs/hardware.md` and in
       `smart-ebl-display.yaml`) — match them to the user's own
@@ -212,8 +233,10 @@ display gets its own rectangular layout rules as pages are built.
       repo, separate PR)
 - [ ] Extend the display-side link handler to the full key list in
       `docs/protocol.md` (all 16 fuses, remaining switches, Truma climate)
-- [ ] Build out the remaining pages for UX parity with `smartebl_display`'s
-      five sections
+- [ ] Build out the remaining pages per `docs/pages.md`'s catalog (Home,
+      Electric, Levels, Climate, Boiler, Fans, Light/Features,
+      Sensors+Levelling) — this repo's own answer to what
+      `smartebl_display`'s five sections should grow into here
 
 ## Building & Flashing
 

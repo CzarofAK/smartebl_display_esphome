@@ -100,14 +100,19 @@ the actual device once real pages are built, not guessed in advance.
   MIPI-DSI UI usable. Keep an eye on redraw cost (avoid a
   whole-screen `draw_` script running every 200 ms if it turns out to
   cost real frame time) once more than the one bring-up page exists.
-- **Multi-page navigation model.** The M5Dial pages via a rotary
-  encoder; this is a touchscreen with no such knob. A swipe/tab-bar
-  navigation scheme (matching `smartebl_display`'s five sections, per
-  the README) needs designing once there's more than one page —
-  nothing here should be read as assuming encoder-style paging.
-- **Alarm/status-line precedence.** `m5dial_fram/design_rules.md` §6's
-  "rank first, then damage before inconvenience" precedence rules apply
-  to *values* this display also shows (fuses, tanks), but the actual
-  Master Warning/Caution presentation is `smartebl_display`'s design,
-  not `m5dial_fram`'s — reconcile the two once this display grows an
-  alarm/status page, rather than picking one arbitrarily now.
+- ~~**Multi-page navigation model.**~~ Decided at the concept level:
+  [`docs/pages.md`](pages.md) — a persistent left nav rail (not a
+  swipe/tab-bar), a bottom-left quick-switch popup reachable from any
+  page, and a persistent top status bar. See that document; it also
+  carries its own open items (alarm ranking, a backlight pin, the
+  floor-plan page's source image) that belong there, not here.
+- ~~**Alarm/status-line precedence.**~~ Decided at the concept level:
+  per user decision, *every* alarm (fuses, tanks, gas, sensors,
+  levelling) centralizes into the one top status bar
+  (`smartebl_display`'s Master Warning/Caution design, adopted as-is) —
+  not a per-page footer like `m5dial_fram`. `m5dial_fram/design_rules.md`
+  §6's within-category precedence rules (damage before inconvenience,
+  the gas combined-supply logic) still apply to the *values* shown here,
+  but now feed one cross-category ranking instead of several independent
+  per-page ones. That ranking is itself still a draft — see
+  `docs/pages.md` §7.
