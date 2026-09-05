@@ -154,15 +154,15 @@ Left half / remainder: tiles, one per switch —
   is the next thing to check once off this session's network block —
   `docs/hardware.md` should get the finding, not this file.
 
-- **Light/Features floor plan — source image.** The user shared a photo
-  of the actual van's floor plan in chat (rear twin-bed layout, corner
-  wet bath, wardrobe, rear lounge bench, kitchenette bottom-center,
-  second lounge seat, cab up front — see the zone breakdown below), but
-  this session could not save that chat attachment as a repository file
-  (no filesystem path was ever exposed for it, only the inline image) —
-  it still needs to be added to the repo by hand, e.g. as
-  `docs/assets/floorplan-source.jpg`, before a real coordinate-mapped
-  overlay can be built. Zone breakdown from that photo, rear to front:
+- **Light/Features floor plan — source image landed.**
+  `docs/assets/floorplan-source.jpg` is now in the repo (rear twin-bed
+  layout, corner wet bath, wardrobe, rear lounge bench, kitchenette
+  bottom-center, second lounge seat, cab up front). Still needed before
+  a real overlay can be built: the actual HA entity_ids behind each zone
+  below (none confirmed yet — this table is a photo-based guess at which
+  rooms have a switchable light at all, not a wired-up list), and pixel
+  coordinates on the image once someone sits down with it in an editor.
+  Zone breakdown from that photo, rear to front:
 
   | Zone | Likely features |
   |---|---|
