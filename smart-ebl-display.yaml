@@ -20,14 +20,18 @@ substitutions:
   friendly_name: Smart EBL Display
 
   # ---- RS232 link to the Smart EBL main unit (docs/protocol.md) -------
-  # Two free GPIOs on the 40-pin header, wired to your RS232-to-TTL
-  # transceiver breakout (README.md "RS232 link" - the P4's 3.3V GPIOs
-  # cannot go on the RS232 wire directly). GPIO7/8 (touch I2C),
-  # GPIO14-19/54 (ESP32-C6 SDIO link, esp32_hosted below) and
-  # GPIO28-31/34/35/49-52 (Ethernet RMII) are already spoken for - these
-  # two are otherwise-unused header pins, NOT confirmed against a
-  # schematic. Change them to match whichever header pins you actually
-  # wired your transceiver to.
+  # ⚠ SUSPECTED BAD ON REAL HARDWARE - see docs/hardware.md's "Not
+  # confirmed" section. First real flash showed command frames
+  # (`C;switch_pump=0;...`) interleaved INSIDE the ESPHome log stream
+  # itself, garbled mid-line - strong evidence GPIO37/GPIO38 coincide
+  # with (or otherwise interfere with) this board's actual UART0/
+  # console wiring, not a free pair of header pins. Both are also
+  # flagged by ESPHome itself as strapping pins, which on ESP32 chips
+  # often *are* the boot/console UART pins - consistent with this
+  # theory. Do not wire a real RS232 transceiver to these two until
+  # this is resolved with different pins - check continuity against
+  # your board's actual free header pins (or the schematic) and update
+  # both this and docs/hardware.md once confirmed.
   link_tx_pin: GPIO37
   link_rx_pin: GPIO38
 
@@ -74,6 +78,7 @@ esphome:
       - script.execute: draw_nav
       - script.execute: draw_electric
       - script.execute: draw_climate
+      - script.execute: draw_boiler
 
 esp32:
   variant: esp32p4
@@ -325,7 +330,8 @@ globals:
     initial_value: "0"
 
   # ---- Navigation (nav rail, top_layer widgets below) -----------------
-  # 0 = home, 1 = electric, 2 = climate. Drives draw_nav's highlight.
+  # 0 = home, 1 = electric, 2 = climate, 3 = boiler. Drives draw_nav's
+  # highlight.
   - id: g_current_page
     type: int
     restore_value: false
@@ -354,6 +360,27 @@ globals:
     restore_value: false
     initial_value: "false"
   - id: g_climate_heater_optimistic_valid
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # ---- Boiler (page_boiler) - same womolin_controller integration as
+  # Climate, water-heating side of the same Truma Combi 4. Three fixed
+  # tiers (ECO 40°C / mid 60°C / BOOST 80°C), not continuous - see
+  # act_boiler_temp_up/down below.
+  - id: g_boiler_temp_pending
+    type: float
+    restore_value: false
+    initial_value: "40"
+  - id: g_boiler_temp_known
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_boiler_heater_optimistic
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_boiler_heater_optimistic_valid
     type: bool
     restore_value: false
     initial_value: "false"
@@ -408,12 +435,29 @@ sensor:
 
   # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
   # link. Same entities m5dial_fram/page_climate.yaml already uses.
+  # Also feeds the status bar's "inside" temperature (draw_status_bar) -
+  # reusing this rather than a second HA entity, since the Truma room
+  # sensor already *is* the cabin's inside temperature.
   - platform: homeassistant
     id: s_climate_room_temp
     entity_id: climate.womolin_controller_mqtt_truma_room
     attribute: current_temperature
     on_value:
       - script.execute: draw_climate
+      - script.execute: draw_status_bar
+
+  # ---- Status bar "outside" temperature ---------------------------------
+  # entity_id is a PLACEHOLDER (m5dial_fram's own naming convention for
+  # "not a real, confirmed entity yet" - see that repo's design_rules.md
+  # §15) - replace with the real outdoor-temperature entity_id (a
+  # weather integration, a vehicle sensor, whatever this installation
+  # actually has) once confirmed. Renders "OUT ---°C" until then, same
+  # invalid-value convention as everything else.
+  - platform: homeassistant
+    id: s_temp_outside
+    entity_id: sensor.outside_temperature_PLACEHOLDER
+    on_value:
+      - script.execute: draw_status_bar
 
   - platform: homeassistant
     id: s_climate_target
@@ -424,6 +468,25 @@ sensor:
           id(g_climate_temp_pending) = id(s_climate_target).state;
           id(g_climate_temp_known) = true;
       - script.execute: draw_climate
+
+  # ---- Boiler (page_boiler) - HA-fed via womolin_controller, water-
+  # heating side of the same Truma Combi 4 as Climate.
+  - platform: homeassistant
+    id: s_boiler_temp
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: current_temperature
+    on_value:
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_boiler_target
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          id(g_boiler_temp_pending) = id(s_boiler_target).state;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
 
 binary_sensor:
   - platform: template
@@ -444,21 +507,43 @@ binary_sensor:
           value: "false"
       - script.execute: draw_climate
 
+  # ---- Boiler (page_boiler) - HA-fed via womolin_controller ------------
+  - platform: homeassistant
+    id: s_boiler_heater_on
+    entity_id: switch.womolin_controller_mqtt_activate_water_heater
+    on_state:
+      - globals.set:
+          id: g_boiler_heater_optimistic_valid
+          value: "false"
+      - script.execute: draw_boiler
+
 switch:
-  # Optimistic local mirrors of smartebl's switches - flipped
-  # immediately on tap for a responsive tile (Mainscreen), then
-  # corrected by the next group-4 telemetry frame regardless
-  # (protocol.md §4's "converges within one cycle even if a command
-  # frame is lost").
+  # Optimistic local mirrors of smartebl's switches - reflect the
+  # tile's ON/OFF state only, no turn_on_action/turn_off_action.
+  #
+  # BUG FIXED (found on real hardware, see the commit this comment
+  # landed in): these used to have turn_on_action/turn_off_action
+  # calling send_link_command directly. ESPHome's switch component
+  # unconditionally calls write_state() - which runs those actions -
+  # in two situations this repo never wants to send a command for:
+  #   1. At boot, to enact the (restored/default) initial state -
+  #      this alone sent "everything OFF" to smartebl on every single
+  #      display reboot, regardless of smartebl's actual state.
+  #   2. Every time the link reader below reflects an incoming
+  #      telemetry frame via turn_on()/turn_off() - since that ALSO
+  #      unconditionally re-ran the action, every ~800ms telemetry
+  #      cycle re-sent the same command back to smartebl, which would
+  #      re-pulse the physical bistable relay coil over and over for
+  #      as long as the link stayed up, not just on an actual change.
+  # Fix: these switches now hold state only (publish_state() from the
+  # reader, not turn_on()/turn_off()) and the tiles below call
+  # send_link_command explicitly from on_click - the only place a
+  # command is actually supposed to originate from.
   - platform: template
     id: sw_pump_mirror
     name: "Water Pump (via link)"
     icon: mdi:water-pump
     optimistic: true
-    turn_on_action:
-      - script.execute: {id: send_link_command, key: "switch_pump", value: "1"}
-    turn_off_action:
-      - script.execute: {id: send_link_command, key: "switch_pump", value: "0"}
     on_turn_on:
       - script.execute: draw_home_tiles
     on_turn_off:
@@ -469,10 +554,6 @@ switch:
     name: "Light Group (via link)"
     icon: mdi:lightbulb-group
     optimistic: true
-    turn_on_action:
-      - script.execute: {id: send_link_command, key: "switch_light", value: "1"}
-    turn_off_action:
-      - script.execute: {id: send_link_command, key: "switch_light", value: "0"}
     on_turn_on:
       - script.execute: draw_home_tiles
     on_turn_off:
@@ -483,10 +564,6 @@ switch:
     name: "12V Group (via link)"
     icon: mdi:power-socket-eu
     optimistic: true
-    turn_on_action:
-      - script.execute: {id: send_link_command, key: "switch_12v", value: "1"}
-    turn_off_action:
-      - script.execute: {id: send_link_command, key: "switch_12v", value: "0"}
     on_turn_on:
       - script.execute: draw_home_tiles
     on_turn_off:
@@ -497,10 +574,6 @@ switch:
     name: "AUX Group (via link)"
     icon: mdi:power
     optimistic: true
-    turn_on_action:
-      - script.execute: {id: send_link_command, key: "switch_aux", value: "1"}
-    turn_off_action:
-      - script.execute: {id: send_link_command, key: "switch_aux", value: "0"}
     on_turn_on:
       - script.execute: draw_home_tiles
     on_turn_off:
@@ -511,10 +584,6 @@ switch:
     name: "EisEx Heater (via link)"
     icon: mdi:heating-coil
     optimistic: true
-    turn_on_action:
-      - script.execute: {id: send_link_command, key: "eisex_output", value: "1"}
-    turn_off_action:
-      - script.execute: {id: send_link_command, key: "eisex_output", value: "0"}
     on_turn_on:
       - script.execute: draw_home_tiles
     on_turn_off:
@@ -576,18 +645,21 @@ interval:
                       } else if (key == "shore_power_connected") {
                         id(s_shore_power_connected).publish_state(on);
                       } else if (key == "switch_pump") {
-                        // Reflects smartebl's actual state, not a local
-                        // toggle - this is what "converges within one
-                        // cycle" (protocol.md §4) means in code.
-                        on ? id(sw_pump_mirror).turn_on() : id(sw_pump_mirror).turn_off();
+                        // publish_state(), not turn_on()/turn_off():
+                        // reflects smartebl's actual state without
+                        // re-running an action - see switch: block's
+                        // header comment for why that distinction is
+                        // load-bearing here (it used to re-send a
+                        // command on every single telemetry frame).
+                        id(sw_pump_mirror).publish_state(on);
                       } else if (key == "switch_light") {
-                        on ? id(sw_light_mirror).turn_on() : id(sw_light_mirror).turn_off();
+                        id(sw_light_mirror).publish_state(on);
                       } else if (key == "switch_12v") {
-                        on ? id(sw_12v_mirror).turn_on() : id(sw_12v_mirror).turn_off();
+                        id(sw_12v_mirror).publish_state(on);
                       } else if (key == "switch_aux") {
-                        on ? id(sw_aux_mirror).turn_on() : id(sw_aux_mirror).turn_off();
+                        id(sw_aux_mirror).publish_state(on);
                       } else if (key == "eisex_output") {
-                        on ? id(sw_eisex_mirror).turn_on() : id(sw_eisex_mirror).turn_off();
+                        id(sw_eisex_mirror).publish_state(on);
                       }
                       // Unknown keys (fuses, tank3, system) ignored on
                       // purpose - protocol.md §3's forward-compatibility
@@ -664,6 +736,12 @@ script:
       - lvgl.page.show: page_climate
       - script.execute: draw_nav
 
+  - id: nav_show_boiler
+    then:
+      - globals.set: {id: g_current_page, value: "3"}
+      - lvgl.page.show: page_boiler
+      - script.execute: draw_nav
+
   - id: draw_nav
     then:
       - lambda: |-
@@ -674,6 +752,8 @@ script:
               lv_color_hex(cur == 1 ? 0x2ECC71 : 0xBDC1C6), 0);
           lv_obj_set_style_text_color(id(lbl_nav_climate),
               lv_color_hex(cur == 2 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_boiler),
+              lv_color_hex(cur == 3 ? 0x2ECC71 : 0xBDC1C6), 0);
 
   # ---- Status bar (top_layer, persists on every page) -------------------
   # The only script this release runs on a timer rather than purely
@@ -700,6 +780,32 @@ script:
             lv_label_set_text(id(lbl_status_time), t.strftime("%H:%M:%S   %d.%m.%Y").c_str());
           } else {
             lv_label_set_text(id(lbl_status_time), "--:--:--   --.--.----");
+          }
+
+          // ---- Inside/outside temperature ----------------------------
+          // Inside reuses the Truma room sensor (page_climate's own
+          // s_climate_room_temp) rather than a second HA entity.
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          char tbuf[16];
+          if (api_ok && id(s_climate_room_temp).has_state()) {
+            snprintf(tbuf, sizeof(tbuf), "IN %.0f°C", id(s_climate_room_temp).state);
+            lv_label_set_text(id(lbl_status_temp_in), tbuf);
+            lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0xBDC1C6), 0);
+          } else {
+            lv_label_set_text(id(lbl_status_temp_in), "IN ---°C");
+            lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0x555555), 0);
+          }
+          if (api_ok && id(s_temp_outside).has_state()) {
+            snprintf(tbuf, sizeof(tbuf), "OUT %.0f°C", id(s_temp_outside).state);
+            lv_label_set_text(id(lbl_status_temp_out), tbuf);
+            lv_obj_set_style_text_color(id(lbl_status_temp_out), lv_color_hex(0xBDC1C6), 0);
+          } else {
+            lv_label_set_text(id(lbl_status_temp_out), "OUT ---°C");
+            lv_obj_set_style_text_color(id(lbl_status_temp_out), lv_color_hex(0x555555), 0);
           }
 
   # ---- Mainscreen (page_home) tiles -------------------------------------
@@ -956,8 +1062,165 @@ script:
             return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
                                           : lv_color_hex(0x3C4043);
 
+  # ---- Boiler (page_boiler) ----------------------------------------------
+  # Water-heating side of the same Truma Combi 4 as Climate, same
+  # womolin_controller integration, same touch-adapted +/- shape - but
+  # NOT continuously adjustable: this Truma boiler only actually has
+  # three fixed levels, ECO (40°C) / an unnamed middle one (60°C, name
+  # TBD - ask before labelling it, don't guess) / BOOST (80°C), same as
+  # m5dial_fram/page_boiler.yaml's own act_boiler_temp_up/down - copied
+  # verbatim rather than re-derived.
+  - id: poll_boiler
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_water
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+
+  - id: act_boiler_heater
+    then:
+      - lambda: |-
+          bool cur = id(g_boiler_heater_optimistic_valid)
+              ? id(g_boiler_heater_optimistic)
+              : (id(s_boiler_heater_on).has_state() && id(s_boiler_heater_on).state);
+          id(g_boiler_heater_optimistic) = !cur;
+          id(g_boiler_heater_optimistic_valid) = true;
+      - script.execute: draw_boiler
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+
+  # Steps between exactly 40/60/80, never in between - sending a value
+  # off this Truma's three real levels would either get silently
+  # clamped or just not correspond to anything the physical panel can
+  # select.
+  - id: act_boiler_temp_up
+    then:
+      - lambda: |-
+          float v = id(g_boiler_temp_pending);
+          if (v < 60.0f) v = 60.0f;
+          else v = 80.0f;
+          id(g_boiler_temp_pending) = v;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
+      - script.execute: boiler_temp_write_debounced
+
+  - id: act_boiler_temp_down
+    then:
+      - lambda: |-
+          float v = id(g_boiler_temp_pending);
+          if (v > 60.0f) v = 60.0f;
+          else v = 40.0f;
+          id(g_boiler_temp_pending) = v;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
+      - script.execute: boiler_temp_write_debounced
+
+  - id: boiler_temp_write_now
+    then:
+      - homeassistant.service:
+          service: climate.set_temperature
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_water
+          data_template:
+            temperature: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_boiler_temp_pending));"
+
+  - id: boiler_temp_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: boiler_temp_write_now
+
+  - id: draw_boiler
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_boiler_temp
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("---°C");
+            #endif
+            if (!id(s_boiler_temp).has_state()) return std::string("---°C");
+            return str_sprintf("%.0f°C", id(s_boiler_temp).state);
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(s_boiler_temp).has_state()) return lv_color_hex(0x555555);
+            return lv_color_hex(0xFFFFFF);
+
+      - lvgl.label.update:
+          id: lbl_boiler_target
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("SOLL ---°C");
+            #endif
+            if (!id(g_boiler_temp_known)) return std::string("SOLL ---°C");
+            float v = id(g_boiler_temp_pending);
+            std::string tag = (v <= 40.0f) ? " ECO" : (v >= 80.0f) ? " BOOST" : "";
+            return str_sprintf("SOLL %.0f°C", v) + tag;
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(g_boiler_temp_known)) return lv_color_hex(0x555555);
+            return lv_color_hex(0xBDC1C6);
+
+      - lvgl.label.update:
+          id: lbl_boiler_heater
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("BOILER ---");
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? std::string("BOILER EIN") : std::string("BOILER AUS");
+            }
+            if (!id(s_boiler_heater_on).has_state()) return std::string("BOILER ---");
+            return id(s_boiler_heater_on).state ? std::string("BOILER EIN")
+                                         : std::string("BOILER AUS");
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0xBDC1C6);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x555555);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x2ECC71)
+                                         : lv_color_hex(0xBDC1C6);
+
+      - lvgl.widget.update:
+          id: btn_boiler_heater
+          bg_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x202124);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x1B5E3A) : lv_color_hex(0x202124);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x202124);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x1B5E3A)
+                                         : lv_color_hex(0x202124);
+          border_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x3C4043);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0x3C4043);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x3C4043);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x2ECC71)
+                                         : lv_color_hex(0x3C4043);
+
 # =============================================================================
-# LVGL - Mainscreen, Electric (Victron-style), Climate
+# LVGL - Mainscreen, Electric (Victron-style), Climate, Boiler
 # =============================================================================
 # rotation: 90 - mounting orientation decided (landscape), resolving
 # design_rules.md §4's first open item. Canvas is 1280x800 - see the
@@ -993,6 +1256,22 @@ lvgl:
           text_font: montserrat_24
           text: "--:--:--   --.--.----"
           text_color: 0xBDC1C6
+      - label:
+          id: lbl_status_temp_in
+          align: TOP_MID
+          x: -170
+          y: 22
+          text_font: montserrat_16
+          text: "IN ---°C"
+          text_color: 0x555555
+      - label:
+          id: lbl_status_temp_out
+          align: TOP_MID
+          x: -30
+          y: 22
+          text_font: montserrat_16
+          text: "OUT ---°C"
+          text_color: 0x555555
       - label:
           id: lbl_status_link
           align: TOP_RIGHT
@@ -1088,6 +1367,27 @@ lvgl:
                 text_color: 0xBDC1C6
           on_click:
             - script.execute: nav_show_climate
+      - button:
+          id: btn_nav_boiler
+          align: TOP_LEFT
+          x: 0
+          y: 424 # = bar_h + 3*120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_boiler
+                align: CENTER
+                text: "BOILER"
+                text_font: montserrat_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_boiler
 
   pages:
     # =========================================================================
@@ -1145,6 +1445,10 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_12v_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_12v"
+                  value: !lambda 'return id(sw_12v_mirror).state ? "1" : "0";'
 
         - button:
             id: btn_tile_aux
@@ -1174,6 +1478,10 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_aux_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_aux"
+                  value: !lambda 'return id(sw_aux_mirror).state ? "1" : "0";'
 
         - button:
             id: btn_tile_light
@@ -1203,6 +1511,10 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_light_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_light"
+                  value: !lambda 'return id(sw_light_mirror).state ? "1" : "0";'
 
         - button:
             id: btn_tile_pump
@@ -1232,6 +1544,10 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_pump_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_pump"
+                  value: !lambda 'return id(sw_pump_mirror).state ? "1" : "0";'
 
         - button:
             id: btn_tile_eisex
@@ -1261,6 +1577,10 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_eisex_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "eisex_output"
+                  value: !lambda 'return id(sw_eisex_mirror).state ? "1" : "0";'
 
         # Reserved slot - permanently invalid style, no on_click. See
         # header comment above.
@@ -1593,3 +1913,99 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - script.execute: act_climate_heater
+
+    # =========================================================================
+    # Boiler (page_boiler) - pages.md §5, water-heating side of the same
+    # Truma Combi 4 as Climate
+    # =========================================================================
+    - id: page_boiler
+      on_load:
+        - script.execute: poll_boiler
+      widgets:
+        - label:
+            align: TOP_LEFT
+            x: 160
+            y: 100
+            text_font: montserrat_20
+            text: "BOILER - TRUMA COMBI 4 (WATER)"
+            text_color: 0x707070
+
+        - label:
+            id: lbl_boiler_temp
+            align: TOP_LEFT
+            x: 400
+            y: 220
+            text_font: montserrat_48
+            text: "---°C"
+            text_color: 0x555555
+
+        - button:
+            id: btn_boiler_temp_down
+            align: TOP_LEFT
+            x: 400
+            y: 420
+            width: 90
+            height: 70
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "-"
+                  text_font: montserrat_24
+                  text_color: 0xBDC1C6
+            on_click:
+              - script.execute: act_boiler_temp_down
+
+        - label:
+            id: lbl_boiler_target
+            align: TOP_LEFT
+            x: 520
+            y: 442
+            width: 220
+            text_font: montserrat_20
+            text: "SOLL ---°C"
+            text_color: 0x555555
+
+        - button:
+            id: btn_boiler_temp_up
+            align: TOP_LEFT
+            x: 770
+            y: 420
+            width: 90
+            height: 70
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "+"
+                  text_font: montserrat_24
+                  text_color: 0xBDC1C6
+            on_click:
+              - script.execute: act_boiler_temp_up
+
+        - button:
+            id: btn_boiler_heater
+            align: TOP_LEFT
+            x: 530
+            y: 560
+            width: 220
+            height: 70
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  id: lbl_boiler_heater
+                  align: CENTER
+                  text: "BOILER ---"
+                  text_font: montserrat_20
+                  text_color: 0x555555
+            on_click:
+              - script.execute: act_boiler_heater

@@ -258,8 +258,48 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       ranking) and group 6 (system) — both are already broadcast by
       `smartebl` but not yet parsed here, since no page in this release
       shows either.
+- [x] **Fixed a real bug found on first hardware flash:** the five
+      switch mirrors (`sw_pump_mirror` etc.) used to have
+      `turn_on_action`/`turn_off_action` calling `send_link_command`
+      directly. ESPHome unconditionally runs those on every
+      `turn_on()`/`turn_off()` call — including the one it makes at
+      boot to enact the switch's initial state, and the one this repo's
+      own link reader made on every incoming telemetry frame to reflect
+      smartebl's real state. Net effect: every reboot silently sent
+      "everything OFF" to smartebl, and every ~800ms telemetry cycle
+      re-sent (and so re-pulsed) whichever bistable relay was already
+      in that state, indefinitely, whether or not anything actually
+      changed. Fixed: the mirrors now only hold state (the link reader
+      calls `publish_state()`, not `turn_on()`/`turn_off()`), and each
+      Mainscreen tile's `on_click` sends the command explicitly — the
+      only place one is supposed to originate from now.
+- [x] **Boiler page built** (`page_boiler`) — Truma Combi 4
+      water-heating side, same `womolin_controller` integration as
+      Climate, own nav rail entry. Ported from
+      `m5dial_fram/page_boiler.yaml`'s three-fixed-tier stepping
+      (ECO/mid/BOOST), touch-adapted the same way Climate was.
+- [x] **Status bar: inside/outside temperature added**, per user
+      feedback on the first hardware test. Inside reuses
+      `page_climate`'s own Truma room sensor; outside
+      (`s_temp_outside`) is still a `PLACEHOLDER` entity_id — needs the
+      real HA entity for this installation's outdoor sensor.
+- [ ] **Confirm every HA entity_id actually matches this installation.**
+      `climate.womolin_controller_mqtt_truma_room`/`_water` and
+      `switch.womolin_controller_mqtt_activate_room_heater`/
+      `_water_heater` were carried over from `m5dial_fram` on the
+      assumption they're the same real integration — should be right,
+      but unconfirmed from this session (no access to a live HA
+      instance). `s_temp_outside`'s entity_id is a known placeholder,
+      not yet confirmed at all.
+- [ ] ⚠ **GPIO37/GPIO38 (RS232 link) suspected bad on the real board** —
+      see `docs/hardware.md`'s "Not confirmed" section. First hardware
+      flash showed command frames interleaved inside the console log
+      itself, strong evidence these two pins coincide with (or
+      otherwise interfere with) this board's actual UART0 wiring.
+      Needs a different pin pair, confirmed against the real board,
+      before a physical RS232 transceiver is wired to them.
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
-      (Levels, Boiler, Fans, Light/Features, Sensors+Levelling, and the
+      (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
       to what `smartebl_display`'s five sections should grow into here
 
