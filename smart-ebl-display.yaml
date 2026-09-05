@@ -122,12 +122,32 @@ logger:
   hardware_uart: UART0
 
 # ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
-# variant - ESPHome's own psram component enforces this). 200MHz is the
-# fastest of the three modes ESPHome allows for esp32p4; drop to 100MHz
-# if boot is unstable on your unit. See docs/hardware.md.
+# variant - ESPHome's own psram component enforces this).
+#
+# DROPPED 200MHz -> 100MHz (real hardware): the real boot log showed an
+# immediate crash-reboot loop, before ESPHome's own logger even printed
+# a line -
+#   assert failed: spi_flash_disable_interrupts_caches_and_other_cpu
+#   cache_utils.c:127 (esp_task_stack_is_sane_cache_disabled())
+# right after ESP-IDF's own "Disabling RNG early entropy source..." -
+# i.e. inside ESP-IDF's own early startup (esp_psram_init(), which runs
+# before app_main()/any component setup), not in anything this file's
+# own components do. That function is the same one flash ops use to
+# briefly gate the SPI bus PSRAM shares with flash; timing out/failing
+# that gate during PSRAM's own hex-mode bring-up crashes this early.
+# 200MHz is the fastest of the three modes ESPHome allows for esp32p4,
+# but per `esp32: engineering_sample: true` above (this board manifest's
+# own flag - current-production units apparently still ship ES P4
+# silicon), ES silicon is exactly the case Espressif's own PSRAM timing
+# notes call out as unreliable at the top speed grade - this crash is
+# that instability, not a config typo. This file's own prior comment
+# already anticipated needing this ("drop to 100MHz if boot is
+# unstable") - that's now confirmed, not hypothetical.
+# If 100MHz still crashes the same way, drop once more to 80MHz before
+# suspecting anything else here.
 psram:
   mode: hex
-  speed: 200MHz
+  speed: 100MHz
 
 # Include Wi-Fi/OTA/API/time/the restart watchdog - logger: lives above
 # instead, not in .basics.yaml (see that file's closing comment on why).

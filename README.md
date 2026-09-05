@@ -354,6 +354,21 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       Yield (MPPT PV yield + status), and DC Loads (GX aggregate
       consumption) all show real data now - none of this page's boxes
       are placeholder-invalid anymore.
+- [x] **Fixed a real boot crash on hardware: PSRAM hex-mode 200MHz →
+      100MHz.** Real boot log showed an immediate crash-reboot loop —
+      `assert failed: spi_flash_disable_interrupts_caches_and_other_cpu
+      cache_utils.c:127 (esp_task_stack_is_sane_cache_disabled())` —
+      right after ESP-IDF's own "Disabling RNG early entropy source...",
+      i.e. inside `esp_psram_init()` itself, before ESPHome's own
+      logger or any component setup ever runs. `esp32:
+      engineering_sample: true` (this board manifest's own flag) means
+      this is confirmed ES P4 silicon, and ES silicon is exactly what
+      Espressif's own PSRAM timing notes call out as unreliable at the
+      top speed grade — `smart-ebl-display.yaml`'s `psram:` comment had
+      already flagged "drop to 100MHz if boot is unstable" as a
+      contingency; this is that contingency, now confirmed rather than
+      hypothetical. If 100MHz still crashes the same way on your unit,
+      drop once more to 80MHz before suspecting anything else.
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
