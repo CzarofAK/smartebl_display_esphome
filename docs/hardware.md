@@ -72,11 +72,12 @@ internet access, before final wiring.
 Same board manifest, same confidence upgrade: the SDIO link to the
 onboard ESP32-C6-MINI-1 is standard infrastructure ESPHome's own
 board definition wires up, not something guessed for this repo.
-`smart-ebl-display.yaml` configures it (plus the `update:` entity that
+`smart-ebl-display.yaml` configures it, plus the `update:` entity that
 keeps the C6's own firmware current from Espressif/ESPHome's hosted
-firmware manifest) but does **not** add an active `wifi:` block - see
-that file's comment and the README's "Why Ethernet, not Wi-Fi 6" for
-why Ethernet stays primary regardless.
+firmware manifest; the active `wifi:` block that actually rides on this
+transport lives in `.basics.yaml` (per user decision - see the README's
+"Networking" section for how this, the onboard Ethernet PHY below, and
+the RS232 link to `smartebl` are three unrelated things).
 
 | Signal | GPIO |
 |---|---|
