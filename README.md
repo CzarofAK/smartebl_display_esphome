@@ -284,15 +284,19 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       the old Nextion panel's existing two-wire NTC probe, moved over
       to this board - so `s_temp_outside` is a LOCAL ADC/NTC sensor
       (`adc_temp_outside` → `r_temp_outside` → `s_temp_outside`), not
-      an HA entity. **Unverified, flagged in the yaml itself:** the
-      GPIO (placeholder GPIO4 - this session has no confirmed ESP32-P4
-      ADC-pin map) and the NTC calibration constants (10kΩ/B=3950 is a
+      an HA entity.
+- [x] **GPIO confirmed for the outside-temp ADC: GPIO22**, not the
+      original GPIO4 guess (which isn't an ADC pin on this chip at
+      all). Cross-checked against ESP-IDF's own ADC channel table (repo
+      owner supplied the link) — see `docs/hardware.md`'s new ADC
+      section for the full ADC1/ADC2 GPIO map and which of those pins
+      are already claimed by `esp32_hosted`/Ethernet/the RS232 link.
+- [ ] **NTC calibration constants still unverified.** 10kΩ/B=3950 is a
       generic guess, not this specific sender's real datasheet values -
       wrong constants mean a plausible-looking but wrong reading, not
-      an obvious failure). Confirm both before trusting the number;
-      measuring the sender's actual resistance at a known room
-      temperature would let this be calibrated properly instead of
-      guessed.
+      an obvious failure. Measuring the sender's actual resistance at a
+      known room temperature (repo owner has the hardware) would let
+      this be calibrated properly instead of guessed.
 - [x] **HA entity_ids confirmed by the repo owner** against their real
       `womolin_controller` MQTT integration - `climate.*_truma_room`/
       `_water` and `switch.*_activate_room_heater`/`_water_heater` were
@@ -324,6 +328,32 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       (`pages.md` §3) isn't built yet and a manual override was
       requested on the same hardware test. No brightness control still
       (blocked on the unconfirmed backlight pin).
+- [x] **Climate + Boiler merged into one page ("TRUMA"), per repo-owner
+      request** — left half Heizung (room), right half Boiler (water),
+      one nav entry instead of two. Both halves gained an arc (temp as
+      % of a defined range - 5-30°C room, 40-80°C water - same
+      "always a percentage" rule `m5dial_fram/design_rules.md` §8
+      uses). Fan level added and fully working (read AND write, tap-to-
+      cycle) - turned out to be `climate.womolin_controller_mqtt_truma_room`'s
+      own `fan_mode` attribute (off/low/medium/high, confirmed real),
+      not a separate `select.*` entity as first assumed.
+- [x] **Home page tiles rearranged and centered** per repo-owner spec:
+      2×3 grid (LIGHT/ICE-EX top, AUX/FRIDGE middle, POWER/PUMP bottom),
+      vertically centered in the content area and horizontally centered
+      between the nav rail and the clock - previously just placed at
+      fixed coordinates, not actually centered or in the requested order.
+- [x] **Electric page recentered, and rebuilt on real Victron/MPPT/GX
+      entities - every box now has a real source.** The repo owner
+      confirmed a real SmartShunt + MultiPlus behind `smartebl` (same HA
+      entities `m5dial_fram/page_power_1/2/3.yaml` already use), plus an
+      MPPT 190W solar charge controller and the GX device's own DC-
+      consumption sensor (both new to this repo). Battery (SOC/V/A),
+      Inverter/Charger mode+state (now a button opening a popup to set
+      the MultiPlus mode directly - ON/CHG/INV/OFF - and adjust the
+      shore/grid current limit), AC Loads (WR output power), Solar
+      Yield (MPPT PV yield + status), and DC Loads (GX aggregate
+      consumption) all show real data now - none of this page's boxes
+      are placeholder-invalid anymore.
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer

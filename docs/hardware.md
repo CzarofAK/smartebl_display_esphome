@@ -91,6 +91,34 @@ the RS232 link to `smartebl` are three unrelated things).
 
 **Confidence: high.**
 
+## ADC (analog inputs - e.g. resistive/NTC sensors)
+
+ESP32-P4 has two ADC units, each wired to a fixed set of GPIOs (not
+freely reassignable, same as the RMII pins above) — read directly from
+ESP-IDF's own `esp32p4/include/soc/adc_channel.h`, not a search-indexed
+page:
+
+| Unit | Channel → GPIO |
+|---|---|
+| ADC1 | ch0=GPIO16, ch1=GPIO17, ch2=GPIO18, ch3=GPIO19, ch4=GPIO20, ch5=GPIO21, ch6=GPIO22, ch7=GPIO23 |
+| ADC2 | ch0=GPIO49, ch1=GPIO50, ch2=GPIO51, ch3=GPIO52, ch4=GPIO53, ch5=GPIO54 |
+
+**Confidence: high** — primary source, not inferred.
+
+Cross-referenced against everything else this file already claims:
+GPIO16/17/18/19 (ADC1 ch0-3) are `esp32_hosted`'s SDIO pins, GPIO54
+(ADC2 ch5) is `esp32_hosted`'s `reset_pin`, and GPIO49/50/51/52 (ADC2
+ch0-3) are the Ethernet PHY's MDC/MDIO/REF_CLK/power pins — none of
+those are available for ADC use despite being electrically capable of
+it. GPIO20/GPIO21 (ADC1 ch4/ch5) are now `link_tx_pin`/`link_rx_pin`
+(see the RS232 link section below) — also spoken for. That leaves
+**GPIO22 (ADC1 ch6), GPIO23 (ADC1 ch7), and GPIO53 (ADC2 ch4)** as the
+only header pins that are both ADC-capable and not already claimed by
+something else in this file. `smart-ebl-display.yaml`'s
+`adc_temp_outside` (the local NTC outside-temperature sensor, see
+README's roadmap) uses GPIO22 — GPIO23/GPIO53 remain free for any
+future second analog input.
+
 ## Touch controller
 
 The 10.1-DSI-TOUCH-A's touch chip is the GT9271, which the GT911
