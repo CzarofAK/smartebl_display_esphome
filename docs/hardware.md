@@ -143,6 +143,56 @@ unlikely to actually crowd the 28 header GPIOs the way the raw count
 suggests — but it's not confirmed either way, so treat the list as
 "definitely don't use these," not as "only 7 GPIOs remain."
 
+## Reusing the existing OEM 6-pin harness (DS470FR ↔ PC380)
+
+The vehicle already has a 6-pin cable run between the old CBE DS470FR
+electroblock and the old PC380 display panel — already routed through
+the vehicle body, which is worth reusing rather than pulling a new
+cable. Whether that works comes down entirely to `smartebl`'s own RJ45
+pinout (its `J9` connector, from that repo's
+`information/PCB connectors.md` — read-only reference, not something
+this repo can edit):
+
+| RJ45 pin | Signal | Direction (from `smartebl`) |
+|---|---|---|
+| 1 | RXD_PANEL | **input** (display → `smartebl`) |
+| 2 | TXD_PANEL | **output** (`smartebl` → display) |
+| 3 | LIN | bidirectional — **not needed** by this display (the link protocol, `docs/protocol.md`, is pure RS232) |
+| 4 | +BATT (fused F21) | output, display power |
+| 5 | +BATT (fused F21) | output, display power — **same node as pin 4** on `smartebl`'s own board |
+| 6 | NC | — |
+| 7 | GND | — |
+| 8 | GND | — **same node as pin 7** on `smartebl`'s own board |
+
+Only 4 wires are actually needed: RX, TX, +BATT, GND. Pins 4/5 and 7/8
+are safe to bridge at an adapter (a single incoming +BATT wire feeding
+both pin 4 and 5, a single GND wire feeding both 7 and 8) precisely
+*because* they're already tied to the same net on `smartebl`'s PCB —
+bridging them there doesn't create a second, competing source. **Pins 1
+and 2 must never be bridged to each other** — those are two distinct,
+independently-active signals on the *same* end of the cable (RX in,
+TX out); shorting them together ties `smartebl`'s own UART transmit and
+receive lines to each other, guaranteed non-functional and needlessly
+stresses the driver. A 6-wire cable comfortably covers RX + TX + +BATT
++ GND with two wires to spare (plausibly the old LIN wire, unused here,
+plus one more).
+
+**Open items — not something this session can resolve, no documentation
+of the DS470FR/PC380 harness itself exists in any repo this session can
+reach:**
+- Which of the 6 physical wires is RX vs. TX vs. +12V vs. GND is a
+  CBE-specific assignment, unrelated to `smartebl`'s own J9 numbering.
+  Identify it before wiring the adapter — GND via continuity to
+  chassis/battery negative, +12V via a voltage check with the panel
+  powered, RX vs. TX from old CBE service documentation if available,
+  or empirically (power up the old system, scope/logic-probe which
+  wire toggles when the DS470FR boots — that one is its TX).
+- Confirm the old PC380 actually used **both** directions of that
+  cable (display → EBL, not just EBL → display). A display-only
+  protocol with no return channel would leave this display's touch
+  input with no way back to `smartebl` over the reused cable, even
+  though the wire is physically present.
+
 ## Display model string
 
 ```yaml
