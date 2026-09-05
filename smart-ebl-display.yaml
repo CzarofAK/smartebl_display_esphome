@@ -19,7 +19,8 @@ substitutions:
   # ---- RS232 link to the Smart EBL main unit (docs/protocol.md) -------
   # Two free GPIOs on the 40-pin header, wired to your RS232-to-TTL
   # transceiver breakout (README.md "RS232 link" - the P4's 3.3V GPIOs
-  # cannot go on the RS232 wire directly). GPIO7/8 (touch I2C) and
+  # cannot go on the RS232 wire directly). GPIO7/8 (touch I2C),
+  # GPIO14-19/54 (ESP32-C6 SDIO link, esp32_hosted below) and
   # GPIO28-31/34/35/49-52 (Ethernet RMII) are already spoken for - these
   # two are otherwise-unused header pins, NOT confirmed against a
   # schematic. Change them to match whichever header pins you actually
@@ -42,12 +43,33 @@ esphome:
 
 esp32:
   variant: esp32p4
+  # ESPHome's own board manifest for this exact board
+  # (definitions/boards/waveshare_esp32_p4_wifi6_poe_eth) sets this -
+  # current-production units apparently still ship engineering-sample
+  # P4 silicon, which needs this flag for a few ESP-IDF workarounds.
+  # Flip to false only once you've confirmed your specific unit has
+  # production (non-ES) silicon.
+  engineering_sample: true
   # 32MB NOR flash per Waveshare's listing (docs/hardware.md). Lower to
   # 16MB if your board revision differs or ESPHome rejects 32MB here.
   flash_size: 32MB
   framework:
     type: esp-idf
     version: recommended
+    advanced:
+      # Required by esp32_hosted (WiFi 6/BLE via the ESP32-C6, below),
+      # per the same board manifest - ESP-IDF's P4<->C6 co-processor
+      # support is still marked experimental upstream.
+      enable_idf_experimental_features: true
+
+# Per the same board manifest: this board's USB-C port is a UART0-based
+# flashing/debug port (not the P4's native USB-Serial-JTAG), so logging
+# needs to be pinned there explicitly.
+logger:
+  level: DEBUG
+  logs:
+    scheduler: DEBUG
+  hardware_uart: UART0
 
 # ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
 # variant - ESPHome's own psram component enforces this). 200MHz is the
@@ -57,29 +79,69 @@ psram:
   mode: hex
   speed: 200MHz
 
-# Include OTA/API/logger/time - no wifi: here, see basic.yaml.example's
-# own comment on why.
+# Include OTA/API/time - no wifi: here, see basic.yaml.example's own
+# comment on why. logger: lives above, not in .basics.yaml - see that
+# file's comment on why it moved.
 <<: !include .basics.yaml
 
 # =============================================================================
 # Ethernet (primary network path - see README.md "Why Ethernet, not Wi-Fi 6")
 # =============================================================================
 # IP101GRI PHY over RMII. TXD0/1, RXD0/1, CRS_DV and TX_EN are fixed by
-# ESPHome for every ESP32-P4 board (not board-specific wiring) - high
-# confidence. MDC/MDIO/REF_CLK/power are this board's own wiring choice,
-# sourced from Waveshare's published pinout - see docs/hardware.md for
-# exactly how confident each pin is before assuming this just works.
+# ESPHome for every ESP32-P4 board (not board-specific wiring). MDC/
+# MDIO/REF_CLK/power/phy_addr are this board's own wiring choice - all
+# of it, including phy_addr, now confirmed against ESPHome's own board
+# manifest for this exact board (definitions/boards/
+# waveshare_esp32_p4_wifi6_poe_eth), not just a search-indexed page -
+# see docs/hardware.md for the full confidence breakdown.
 
 ethernet:
   type: IP101
   mdc_pin: GPIO31
   mdio_pin: GPIO52
+  phy_addr: 1
   clk:
     # The IP101GRI generates 50MHz from its own 25MHz crystal and feeds
     # it INTO the ESP32-P4 - this is an input, not CLK_OUT.
     pin: GPIO50
     mode: CLK_EXT_IN
   power_pin: GPIO51
+
+# =============================================================================
+# Wi-Fi 6 / BLE via the ESP32-C6 co-processor (esp32_hosted) - infrastructure
+# only, not an active network path yet
+# =============================================================================
+# ESPHome's own board manifest for this board configures this SDIO link
+# and its firmware auto-updater as standard, alongside Ethernet - not
+# something this repo invented. Adopted here with the same confirmed
+# pins, but deliberately WITHOUT an active `wifi:` block: Ethernet stays
+# the primary/active path (README.md "Why Ethernet, not Wi-Fi 6"), and
+# this just keeps the C6 co-processor firmware current so Wi-Fi/BLE are
+# a `wifi:` block away whenever you actually want them - no separate
+# firmware flashing step. esphome/esphome#10956's SDIO packet drops /
+# association failures were reported against this exact chip pairing;
+# whether an up-to-date C6 firmware (this update: entity's job) avoids
+# that is untested here - watch that issue if you do enable wifi:.
+
+esp32_hosted:
+  type: sdio
+  variant: ESP32C6
+  active_high: true
+  clk_pin: GPIO18
+  cmd_pin: GPIO19
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  reset_pin: GPIO54
+
+http_request:
+
+update:
+  - platform: esp32_hosted
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    name: "C6 Firmware"
 
 # =============================================================================
 # I2C - Touch controller only (the DSI panel itself is configured over
