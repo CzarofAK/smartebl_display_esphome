@@ -64,11 +64,12 @@ esp32:
 
 # Per the same board manifest: this board's USB-C port is a UART0-based
 # flashing/debug port (not the P4's native USB-Serial-JTAG), so logging
-# needs to be pinned there explicitly.
+# needs to be pinned there explicitly - this board-specific field is
+# why logger: lives here rather than in the shared .basics.yaml (see
+# that file's own closing comment on why that's not just a style
+# choice).
 logger:
   level: DEBUG
-  logs:
-    scheduler: DEBUG
   hardware_uart: UART0
 
 # ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
@@ -79,13 +80,13 @@ psram:
   mode: hex
   speed: 200MHz
 
-# Include OTA/API/time - no wifi: here, see basic.yaml.example's own
-# comment on why. logger: lives above, not in .basics.yaml - see that
-# file's comment on why it moved.
+# Include Wi-Fi/OTA/API/time/the restart watchdog - logger: lives above
+# instead, not in .basics.yaml (see that file's closing comment on why).
 <<: !include .basics.yaml
 
 # =============================================================================
-# Ethernet (primary network path - see README.md "Why Ethernet, not Wi-Fi 6")
+# Ethernet (onboard PoE port - optional wired path, see README.md
+# "Networking". NOT the RS232 link to smartebl - see that section too.)
 # =============================================================================
 # IP101GRI PHY over RMII. TXD0/1, RXD0/1, CRS_DV and TX_EN are fixed by
 # ESPHome for every ESP32-P4 board (not board-specific wiring). MDC/
@@ -108,20 +109,19 @@ ethernet:
   power_pin: GPIO51
 
 # =============================================================================
-# Wi-Fi 6 / BLE via the ESP32-C6 co-processor (esp32_hosted) - infrastructure
-# only, not an active network path yet
+# Wi-Fi 6 / BLE via the ESP32-C6 co-processor (esp32_hosted)
 # =============================================================================
 # ESPHome's own board manifest for this board configures this SDIO link
-# and its firmware auto-updater as standard, alongside Ethernet - not
-# something this repo invented. Adopted here with the same confirmed
-# pins, but deliberately WITHOUT an active `wifi:` block: Ethernet stays
-# the primary/active path (README.md "Why Ethernet, not Wi-Fi 6"), and
-# this just keeps the C6 co-processor firmware current so Wi-Fi/BLE are
-# a `wifi:` block away whenever you actually want them - no separate
-# firmware flashing step. esphome/esphome#10956's SDIO packet drops /
-# association failures were reported against this exact chip pairing;
-# whether an up-to-date C6 firmware (this update: entity's job) avoids
-# that is untested here - watch that issue if you do enable wifi:.
+# and its firmware auto-updater as standard - not something this repo
+# invented. The P4 itself has no radio, so this is the transport the
+# active `wifi:` block (in .basics.yaml, per user decision - see
+# README.md "Networking") actually rides on to reach Home Assistant;
+# the `update:` entity below keeps the C6's own firmware current from
+# Espressif/ESPHome's hosted firmware manifest, which matters because
+# esphome/esphome#10956 reported SDIO packet drops and repeated Wi-Fi
+# association failures on a sibling Waveshare ESP32-P4 + C6 board -
+# untested here whether current firmware avoids that, so keep an eye on
+# that issue if you see similar symptoms.
 
 esp32_hosted:
   type: sdio
