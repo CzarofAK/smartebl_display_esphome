@@ -1,0 +1,450 @@
+# =============================================================================
+# Smart EBL Display (ESP32-P4) - ESPHome Configuration
+# =============================================================================
+# Waveshare ESP32-P4-WIFI6-POE-ETH + 10.1-DSI-TOUCH-A, replacing the
+# Nextion display generation (github.com/CzarofAK/smartebl_display) with a
+# larger DSI touchscreen, controlled over the same RS232 wiring the
+# Nextion used - see docs/protocol.md for the link and docs/hardware.md
+# for every pin used below, INCLUDING which ones are still placeholders.
+#
+# STATUS: basic bring-up config - one live page, a first slice of the
+# link protocol. See README.md "Status & Roadmap" before assuming this
+# covers everything smartebl exposes.
+# =============================================================================
+
+substitutions:
+  name: smart-ebl-display
+  friendly_name: Smart EBL Display
+
+  # ---- RS232 link to the Smart EBL main unit (docs/protocol.md) -------
+  # Two free GPIOs on the 40-pin header, wired to your RS232-to-TTL
+  # transceiver breakout (README.md "RS232 link" - the P4's 3.3V GPIOs
+  # cannot go on the RS232 wire directly). GPIO7/8 (touch I2C) and
+  # GPIO28-31/34/35/49-52 (Ethernet RMII) are already spoken for - these
+  # two are otherwise-unused header pins, NOT confirmed against a
+  # schematic. Change them to match whichever header pins you actually
+  # wired your transceiver to.
+  link_tx_pin: GPIO37
+  link_rx_pin: GPIO38
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    # design_rules.md §2's "one script per page, also called from
+    # on_boot" pattern: draw whatever's in the link buffer right now
+    # (all "---"/"NO LINK" until the first telemetry frame arrives)
+    # instead of leaving LVGL's default placeholder text up until then.
+    priority: -100
+    then:
+      - script.execute: draw_home
+      - script.execute: draw_battery
+
+esp32:
+  variant: esp32p4
+  # 32MB NOR flash per Waveshare's listing (docs/hardware.md). Lower to
+  # 16MB if your board revision differs or ESPHome rejects 32MB here.
+  flash_size: 32MB
+  framework:
+    type: esp-idf
+    version: recommended
+
+# ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
+# variant - ESPHome's own psram component enforces this). 200MHz is the
+# fastest of the three modes ESPHome allows for esp32p4; drop to 100MHz
+# if boot is unstable on your unit. See docs/hardware.md.
+psram:
+  mode: hex
+  speed: 200MHz
+
+# Include OTA/API/logger/time - no wifi: here, see basic.yaml.example's
+# own comment on why.
+<<: !include .basics.yaml
+
+# =============================================================================
+# Ethernet (primary network path - see README.md "Why Ethernet, not Wi-Fi 6")
+# =============================================================================
+# IP101GRI PHY over RMII. TXD0/1, RXD0/1, CRS_DV and TX_EN are fixed by
+# ESPHome for every ESP32-P4 board (not board-specific wiring) - high
+# confidence. MDC/MDIO/REF_CLK/power are this board's own wiring choice,
+# sourced from Waveshare's published pinout - see docs/hardware.md for
+# exactly how confident each pin is before assuming this just works.
+
+ethernet:
+  type: IP101
+  mdc_pin: GPIO31
+  mdio_pin: GPIO52
+  clk:
+    # The IP101GRI generates 50MHz from its own 25MHz crystal and feeds
+    # it INTO the ESP32-P4 - this is an input, not CLK_OUT.
+    pin: GPIO50
+    mode: CLK_EXT_IN
+  power_pin: GPIO51
+
+# =============================================================================
+# I2C - Touch controller only (the DSI panel itself is configured over
+# its own DSI command channel, not I2C - see the display: block below)
+# =============================================================================
+
+i2c:
+  - id: bus_touch
+    sda: GPIO7
+    scl: GPIO8
+    scan: true
+
+# =============================================================================
+# Display - 10.1-DSI-TOUCH-A (800x1280, JD9365 panel, 2 DSI lanes)
+# =============================================================================
+# WAVESHARE-10.1-DSI-TOUCH-A already exists as a built-in model in
+# ESPHome's mipi_dsi component (>=2025.8.0) - it carries the panel's full
+# init sequence and timing, so no custom init_sequence: is needed here.
+#
+# reset_pin/enable_pin (backlight) are placeholders on purpose: the only
+# concrete numbers found anywhere for these signals are documented for a
+# DIFFERENT Waveshare P4 board's DSI connector and must not be assumed to
+# carry over - see docs/hardware.md's "Not confirmed" section. These
+# invalid placeholder values are deliberately loud: `esphome config` will
+# refuse to validate until you replace them with real GPIOs from the
+# POE-ETH schematic.
+
+display:
+  - platform: mipi_dsi
+    id: disp_main
+    model: WAVESHARE-10.1-DSI-TOUCH-A
+    reset_pin: GPIO_TODO_VERIFY_RESET_PIN       # see docs/hardware.md
+    enable_pin: GPIO_TODO_VERIFY_BACKLIGHT_PIN  # see docs/hardware.md
+
+# =============================================================================
+# Touchscreen - GT9271 (GT911-compatible), address 0x5D
+# =============================================================================
+# No interrupt_pin/reset_pin: on sibling Waveshare ESP32-P4 DSI boards
+# the touch interrupt line isn't routed to the MCU at all, and reset is
+# deliberately left unconfigured to avoid disturbing the controller's
+# address-select strapping - same reasoning m5dial_fram's design_rules.md
+# documents for its own ft5x06 touch controller ("With interrupt_pin, the
+# first flash produced: touchscreen is marked FAILED"). The component
+# polls fine without either pin. See docs/hardware.md for confidence.
+
+touchscreen:
+  - platform: gt911
+    id: touch_main
+    i2c_id: bus_touch
+    address: 0x5D
+    display: disp_main
+
+# =============================================================================
+# RS232 link to the Smart EBL main unit (docs/protocol.md)
+# =============================================================================
+
+uart:
+  - id: link_uart
+    tx_pin: ${link_tx_pin}
+    rx_pin: ${link_rx_pin}
+    baud_rate: 115200
+    data_bits: 8
+    parity: NONE
+    stop_bits: 1
+
+globals:
+  # Byte-accumulate buffer for the line reader below. Cleared on every
+  # '\n' and on overflow (protocol.md §3's 480-byte cap) - never grows
+  # without bound on a wiring fault or boot-time UART glitch.
+  - id: link_rx_buffer
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+
+  # millis() timestamp of the last successfully-checksummed telemetry
+  # frame, any group. 0 = none received yet. Used by draw_home's
+  # invalid-value check (design_rules.md §2 / protocol.md §4) - a single
+  # global is enough for this repo's one implemented page; a future
+  # multi-page build extending to more groups may want one per group
+  # instead, per protocol.md §4's own note.
+  - id: link_last_rx_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+
+# ---- Local mirrors of smartebl's entities (protocol.md §5, groups 2-4) ----
+# Only the slice this bring-up page actually shows - extend by adding
+# both a sensor/switch here AND the matching `else if` in the reader
+# lambda below, per protocol.md §5's "implemented vs planned" note.
+#
+# NOTE on staleness: only lbl_link_status (draw_home) currently reflects
+# a dead link. These four values keep showing their last received
+# reading if the link drops, which is exactly what design_rules.md §2's
+# invalid-value rule says NOT to do - acceptable for this bring-up proof
+# but not for a real page. Wire each label's update through the same
+# `connected` check draw_home already does when building real pages.
+
+sensor:
+  - platform: template
+    id: s_tank1_level
+    name: "Freshwater Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    on_value:
+      - lambda: |-
+          char buf[16];
+          snprintf(buf, sizeof(buf), "FRESH %.0f%%", x);
+          lv_label_set_text(id(lbl_tank1), buf);
+          lv_obj_set_style_text_color(id(lbl_tank1), lv_color_hex(0xBDC1C6), 0);
+
+  - platform: template
+    id: s_tank2_level
+    name: "Greywater Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    on_value:
+      - lambda: |-
+          char buf[16];
+          snprintf(buf, sizeof(buf), "GREY %.0f%%", x);
+          lv_label_set_text(id(lbl_tank2), buf);
+          lv_obj_set_style_text_color(id(lbl_tank2), lv_color_hex(0xBDC1C6), 0);
+
+  - platform: template
+    id: s_leisure_battery_voltage
+    name: "Leisure Battery Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_battery
+
+  - platform: template
+    id: s_starter_battery_voltage
+    name: "Starter Battery Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_battery
+
+switch:
+  # Optimistic local mirror of smartebl's switch_pump - flipped
+  # immediately on tap for a responsive button, then corrected by the
+  # next group-4 telemetry frame regardless (protocol.md §4's
+  # "converges within one cycle even if a command frame is lost").
+  - platform: template
+    id: sw_pump_mirror
+    name: "Water Pump (via link)"
+    icon: mdi:water-pump
+    optimistic: true
+    turn_on_action:
+      - script.execute:
+          id: send_link_command
+          key: "switch_pump"
+          value: "1"
+    turn_off_action:
+      - script.execute:
+          id: send_link_command
+          key: "switch_pump"
+          value: "0"
+    on_turn_on:
+      - lambda: |-
+          lv_label_set_text(id(lbl_pump), "PUMP ON");
+          lv_obj_set_style_text_color(id(lbl_pump), lv_color_hex(0x2ECC71), 0);
+    on_turn_off:
+      - lambda: |-
+          lv_label_set_text(id(lbl_pump), "PUMP OFF");
+          lv_obj_set_style_text_color(id(lbl_pump), lv_color_hex(0xBDC1C6), 0);
+
+# =============================================================================
+# Link reader - parses protocol.md §3 telemetry frames off link_uart
+# =============================================================================
+# Plain byte-accumulate-until-'\n' lambda, no custom component (protocol.md
+# §1's reasoning: keep both ends implementable in ordinary ESPHome yaml).
+# Extend to a new key by adding one more `else if key == "..."` below AND
+# a matching sensor/switch above - same shape every time.
+#
+# Connectivity itself (link_last_rx_ms -> "LINK OK"/"NO LINK") is re-
+# evaluated on its own 1s timer below, not here - staleness is defined by
+# the ABSENCE of a frame, which this block alone can never detect.
+
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          uint8_t c;
+          while (id(link_uart)->available()) {
+            id(link_uart)->read_byte(&c);
+            if (c == '\n') {
+              std::string &line = id(link_rx_buffer);
+              size_t star = line.rfind('*');
+              if (!line.empty() && line[0] == 'T' && star != std::string::npos &&
+                  star + 2 < line.size()) {
+                uint8_t chk = 0;
+                for (size_t i = 0; i < star; i++) {
+                  chk ^= (uint8_t) line[i];
+                }
+                uint8_t got = (uint8_t) strtol(line.substr(star + 1, 2).c_str(), nullptr, 16);
+                if (chk == got) {
+                  // Skip "T<group>;" (3 chars: T, one digit, ';') and
+                  // walk key=value pairs up to the checksum marker.
+                  size_t pos = 3;
+                  while (pos < star) {
+                    size_t semi = line.find(';', pos);
+                    if (semi == std::string::npos || semi > star) semi = star;
+                    std::string kv = line.substr(pos, semi - pos);
+                    size_t eq = kv.find('=');
+                    if (eq != std::string::npos) {
+                      std::string key = kv.substr(0, eq);
+                      std::string val = kv.substr(eq + 1);
+                      float f = atof(val.c_str());
+                      if (key == "tank1_level") {
+                        id(s_tank1_level).publish_state(f);
+                      } else if (key == "tank2_level") {
+                        id(s_tank2_level).publish_state(f);
+                      } else if (key == "leisure_battery_voltage") {
+                        id(s_leisure_battery_voltage).publish_state(f);
+                      } else if (key == "starter_battery_voltage") {
+                        id(s_starter_battery_voltage).publish_state(f);
+                      } else if (key == "switch_pump") {
+                        // Reflects smartebl's actual state, not a local
+                        // toggle - this is what "converges within one
+                        // cycle" (protocol.md §4) means in code.
+                        if (f > 0.5f) {
+                          id(sw_pump_mirror).turn_on();
+                        } else {
+                          id(sw_pump_mirror).turn_off();
+                        }
+                      }
+                      // Unknown keys are ignored on purpose - protocol.md
+                      // §3's forward-compatibility rule.
+                    }
+                    pos = semi + 1;
+                  }
+                  id(link_last_rx_ms) = millis();
+                }
+              }
+              line.clear();
+            } else if (c != '\r') {
+              if (id(link_rx_buffer).size() < 480) {
+                id(link_rx_buffer).push_back((char) c);
+              } else {
+                // Overflow guard (protocol.md §3) - drop and resync.
+                id(link_rx_buffer).clear();
+              }
+            }
+          }
+
+  # Re-evaluate link staleness once a second regardless of whether a
+  # new frame arrived - see this block's own header comment above.
+  - interval: 1s
+    then:
+      - script.execute: draw_home
+
+# =============================================================================
+# Link writer - composes protocol.md §7 command frames
+# =============================================================================
+
+script:
+  - id: send_link_command
+    parameters:
+      key: string
+      value: string
+    then:
+      - lambda: |-
+          std::string payload = "C;" + key + "=" + value + ";";
+          uint8_t chk = 0;
+          for (char ch : payload) {
+            chk ^= (uint8_t) ch;
+          }
+          char hex[3];
+          snprintf(hex, sizeof(hex), "%02X", chk);
+          id(link_uart)->write_str((payload + "*" + std::string(hex) + "\n").c_str());
+
+  # design_rules.md §2's one-script-per-related-values pattern: leisure
+  # and starter battery are shown on the same line, so they're redrawn
+  # together rather than racing each other's on_value handler.
+  - id: draw_battery
+    mode: restart
+    then:
+      - lambda: |-
+          char buf[32];
+          snprintf(buf, sizeof(buf), "BATT %.1f/%.1fV",
+              id(s_leisure_battery_voltage).state, id(s_starter_battery_voltage).state);
+          lv_label_set_text(id(lbl_battery), buf);
+          lv_obj_set_style_text_color(id(lbl_battery), lv_color_hex(0xBDC1C6), 0);
+
+  # The only script this bring-up page runs on a timer rather than
+  # on_value, because "no frame arrived" isn't a value change to hook.
+  - id: draw_home
+    mode: restart
+    then:
+      - lambda: |-
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+          if (connected) {
+            lv_label_set_text(id(lbl_link_status), "LINK OK");
+            lv_obj_set_style_text_color(id(lbl_link_status), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_link_status), "NO LINK");
+            lv_obj_set_style_text_color(id(lbl_link_status), lv_color_hex(0x555555), 0);
+          }
+
+# =============================================================================
+# LVGL - one bring-up page, proving the whole chain end to end
+# =============================================================================
+# Portrait (native panel orientation) until mounting orientation is
+# decided - design_rules.md §4's first open item. Full page layout is
+# deliberately out of scope here; see that document before adding more.
+
+lvgl:
+  id: lvgl_main
+  displays:
+    - disp_main
+  touchscreens:
+    - touch_main
+  rotation: 0
+  bottom_layer:
+    bg_color: 0x000000
+    bg_opa: COVER
+  pages:
+    - id: page_home
+      widgets:
+        - label:
+            id: lbl_link_status
+            align: TOP_MID
+            y: 20
+            text_font: montserrat_16
+            text: "NO LINK"
+            text_color: 0x555555
+        - label:
+            id: lbl_tank1
+            align: CENTER
+            y: -80
+            text_font: montserrat_24
+            text: "FRESH ---%"
+            text_color: 0x555555
+        - label:
+            id: lbl_tank2
+            align: CENTER
+            y: -30
+            text_font: montserrat_24
+            text: "GREY ---%"
+            text_color: 0x555555
+        - label:
+            id: lbl_battery
+            align: CENTER
+            y: 20
+            text_font: montserrat_24
+            text: "BATT ---/---V"
+            text_color: 0x555555
+        - button:
+            id: btn_pump
+            align: CENTER
+            y: 100
+            width: 200
+            height: 60
+            radius: 15
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            widgets:
+              - label:
+                  id: lbl_pump
+                  align: CENTER
+                  text: "PUMP ---"
+                  text_font: montserrat_16
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_pump_mirror
