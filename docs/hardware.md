@@ -109,22 +109,25 @@ whether *this* board also leaves the interrupt line unrouted is
 inferred from sibling boards, not confirmed for the POE-ETH variant
 specifically.
 
-## Not confirmed — placeholders, must be verified before flashing
+## Confirmed on the real board — DSI panel reset / backlight-enable pins not needed
 
-**DSI panel reset / backlight-enable pins.** `mipi_dsi`'s
-`WAVESHARE-10.1-DSI-TOUCH-A` model (built into ESPHome ≥2025.8, so no
-custom `init_sequence` is needed — see below) only supplies the panel's
-timing/init data, not which GPIOs drive its reset and backlight on
-*this* board. The only concrete numbers found anywhere (GPIO27 reset /
-GPIO26 backlight PWM) are documented for a different board —
-`ESP32-P4-WIFI6-Touch-LCD-XC` — and must **not** be assumed to carry
-over to the POE-ETH board's separate DSI connector. `smart-ebl-display.yaml`
-leaves `reset_pin:`/`enable_pin:` as an obvious placeholder
-(`GPIO_TODO_RESET` / `GPIO_TODO_BACKLIGHT`) that will fail config
-validation on purpose, forcing you to fill in the real pins from the
-POE-ETH schematic PDF before it can compile:
-`files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf`
-(also blocked from this session — open it from a normal connection).
+**Superseded** — this document's earlier versions treated
+`reset_pin:`/`enable_pin:` as blocking placeholders (`GPIO_TODO_RESET`/
+`GPIO_TODO_BACKLIGHT`) to be filled in from the schematic before the
+config could even compile. Both are optional in `mipi_dsi`'s schema,
+and confirmed on the real board: the panel comes up over the DSI init
+sequence alone, no host-driven reset pulse needed, and the backlight is
+apparently either always-on or controlled some other way outside this
+config. `smart-ebl-display.yaml` now leaves both commented out rather
+than guessing GPIOs. **Confidence: high** — confirmed working on the
+actual hardware, not inferred from a sibling board. If software
+backlight control is ever wanted, that's a real GPIO to find on the
+POE-ETH schematic PDF
+(`files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf`,
+blocked from this session — open it from a normal connection), not a
+placeholder to guess at.
+
+## Not confirmed — placeholders, must be verified before flashing
 
 **RS232 link UART pins.** Not a hardware fact to look up at all — these
 are two free GPIOs *you* choose from the 28 broken out on the board's
@@ -154,6 +157,21 @@ full init sequence, timing, 800×1280 dimensions and 2-lane/1.5 Gbps
 DSI config from the identical panel used on Waveshare's
 `ESP32-P4-Nano-10.1` kit. **Confidence: high** — read directly from
 ESPHome's own source, not from a Waveshare page.
+
+## Required companion component: esp_ldo
+
+`display.mipi_dsi` lists `esp_ldo` as a hard `DEPENDENCIES` entry -
+`esphome config` fails outright ("Component display.mipi_dsi requires
+component esp_ldo") without one somewhere in the file. The ESP32-P4's
+DSI/CSI PHY is powered from the chip's internal adjustable LDO, not the
+3.3V rail directly, so this isn't optional. `smart-ebl-display.yaml`'s
+`esp_ldo:` block (`channel: 3`, `voltage: 2.5V`) matches ESPHome's own
+test fixture for this exact component
+(`tests/components/mipi_dsi/test.esp32-p4-idf.yaml`) exactly - **not**
+a value guessed for this board. No `ldo_id:` reference exists anywhere
+else in the config; ESPHome wires the LDO to the DSI PHY internally
+once the component is present, whatever channel/id you give it.
+**Confidence: high** — read directly from ESPHome's own test fixture.
 
 ## Engineering-sample silicon
 

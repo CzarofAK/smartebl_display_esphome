@@ -95,8 +95,10 @@ relying on context every time it comes up elsewhere in this repo:
    leave it unplugged otherwise. Has nothing to do with either Wi-Fi or
    item 3 below, despite sharing an RJ45 shape and the word "Ethernet."
    ESPHome's board manifest configures both this and item 1
-   simultaneously without conflict (`network: priority:` exists if you
-   ever want to make one deterministically win over the other).
+   simultaneously without conflict; `smart-ebl-display.yaml`'s
+   `network: priority: [ethernet, wifi]` makes it deterministic —
+   wired wins the default route when a cable happens to be plugged in,
+   Wi-Fi otherwise.
 
 3. **The RS232 link to `smartebl` (`link_uart`, `docs/protocol.md`) —
    NOT Ethernet, NOT a LAN protocol, despite also using an RJ45
@@ -183,11 +185,16 @@ display gets its own rectangular layout rules as pages are built.
       experimental IDF features, correct `phy_addr`, UART0 console, and
       the ESP32-C6 `esp32_hosted` SDIO link + firmware auto-updater
 - [x] Active Wi-Fi 6 → Home Assistant (`.basics.yaml`, per user decision
-      — see "Networking"), onboard Ethernet kept as an optional wired path
-- [ ] Verify the DSI reset/backlight-enable pins and pick+confirm free
-      header GPIOs for the RS232 link against the actual board (see the
-      TODOs in `docs/hardware.md` and in `smart-ebl-display.yaml`) —
-      match them to the user's own RS232-to-TTL interface board
+      — see "Networking"), onboard Ethernet kept as an optional wired
+      path with a deterministic `network: priority:` between the two
+- [x] Confirmed on the real board: DSI panel reset/backlight-enable pins
+      not needed (both commented out rather than guessed, see
+      `docs/hardware.md`); mounting orientation decided (landscape,
+      `lvgl: rotation: 90`, resolving `docs/design_rules.md` §4)
+- [ ] Pick+confirm free header GPIOs for the RS232 link against the
+      actual board (see the TODO in `docs/hardware.md` and in
+      `smart-ebl-display.yaml`) — match them to the user's own
+      RS232-to-TTL interface board
 - [ ] Implement the counterpart protocol handler in `smartebl` (separate
       repo, separate PR)
 - [ ] Extend the display-side link handler to the full key list in

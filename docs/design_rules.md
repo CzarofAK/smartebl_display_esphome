@@ -16,7 +16,7 @@ document is outdated — either way it must be corrected, not ignored
 | Board | Waveshare ESP32-P4-WIFI6-POE-ETH (ESP32-P4, 32 MB PSRAM) |
 | Display | 10.1-DSI-TOUCH-A, 800×1280, MIPI-DSI, `mipi_dsi` platform |
 | Touch | GT9271 via `gt911` platform, I²C |
-| Mounting orientation | **undecided** — see §4 |
+| Mounting orientation | **Landscape** — `lvgl: rotation: 90` |
 
 ## 2. What carries over from `m5dial_fram`, unchanged
 
@@ -83,12 +83,10 @@ the actual device once real pages are built, not guessed in advance.
 
 ## 4. Open items
 
-- **Mounting orientation.** The panel is natively 800×1280 (portrait).
-  Whether it's mounted portrait or rotated 90°/270° for a landscape
-  dash position is a physical install decision nobody has made yet —
-  `smart-ebl-display.yaml` currently leaves `lvgl: rotation: 0`
-  (portrait) as a placeholder. Pick the real mounting orientation
-  before designing page layouts; changing it later reflows everything.
+- ~~**Mounting orientation.**~~ Decided: landscape, `lvgl: rotation: 90`
+  in `smart-ebl-display.yaml`. The panel is natively 800×1280
+  (portrait) - anything laid out against this orientation is laid out
+  against a 1280×800 canvas, not the panel's native dimensions.
 - **Rectangular layout grid.** `m5dial_fram`'s §3 grid (y_main/y_row/…)
   has no equivalent here yet. The first PR that builds a real page
   (beyond this repo's single bring-up page) should establish one — a
