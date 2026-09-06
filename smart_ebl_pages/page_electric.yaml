@@ -985,18 +985,25 @@ lvgl:
               # weit aussen" - same 24px inset Battery's own V/A/W row
               # (further down) now uses, so every box's bottom-most
               # values sit the same distance from their box's edges.
+              # Font sizes bumped one notch (repo-owner: "die Schriften
+              # sind unklar geworden mit vergroessern") - font_ui_20/40
+              # -> font_ui_24/48, real, freshly-rasterized glyph sets at
+              # the new sizes (see smart-ebl-display.yaml's font: block,
+              # "Electric 1/2 rescale" comment), sized to match how much
+              # bigger these boxes grew (row heights 130/170 -> 210/290)
+              # - not a runtime stretch of the old bitmaps.
               - label: &row_title
                   align: TOP_MID
                   y: 16
                   text: "SHORE"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x707070
               - label: &row_main
                   id: lbl_electric_shore
                   align: TOP_MID
                   y: 48
                   text: "--- W"
-                  text_font: font_ui_40
+                  text_font: font_ui_48
                   text_color: 0x555555
               # Connected/disconnected - smartebl's own link reading
               # (see draw_electric). Shared state/secondary-line slot
@@ -1008,7 +1015,7 @@ lvgl:
                   align: TOP_MID
                   y: 132
                   text: "---"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label: &row_bottom_l
                   id: lbl_electric_shore_sub_l
@@ -1016,7 +1023,7 @@ lvgl:
                   x: 24
                   y: -16
                   text: "---V"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0xBDC1C6
               - label: &row_bottom_r
                   id: lbl_electric_shore_sub_r
@@ -1024,7 +1031,7 @@ lvgl:
                   x: -24
                   y: -16
                   text: "---Hz"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0xBDC1C6
         # ---- Flow arrows - static, 3-state (repo-owner: a walking
         # animation "braucht Leistung" for what it conveyed; a real
@@ -1037,7 +1044,7 @@ lvgl:
             align: TOP_LEFT
             x: 525
             y: 252
-            text_font: font_ui_24
+            text_font: font_ui_28
             text: "-"
             text_color: 0x707070
 
@@ -1104,7 +1111,7 @@ lvgl:
             align: TOP_LEFT
             x: 865
             y: 252
-            text_font: font_ui_24
+            text_font: font_ui_28
             text: "-"
             text_color: 0x707070
         - obj:
@@ -1147,7 +1154,7 @@ lvgl:
             align: TOP_LEFT
             x: 695
             y: 420
-            text_font: font_ui_24
+            text_font: font_ui_28
             text: "-"
             text_color: 0x707070
 
@@ -1196,7 +1203,7 @@ lvgl:
             align: TOP_LEFT
             x: 505
             y: 582
-            text_font: font_ui_24
+            text_font: font_ui_28
             text: "-"
             text_color: 0x707070
 
@@ -1250,7 +1257,7 @@ lvgl:
                   align: TOP_MID
                   y: 164
                   text: ""
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0xBDC1C6
               # DC bus V / A / W, left / middle / right. x/width match
               # row_bottom_l/r's own 24px inset and gap exactly (repo-
@@ -1265,7 +1272,7 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---V"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_a
@@ -1274,7 +1281,7 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---A"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_w
@@ -1284,7 +1291,7 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---W"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               # Starter battery voltage - smartebl's own link reading
               # (see draw_electric), always at the very bottom. This is
@@ -1299,7 +1306,7 @@ lvgl:
                   align: BOTTOM_MID
                   y: -16
                   text: "START ---V"
-                  text_font: font_ui_20
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - script.execute: show_battery_popup
@@ -1308,7 +1315,7 @@ lvgl:
             align: TOP_LEFT
             x: 885
             y: 582
-            text_font: font_ui_24
+            text_font: font_ui_28
             text: "-"
             text_color: 0x707070
         - obj:

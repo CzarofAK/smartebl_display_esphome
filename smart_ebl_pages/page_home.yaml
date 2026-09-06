@@ -3,12 +3,47 @@
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
 # docs/pages.md §6: SBB clock (right half) + 5 switch tiles in a 2x3
-# grid (Fridge/Alarmo slots reserved, not wired yet - see that section's
-# own table). The 5 switches here mirror smartebl's own relay groups
-# over the RS232 link (docs/protocol.md groups 2/4), not Home Assistant -
+# grid (Fridge slot reserved, not wired yet - see that section's own
+# table). The 5 switches here mirror smartebl's own relay groups over
+# the RS232 link (docs/protocol.md groups 2/4), not Home Assistant -
 # same reason page_electric's link-fed values don't need an api_ok guard
 # either.
+#
+# ---- Alarmo (2026-09-06, repo-owner: "koennen wir noch irgendwo die
+# Alarmanlage integrieren?") -------------------------------------------
+# Exactly the design pages.md §6 already specified but never built: a
+# home-page-only tile + PIN popup (numeric keypad) -> arm/disarm,
+# deliberately NOT in the quick-switch popup or the status bar (a
+# security action, own confirmation step - same reasoning as the
+# Huebstuetzen EINFAHREN confirm on page_sensors_levelling.yaml). The
+# 2x3 switch-tile grid was already full (pages.md §6's own diagram has
+# no Alarmo slot in it) - placed instead below the clock, in the
+# previously-empty x815-1135/y605-755 strip.
+#
+# Entity_id: alarm_control_panel.alarmo - NOT a blind guess like the
+# Huebstuetzen placeholders on page_sensors_levelling.yaml: "Alarmo" is
+# a specific HACS integration (not a generic term for "an alarm
+# system"), and it exposes exactly one entity per instance, always
+# named alarm_control_panel.alarmo by default - reused here on that
+# strength, but still flag if this installation's instance was ever
+# renamed away from the default.
 # =============================================================================
+
+text_sensor:
+  - platform: homeassistant
+    id: s_alarmo_state
+    entity_id: alarm_control_panel.alarmo
+    on_value:
+      - script.execute: draw_alarm_tile
+
+globals:
+  # PIN entry buffer for the arm/disarm keypad popup below - cleared on
+  # open, on CLR, and after every submit (success or failure) so a code
+  # never lingers on screen or gets accidentally resubmitted.
+  - id: g_alarm_pin
+    type: std::string
+    restore_value: false
+    initial_value: '""'
 
 switch:
   # Optimistic local mirrors of smartebl's switches - reflect the
@@ -101,6 +136,169 @@ script:
           set_tile(id(lbl_tile_light), id(sw_light_mirror).state);
           set_tile(id(lbl_tile_pump), id(sw_pump_mirror).state);
           set_tile(id(lbl_tile_eisex), id(sw_eisex_mirror).state);
+
+  # ---- Alarmo tile - humanized state + color, same "one script redraws
+  # everything this value drives" pattern as draw_home_tiles above.
+  - id: draw_alarm_tile
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          if (!api_ok || !id(s_alarmo_state).has_state()) {
+            lv_label_set_text(id(lbl_tile_alarm), "---");
+            lv_obj_set_style_text_color(id(lbl_tile_alarm), lv_color_hex(0x555555), 0);
+            return;
+          }
+          // Repo owner: "ich nutze nur Armed home, Armed away und
+          // Disarmed" - those three get their own short tags; the
+          // three Alarmo modes this installation doesn't use
+          // (armed_night/armed_vacation/armed_custom_bypass) still get
+          // a sane fallback rather than silently reading as "---".
+          std::string s = id(s_alarmo_state).state;
+          std::string text; uint32_t col;
+          if (s == "disarmed") {
+            text = "AUS"; col = 0x2ECC71;
+          } else if (s == "triggered") {
+            text = "ALARM"; col = 0xE74C3C;
+          } else if (s == "pending" || s == "arming" || s == "disarming") {
+            text = "..."; col = 0xF39C12;
+          } else if (s == "armed_home") {
+            text = "SCHARF H"; col = 0xE74C3C;
+          } else if (s == "armed_away") {
+            text = "SCHARF A"; col = 0xE74C3C;
+          } else if (s.rfind("armed", 0) == 0) {
+            text = "SCHARF"; col = 0xE74C3C;
+          } else {
+            text = "---"; col = 0x555555;
+          }
+          lv_label_set_text(id(lbl_tile_alarm), text.c_str());
+          lv_obj_set_style_text_color(id(lbl_tile_alarm), lv_color_hex(col), 0);
+      # Keeps the popup's ARM HOME/ARM AWAY/DISARM buttons correct even
+      # if the state changes while the popup happens to already be
+      # open - see draw_alarm_popup_buttons' own comment.
+      - script.execute: draw_alarm_popup_buttons
+
+  # ---- PIN popup (numeric keypad) - arm/disarm, see this file's own
+  # header comment for why this lives here rather than in the
+  # quick-switch popup or the status bar.
+  - id: alarm_pin_add_digit
+    parameters:
+      digit: string
+    then:
+      - lambda: |-
+          if (id(g_alarm_pin).size() < 8) {
+            id(g_alarm_pin) += digit;
+          }
+          // Masked with 'X', not '*' - this file's shared glyph set
+          // (smart-ebl-display.yaml's font: block) doesn't include '*',
+          // same "tofu box" bug that block's own header comment already
+          // fixed once for umlauts/arrows - reusing a glyph already in
+          // that set avoids reintroducing it for one popup.
+          std::string mask(id(g_alarm_pin).size(), 'X');
+          lv_label_set_text(id(lbl_alarm_pin_display), mask.empty() ? "----" : mask.c_str());
+
+  - id: alarm_pin_clear
+    then:
+      - lambda: |-
+          id(g_alarm_pin).clear();
+          lv_label_set_text(id(lbl_alarm_pin_display), "----");
+
+  - id: show_alarm_popup
+    then:
+      - script.execute: alarm_pin_clear
+      - script.execute: draw_alarm_popup_buttons
+      - lvgl.widget.update: {id: obj_alarm_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_alarm_popup_panel, hidden: false}
+
+  - id: close_alarm_popup
+    then:
+      - script.execute: alarm_pin_clear
+      - lvgl.widget.update: {id: obj_alarm_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_alarm_popup_panel, hidden: true}
+
+  # ---- Arm/disarm - THREE separate actions, not one generic "OK"
+  # (repo-owner: "ich nutze nur Armed home, Armed away und Disarmed") -
+  # a service call's own service: string isn't templatable in ESPHome
+  # (same reason act_multiplus_set_mode/act_daynight_set_mode pick one
+  # of several FIXED homeassistant.service: blocks via a button/option
+  # rather than trying to template the service name itself), so each
+  # mode gets its own button + its own fixed service call instead of
+  # one action trying to infer which of three the tap meant.
+  # draw_alarm_popup_buttons (below) shows only the buttons that make
+  # sense for the CURRENT confirmed state - ARM HOME/ARM AWAY while
+  # disarmed, DISARM while armed - so there's no way to tap the wrong
+  # one for the state actually in effect.
+  - id: act_alarm_arm_home
+    then:
+      - homeassistant.service:
+          service: alarm_control_panel.alarm_arm_home
+          data:
+            entity_id: alarm_control_panel.alarmo
+          data_template:
+            code: "{{ code }}"
+          variables:
+            code: !lambda "return id(g_alarm_pin);"
+      - script.execute: close_alarm_popup
+
+  - id: act_alarm_arm_away
+    then:
+      - homeassistant.service:
+          service: alarm_control_panel.alarm_arm_away
+          data:
+            entity_id: alarm_control_panel.alarmo
+          data_template:
+            code: "{{ code }}"
+          variables:
+            code: !lambda "return id(g_alarm_pin);"
+      - script.execute: close_alarm_popup
+
+  - id: act_alarm_disarm
+    then:
+      - homeassistant.service:
+          service: alarm_control_panel.alarm_disarm
+          data:
+            entity_id: alarm_control_panel.alarmo
+          data_template:
+            code: "{{ code }}"
+          variables:
+            code: !lambda "return id(g_alarm_pin);"
+      - script.execute: close_alarm_popup
+
+  # ---- Popup button visibility - ARM HOME/ARM AWAY while disarmed
+  # (or unknown), DISARM while any armed_* state. Called from
+  # show_alarm_popup (so it's never stale when the popup opens) AND
+  # from draw_alarm_tile (so it stays correct if the state changes
+  # while the popup happens to be open already).
+  - id: draw_alarm_popup_buttons
+    then:
+      - if:
+          condition:
+            lambda: |-
+              #ifdef USE_API
+              bool api_ok = api_is_connected();
+              #else
+              bool api_ok = true;
+              #endif
+              return api_ok && id(s_alarmo_state).has_state() &&
+                  id(s_alarmo_state).state.rfind("armed", 0) == 0;
+          then:
+            - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: true}
+            - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: true}
+            - lvgl.widget.update: {id: btn_alarm_disarm, hidden: false}
+          else:
+            - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: false}
+            - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: false}
+            - lvgl.widget.update: {id: btn_alarm_disarm, hidden: true}
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_alarm_tile
 
 lvgl:
   pages:
@@ -382,4 +580,271 @@ lvgl:
                   text: "---"
                   text_font: font_ui_24
                   text_color: 0x555555
+
+        # ---- Alarmo - see this file's own header comment for why it's
+        # placed here (below the clock) rather than in the 2x3 switch
+        # grid above. Clock occupies x815-1135/y265-585 - this sits in
+        # the previously-empty strip below it, same width as the clock,
+        # centered the same way.
+        - button:
+            id: btn_tile_alarm
+            align: TOP_LEFT
+            x: 815
+            y: 605
+            width: 320
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "ALARMANLAGE"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_alarm
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - script.execute: show_alarm_popup
+
+        # ---- Alarmo PIN popup (numeric keypad -> arm/disarm) ------------
+        - button:
+            id: obj_alarm_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_alarm_popup
+
+        - obj:
+            id: obj_alarm_popup_panel
+            align: CENTER
+            width: 460
+            height: 640
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "ALARMANLAGE"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+              - label:
+                  id: lbl_alarm_pin_display
+                  align: TOP_MID
+                  y: 56
+                  text: "----"
+                  text_font: font_ui_28
+                  text_color: 0xBDC1C6
+
+              # ---- Keypad, 3 columns x 4 rows: 1-9 / CLR 0 (no OK key -
+              # see the ARM HOME/ARM AWAY/DISARM row below instead) -----
+              - button: &alarm_key
+                  align: TOP_MID
+                  x: -130
+                  y: 110
+                  width: 110
+                  height: 80
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "1"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "1"}
+              - button:
+                  <<: *alarm_key
+                  x: 0
+                  widgets:
+                    - label: {align: CENTER, text: "2", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "2"}
+              - button:
+                  <<: *alarm_key
+                  x: 130
+                  widgets:
+                    - label: {align: CENTER, text: "3", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "3"}
+              - button:
+                  <<: *alarm_key
+                  x: -130
+                  y: 198
+                  widgets:
+                    - label: {align: CENTER, text: "4", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "4"}
+              - button:
+                  <<: *alarm_key
+                  x: 0
+                  y: 198
+                  widgets:
+                    - label: {align: CENTER, text: "5", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "5"}
+              - button:
+                  <<: *alarm_key
+                  x: 130
+                  y: 198
+                  widgets:
+                    - label: {align: CENTER, text: "6", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "6"}
+              - button:
+                  <<: *alarm_key
+                  x: -130
+                  y: 286
+                  widgets:
+                    - label: {align: CENTER, text: "7", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "7"}
+              - button:
+                  <<: *alarm_key
+                  x: 0
+                  y: 286
+                  widgets:
+                    - label: {align: CENTER, text: "8", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "8"}
+              - button:
+                  <<: *alarm_key
+                  x: 130
+                  y: 286
+                  widgets:
+                    - label: {align: CENTER, text: "9", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "9"}
+              - button:
+                  <<: *alarm_key
+                  x: -130
+                  y: 374
+                  widgets:
+                    - label: {align: CENTER, text: "CLR", text_font: font_ui_20, text_color: 0xF39C12}
+                  on_click:
+                    - script.execute: alarm_pin_clear
+              - button:
+                  <<: *alarm_key
+                  x: 0
+                  y: 374
+                  widgets:
+                    - label: {align: CENTER, text: "0", text_font: font_ui_24, text_color: 0xBDC1C6}
+                  on_click:
+                    - script.execute: {id: alarm_pin_add_digit, digit: "0"}
+              # x:130,y:374 (bottom-right of the keypad) intentionally
+              # empty - that's where the OK key used to be, replaced by
+              # the ARM HOME/ARM AWAY/DISARM row below instead of a 12th
+              # keypad key.
+
+              # ---- ARM HOME / ARM AWAY / DISARM - exactly the three
+              # modes the repo owner actually uses ("ich nutze nur Armed
+              # home, Armed away und Disarmed"), one fixed button/action
+              # each rather than one generic "OK" (see
+              # act_alarm_arm_home/_away/_disarm's own comment for why).
+              # draw_alarm_popup_buttons shows only the pair that makes
+              # sense for the CURRENT state - both ARM buttons hidden
+              # while already armed, DISARM hidden while disarmed - so
+              # only ARM HOME/ARM AWAY are ever visible together, never
+              # alongside DISARM.
+              - button:
+                  id: btn_alarm_arm_home
+                  align: TOP_MID
+                  x: -105
+                  y: 470
+                  width: 200
+                  height: 70
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ARM HOME"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_alarm_arm_home
+              - button:
+                  id: btn_alarm_arm_away
+                  align: TOP_MID
+                  x: 105
+                  y: 470
+                  width: 200
+                  height: 70
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ARM AWAY"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_alarm_arm_away
+              - button:
+                  id: btn_alarm_disarm
+                  align: TOP_MID
+                  y: 470
+                  width: 420
+                  height: 70
+                  radius: 12
+                  bg_color: 0x4F1414
+                  border_width: 1
+                  border_color: 0xE74C3C
+                  hidden: true
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "DISARM"
+                        text_font: font_ui_20
+                        text_color: 0xFFFFFF
+                  on_click:
+                    - script.execute: act_alarm_disarm
+
+              - button:
+                  id: btn_alarm_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_alarm_popup
 

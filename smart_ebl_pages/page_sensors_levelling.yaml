@@ -7,6 +7,46 @@
 # bubble-target-rings metaphor. Reached as Sensors section's sub-page 2
 # (nav_show_sensors, main device file) - this page has no nav entry of
 # its own.
+#
+# ---- 2026-09-06 relayout (repo-owner: "sensors2: das Widget ist VIEL zu
+# klein! eine Seite der freien Flaeche benutzen. Die andere Haelfte ist
+# fuer die Huebstuetzen-Kontrolle reserviert.") ------------------------
+# The bubble-level widget used to be a single 200x200 box adrift in the
+# middle of a 1150x736 content area - correct content, wrong scale.
+# Split the content area at x=705 (same left/right halves split as
+# page_fans's own obj_fans_divider) instead:
+#   - LEFT half: the same bubble-level widget, everything doubled (200
+#     -> 400 root box, every ring/bubble/offset inside it x2 as well -
+#     a clean scale factor, not a re-guess at the geometry) so it
+#     actually fills its half instead of floating small inside the
+#     whole page.
+#   - RIGHT half: NEW - Huebstuetzen (leveling jack) control.
+#     Repo-owner-confirmed (2026-09-06): the jacks are **not physically
+#     installed in this motorhome yet** - there is nothing real to wire
+#     regardless of what entity_ids get guessed. An earlier round of
+#     this file built a fully-wired panel against PLACEHOLDER
+#     entity_ids (switch.hubstuetzen_ausfahren/_einfahren,
+#     binary_sensor.hubstuetze_vl/_vr/_hl/_hr, live HA polling, a
+#     retract-confirm popup) - torn back out per that confirmation:
+#     polling entities that don't exist anywhere would just log HA
+#     warnings for nothing (the exact case m5dial_fram/design_rules.md
+#     already calls out as the one real exception to "poll every
+#     page's entities"), and per-corner AUSFAHREN/EINFAHREN was this
+#     repo's own invented guess at the UI shape, not something the
+#     repo owner actually asked for.
+#
+#     What's here instead is a genuinely reserved placeholder - same
+#     "reserve the slot regardless of outcome, permanently-invalid
+#     style, no live entity, no on_click" treatment as the Home page's
+#     own Fridge tile - sized and laid out for the FUTURE control the
+#     repo owner actually described once the hardware exists: one ON/OFF
+#     switch, one AUTOLEVEL button, and a status indicator that's green
+#     when retracted / red when extended ("maybe others" - the repo
+#     owner's own words, so this isn't assumed final). Wiring it for
+#     real is then "replace this mockup's widgets with live ones",
+#     never "figure out the layout" - same reasoning
+#     page_sensors_overview.yaml's own placeholder already established
+#     for door/window contacts.
 # =============================================================================
 
 sensor:
@@ -92,11 +132,14 @@ script:
           bool api_ok = true;
           #endif
 
-          // ---- Bubble position - R_MAX=85px maps to DEG_MAX=4°, same
+          // ---- Bubble position - R_MAX=170px maps to DEG_MAX=4°, same
           // as m5dial_fram/page_levelling.yaml (same UNVERIFIED
           // direction-sign caveat that file's header documents - flip
-          // here too if it reads backwards on the real device).
-          const float R_MAX = 85.0f, DEG_MAX = 4.0f;
+          // here too if it reads backwards on the real device). R_MAX
+          // doubled (85->170) along with every other dimension in this
+          // widget for the 2026-09-06 relayout (see this file's own
+          // header) - proportions unchanged, just twice the size.
+          const float R_MAX = 170.0f, DEG_MAX = 4.0f;
           bool lat_ok = api_ok && id(s_levelling_lat).has_state();
           bool lon_ok = api_ok && id(s_levelling_lon).has_state();
           float ox = 0, oy = 0;
@@ -111,13 +154,14 @@ script:
             if (oy < -R_MAX) oy = -R_MAX;
           }
           // obj_levelling_bubble's parent is obj_levelling_root, a local
-          // 200x200 coordinate container (same "local coordinate origin"
+          // 400x400 coordinate container (same "local coordinate origin"
           // trick page_climate's own obj_truma_room/obj_truma_water use)
-          // centered in the content area rather than the whole screen -
-          // see that container's own widget comment. lv_obj_set_pos is
-          // always parent-relative, so ox/oy=0 has to land on the
-          // container's own center: (200-26)/2 = 87 on both axes.
-          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox + 87, (int) oy + 87);
+          // filling the left half of the content area rather than the
+          // whole screen - see that container's own widget comment.
+          // lv_obj_set_pos is always parent-relative, so ox/oy=0 has to
+          // land on the container's own center: (400-52)/2 = 174 on
+          // both axes (bubble is now 52x52, doubled from 26x26).
+          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox + 174, (int) oy + 174);
 
           bool vl_ok = api_ok && id(s_levelling_vl).has_state();
           bool vr_ok = api_ok && id(s_levelling_vr).has_state();
@@ -167,12 +211,11 @@ esphome:
 lvgl:
   pages:
     # =========================================================================
-    # Sensors, sub-page 2 (page_sensors_levelling) - ported from
-    # m5dial_fram/page_levelling.yaml, see draw_levelling's own header
-    # comment (in the script: block, above) for the full reasoning.
-    # obj_levelling_root is a local 200x200 coordinate container (same
-    # trick as page_climate's obj_truma_room/obj_truma_water) centered
-    # in the content area: x=(130+1280)/2-100=605, y=(64+800)/2-100=332.
+    # Sensors, sub-page 2 (page_sensors_levelling) - see this file's own
+    # header for the 2026-09-06 left/right-half relayout. Divider at
+    # x=705 - same left/right halves split as page_fans's own
+    # obj_fans_divider, for a consistent "two-halves" convention across
+    # pages that use it.
     - id: page_sensors_levelling
       bg_color: 0x000000
       bg_opa: COVER
@@ -180,82 +223,206 @@ lvgl:
         - script.execute: poll_levelling
       widgets:
         - obj:
+            id: obj_levelling_divider
+            align: TOP_LEFT
+            x: 705
+            y: 90
+            width: 1
+            height: 620
+            bg_color: 0x3C4043
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+            clickable: false
+
+        # ---- LEFT half: bubble level, doubled (400x400 root, was
+        # 200x200) - x=218,y=232 centers it in the left half (content
+        # x130-705, y64-800): centerX=(130+705)/2=418, centerY=
+        # (64+800)/2=432, box half-size=200 -> x=218, y=232.
+        - obj:
             id: obj_levelling_root
             align: TOP_LEFT
-            x: 605
-            y: 332
-            width: 200
-            height: 200
+            x: 218
+            y: 232
+            width: 400
+            height: 400
             bg_opa: TRANSP
             border_width: 0
             widgets:
-              # ---- Static target rings -----------------------------------
+              # ---- Static target rings (all x2 from the original
+              # 200/140/80 set, see this file's header) -----------------
               - obj:
                   align: CENTER
-                  width: 200
-                  height: 200
-                  radius: 100
+                  width: 400
+                  height: 400
+                  radius: 200
                   bg_opa: TRANSP
-                  border_width: 2
+                  border_width: 3
                   border_color: 0x2A2D30
               - obj:
                   align: CENTER
-                  width: 140
-                  height: 140
-                  radius: 70
+                  width: 280
+                  height: 280
+                  radius: 140
                   bg_opa: TRANSP
-                  border_width: 2
+                  border_width: 3
                   border_color: 0x2A2D30
               - obj:
                   align: CENTER
-                  width: 80
-                  height: 80
-                  radius: 40
+                  width: 160
+                  height: 160
+                  radius: 80
                   bg_opa: TRANSP
-                  border_width: 2
+                  border_width: 3
                   border_color: 0x2ECC71
 
-              # ---- The bubble itself ---------------------------------------
+              # ---- The bubble itself (doubled: 52x52, was 26x26) --------
               - obj:
                   id: obj_levelling_bubble
                   align: CENTER
-                  width: 26
-                  height: 26
-                  radius: 13
+                  width: 52
+                  height: 52
+                  radius: 26
                   bg_color: 0x555555
                   bg_opa: COVER
                   border_width: 0
 
-              # ---- Four corners: cm to add, VL/VR top, HL/HR bottom --------
+              # ---- Four corners: cm to add, VL/VR top, HL/HR bottom
+              # (offsets doubled: ±88/∓108, was ±44/∓54; font bumped
+              # 16->24 to match the bigger widget) ------------------------
               - label:
                   id: lbl_levelling_vl
                   align: CENTER
-                  x: -44
-                  y: -54
+                  x: -88
+                  y: -108
                   text: "VL --cm"
-                  text_font: font_ui_16
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levelling_vr
                   align: CENTER
-                  x: 44
-                  y: -54
+                  x: 88
+                  y: -108
                   text: "VR --cm"
-                  text_font: font_ui_16
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levelling_hl
                   align: CENTER
-                  x: -44
-                  y: 54
+                  x: -88
+                  y: 108
                   text: "HL --cm"
-                  text_font: font_ui_16
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levelling_hr
                   align: CENTER
-                  x: 44
-                  y: 54
+                  x: 88
+                  y: 108
                   text: "HR --cm"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+
+        # ---- RIGHT half: Huebstuetzen (leveling jacks) - RESERVED, not
+        # installed yet (this file's own header) - a mockup of the
+        # future control, permanently in the invalid/grey style, no
+        # live entity, no on_click, same treatment as the Home page's
+        # Fridge tile. Sized so wiring it for real later is "swap these
+        # widgets for live ones", not "invent the layout".
+        - obj:
+            id: obj_hub_panel
+            align: TOP_LEFT
+            x: 730
+            y: 110
+            width: 500
+            height: 500
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "HUBSTÜTZEN"
+                  text_color: 0x707070
+              - label:
+                  align: TOP_MID
+                  y: 36
                   text_font: font_ui_16
+                  text: "NOCH NICHT VERBAUT"
+                  text_color: 0x555555
+
+              # ---- Future control mockup - ON/OFF switch look-alike,
+              # AUTOLEVEL button, status dot (repo-owner spec: green =
+              # eingefahren/retracted, red = ausgefahren/extended -
+              # "vielleicht auch andere", so more may be added later).
+              # All greyed out and non-interactive on purpose.
+              - obj:
+                  id: obj_hub_onoff_track
+                  align: TOP_MID
+                  y: 100
+                  width: 90
+                  height: 44
+                  radius: 22
+                  bg_color: 0x202124
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  clickable: false
+                  widgets:
+                    - obj:
+                        id: obj_hub_onoff_knob
+                        align: LEFT_MID
+                        x: 4
+                        width: 36
+                        height: 36
+                        radius: 18
+                        bg_color: 0x555555
+                        bg_opa: COVER
+                        border_width: 0
+                        clickable: false
+              - label:
+                  align: TOP_MID
+                  y: 154
+                  text_font: font_ui_16
+                  text: "EIN / AUS"
+                  text_color: 0x555555
+
+              - obj:
+                  id: obj_hub_autolevel
+                  align: TOP_MID
+                  y: 220
+                  width: 260
+                  height: 80
+                  radius: 12
+                  bg_color: 0x202124
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  clickable: false
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "AUTOLEVEL"
+                        text_font: font_ui_20
+                        text_color: 0x555555
+
+              - obj:
+                  id: dot_hub_status
+                  align: TOP_MID
+                  y: 340
+                  width: 20
+                  height: 20
+                  radius: 10
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+                  clickable: false
+              - label:
+                  align: TOP_MID
+                  y: 372
+                  width: 460
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "Status: grün = eingefahren, rot = ausgefahren"
                   text_color: 0x555555
