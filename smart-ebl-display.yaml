@@ -105,11 +105,45 @@ esp32:
   framework:
     type: esp-idf
     version: recommended
+    # ---- ACTUAL FIX for the boot crash chased through several prior
+    # rounds of this file's own comments (psram: speed, LV_USE_ARC,
+    # sdkconfig/partition diffing - none of it was the cause). Real root
+    # cause, confirmed on real hardware: the ESP32-C6 co-processor's own
+    # esp_hosted firmware (managed by Home Assistant's C6-firmware
+    # update entity, below) can end up on a NEWER esp_hosted release
+    # than the HOST-side esp_hosted library this file's esp32_hosted:
+    # block compiles in - and per the component's own maintainer
+    # (esphome Discord, confirmed against a real P4+C6 board): "if you
+    # updated to 2.12.8 on the C6 its a bad idea to run an older version
+    # on the P4 - you can run an older version on the C6 but they dont
+    # guarantee the other way around". An unpinned host library (this
+    # block, before this fix) just takes whatever ESPHome's own release
+    # bundles, with no guarantee it's >= whatever HA already pushed onto
+    # the C6 - that mismatch is what was crashing this board deep in
+    # ESP-IDF's own early startup (before ESPHome's logger even printed
+    # a line), not anything in this repo's own YAML content.
+    #
+    # Pinning BOTH ends to the same known release sidesteps the mismatch
+    # rather than trying to detect it: 2.12.12 was the current stable
+    # (non-3.x) release at the time this was fixed - keep this in sync
+    # with whatever the C6-firmware update entity is actually running,
+    # if that ever changes again.
+    components:
+      - espressif/esp_hosted==2.12.12
+    # CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM/CONFIG_ESP_MAIN_TASK_STACK_SIZE
+    # and advanced: loop_task_stack_size below all came from the same
+    # fix, reported working on the same P4+C6-hosted board family - kept
+    # together as one known-good set rather than trimmed to "the one
+    # that mattered", since that wasn't isolated on real hardware.
+    sdkconfig_options:
+      CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM: "y"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
     advanced:
       # Required by esp32_hosted (WiFi 6/BLE via the ESP32-C6, below),
       # per the same board manifest - ESP-IDF's P4<->C6 co-processor
       # support is still marked experimental upstream.
       enable_idf_experimental_features: true
+      loop_task_stack_size: 32768
 
 # Per the same board manifest: this board's USB-C port is a UART0-based
 # flashing/debug port (not the P4's native USB-Serial-JTAG), so logging
@@ -124,29 +158,16 @@ logger:
 # ESP32-P4 only supports hex-mode PSRAM (quad/octal aren't valid on this
 # variant - ESPHome's own psram component enforces this).
 #
-# Real boot log showed an immediate crash-reboot loop, before ESPHome's
-# own logger ever printed a line -
-#   assert failed: spi_flash_disable_interrupts_caches_and_other_cpu
-#   cache_utils.c:127 (esp_task_stack_is_sane_cache_disabled())
-# right after ESP-IDF's own "Disabling RNG early entropy source..." -
-# i.e. inside ESP-IDF's own early startup (esp_psram_init(), before
-# app_main()/any component setup), not in anything this file's own
-# components do.
-#
-# First attempt was `speed: 200MHz` -> `100MHz` on the theory that this
-# board's ES silicon (`esp32: engineering_sample: true` above - a real,
-# confirmed flag, not a guess) can't hold the top PSRAM speed grade. On
-# reflash, the crash was BYTE-IDENTICAL - same PC, same register dump,
-# same stack contents - which is itself the tell that the theory was
-# wrong, or at least unconfirmed: see README.md's "esphome clean after
-# any PSRAM/sdkconfig change" section for why an unchanged crash after
-# an edited `psram:` value most likely means the flashed binary never
-# actually picked up the new setting (a known ESPHome/ESP32-P4 stale-
-# incremental-build issue, esphome/esphome#15336 - same v1.3 ES chip
-# revision this board reports). `speed: 100MHz` is kept here as the
-# safer of the two values either way, but do an `esphome clean` before
-# the next flash attempt and re-test BEFORE assuming this speed value
-# itself is the fix or trying 80MHz - it may never have been tested yet.
+# NOT the cause of the boot crash chased through several earlier rounds
+# of this file's own comments (that crash - `assert failed:
+# spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:127
+# (esp_task_stack_is_sane_cache_disabled())`, right after ESP-IDF's own
+# "Disabling RNG early entropy source..." - was a C6-firmware/host-
+# library esp_hosted version mismatch, fixed in the esp32: block above,
+# not a PSRAM setting). `speed: 100MHz` was an earlier, wrong guess at
+# the cause, kept here only because it's a safe, working value, not
+# because 200MHz was ever confirmed unsafe - untested whether 200MHz
+# would also be fine now that the real cause is fixed.
 psram:
   mode: hex
   speed: 100MHz

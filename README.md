@@ -354,21 +354,32 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       Yield (MPPT PV yield + status), and DC Loads (GX aggregate
       consumption) all show real data now - none of this page's boxes
       are placeholder-invalid anymore.
-- [x] **Fixed a real boot crash on hardware: PSRAM hex-mode 200MHz →
-      100MHz.** Real boot log showed an immediate crash-reboot loop —
-      `assert failed: spi_flash_disable_interrupts_caches_and_other_cpu
-      cache_utils.c:127 (esp_task_stack_is_sane_cache_disabled())` —
-      right after ESP-IDF's own "Disabling RNG early entropy source...",
-      i.e. inside `esp_psram_init()` itself, before ESPHome's own
-      logger or any component setup ever runs. `esp32:
-      engineering_sample: true` (this board manifest's own flag) means
-      this is confirmed ES P4 silicon, and ES silicon is exactly what
-      Espressif's own PSRAM timing notes call out as unreliable at the
-      top speed grade — `smart-ebl-display.yaml`'s `psram:` comment had
-      already flagged "drop to 100MHz if boot is unstable" as a
-      contingency; this is that contingency, now confirmed rather than
-      hypothetical. If 100MHz still crashes the same way on your unit,
-      drop once more to 80MHz before suspecting anything else.
+- [x] **Fixed the real boot crash chased through several earlier rounds
+      of this list** — `assert failed:
+      spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:127
+      (esp_task_stack_is_sane_cache_disabled())`, right after ESP-IDF's
+      own "Disabling RNG early entropy source...", before ESPHome's own
+      logger or any component setup ever runs. PSRAM speed (tried first:
+      200MHz → 100MHz) was **not** the cause — that fix produced a
+      byte-identical crash, which was itself the tell. Neither was any
+      of this repo's own YAML content (`LV_USE_ARC`, page layout,
+      sensor count - all ruled out by testing, and by `sdkconfig`/
+      `partitions.csv` diffing byte-identical between a working and a
+      crashing build). **Real cause**: the ESP32-C6 co-processor's own
+      `esp_hosted` firmware (managed by Home Assistant's C6-firmware
+      `update:` entity) had moved ahead of the HOST-side `esp_hosted`
+      library this file's `esp32_hosted:` block compiles in — per that
+      component's own maintainer, the C6's firmware must be >= the host
+      library, never the other way around; an unpinned host library
+      just takes whatever ESPHome's release bundles, with no such
+      guarantee. **Fix**: pin both ends to the same known release
+      (`esp32: framework: components: - espressif/esp_hosted==2.12.12`)
+      plus the sdkconfig/stack-size options that came with that fix on
+      the same P4+C6-hosted board family - confirmed working on real
+      hardware. Keep the pinned version in sync with whatever the C6
+      actually runs if this recurs. `psram: speed: 100MHz` is kept as a
+      safe value, not because 200MHz was ever confirmed unsafe -
+      untested since the real fix landed.
 - [ ] Build out the remaining pages per `docs/pages.md`'s catalog
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
