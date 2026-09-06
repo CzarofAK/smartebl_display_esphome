@@ -324,6 +324,15 @@ color:
     hex: "000000"
   - id: col_clock_second
     hex: E74C3C
+  # Every page's own bg_color (see the `pages:` block below) - a
+  # SEPARATE id from col_clock_bg above even though it happens to be
+  # the same hex, since the two mean different things (that one is the
+  # clock's own "ink" color by day; this one is corner_color, the fixed
+  # color the clock's square canvas corners disappear into - see that
+  # widget property's own comment). Keeping them distinct means a future
+  # change to one can never silently break the other by coincidence.
+  - id: col_page_bg
+    hex: "000000"
 
 # =============================================================================
 # UI fonts - custom glyph set, NOT ESPHome/LVGL's bare `montserrat_NN`
@@ -346,12 +355,23 @@ color:
 # silently reintroduce the same tofu-box bug for that character, so this
 # list has to stay a superset of every string literal (and lambda-built
 # string) in this file, not just "whatever's missing today".
+#
+# Real bug fixed (round 2, repo-owner report): the tofu boxes were still
+# showing up EVERYWHERE a plain space appears ("POWER (12V)", the status
+# bar's "HH:MM:SS   DD.MM.YYYY", etc.) even after the fix above. Cause:
+# this glyph list used to be a `|-` block scalar with the space meant to
+# be its very first character, indented to line up with the block's own
+# indentation marker - YAML's block-scalar rules strip exactly that much
+# leading whitespace off every line as indentation, not content, so the
+# one character this whole file's labels use more than any other was
+# silently missing from the generated font. A quoted flow scalar with
+# the space placed somewhere unambiguous (not first-and-only-thing-on-
+# the-line) has no such stripping rule - used here instead.
 font:
   - file: "gfonts://Montserrat"
     id: font_ui_16
     size: 16
-    glyphs: &ui_glyphs |-
-       !"%()+-./:0123456789<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyzäöüÄÖÜß°→↓↑
+    glyphs: &ui_glyphs "!\" %()+-./:0123456789<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyzäöüÄÖÜß°→↓↑"
   - file: "gfonts://Montserrat"
     id: font_ui_20
     size: 20
@@ -581,6 +601,13 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"
+
+  # ---- Electric page (page_electric) flow-arrow animation (see
+  # animate_flow_arrows) - 0-3, one shared frame counter for all 5 arrows.
+  - id: g_flow_frame
+    type: int
+    restore_value: false
+    initial_value: "0"
 
   # ---- Electric page (page_electric) popup - shore/grid current limit
   # (number.multiplus_strombegrenzung) being locally edited, same
@@ -1211,6 +1238,19 @@ interval:
     then:
       - script.execute: check_sleep_idle
 
+  # Electric page flow-arrow animation - only runs while that page is
+  # actually visible (g_current_page == 1, see nav_show_electric), same
+  # "don't animate what nobody can see" reasoning as any other idle-page
+  # optimization - LVGL still redraws every 300ms regardless of which
+  # page is on top, so a hidden page's animation would be pure waste.
+  - interval: 300ms
+    then:
+      - if:
+          condition:
+            lambda: "return id(g_current_page) == 1;"
+          then:
+            - script.execute: animate_flow_arrows
+
 # =============================================================================
 # Link writer - composes protocol.md §7 command frames
 # =============================================================================
@@ -1263,28 +1303,30 @@ script:
       - script.execute: apply_daynight
       - script.execute: draw_daynight_popup
 
-  # ---- Brightness - globals + popup slider only for this release, see
-  # pages.md §4/§7 and docs/hardware.md's own open item: no PWM-capable
-  # backlight GPIO is confirmed on this board yet (the panel came up
-  # over pure DSI init with `enable_pin:` left out entirely, see the
-  # display: block above), so there is no real dimmer to drive. Building
-  # the slider and its backing global now rather than waiting for the
-  # pin - g_backlight_pct survives a reboot (restore_value, same as
-  # g_daynight) and apply_backlight is the ONE place a future
-  # `output:`/`ledc` write belongs once that pin is found; until then it
-  # only updates the popup's own label.
+  # ---- Brightness - SOFTWARE dimming, not a real backlight PWM ---------
+  # Confirmed (repo owner, against Waveshare's own wiki page for this
+  # exact panel): there is no backlight GPIO on this board at all to
+  # drive - not just unconfirmed, genuinely absent. A real hardware
+  # dimmer was never going to happen here, so this fakes the same
+  # result instead: obj_brightness_dim_overlay (top_layer, drawn over
+  # every page's content but BELOW obj_sleep_overlay and non-clickable,
+  # so it dims what's on screen without ever blocking a touch) is a
+  # plain black rectangle whose opacity this drives - more opaque =
+  # darker screen. Capped well short of fully opaque (200/255 at the
+  # slider's own 10% floor) so the UI stays legible at minimum, unlike
+  # sleep mode's own full-black overlay, which is a deliberately
+  # different, total-blackout state.
   - id: apply_backlight
     then:
       - lambda: |-
+          int pct = id(g_backlight_pct);
           char buf[8];
-          snprintf(buf, sizeof(buf), "%d%%", id(g_backlight_pct));
+          snprintf(buf, sizeof(buf), "%d%%", pct);
           lv_label_set_text(id(lbl_backlight_pct), buf);
-          // TODO(docs/hardware.md's backlight-pin open item): once a
-          // PWM-capable GPIO is confirmed for this board's backlight,
-          // drive it here, e.g.:
-          //   id(out_backlight).set_level(id(g_backlight_pct) / 100.0f);
-          // No output component exists yet - there's no GPIO to name one
-          // against - so this is currently UI + persisted state only.
+          float dim = (100 - pct) / 90.0f;  // slider range is 10-100
+          if (dim < 0.0f) dim = 0.0f;
+          if (dim > 1.0f) dim = 1.0f;
+          lv_obj_set_style_bg_opa(id(obj_brightness_dim_overlay), (lv_opa_t) (dim * 200), 0);
 
   - id: act_backlight_set
     parameters:
@@ -1591,6 +1633,20 @@ script:
             }
           }
 
+          // ---- Inverter load bar - see the widget's own comment for
+          // what this is a best-effort answer to. Same 1600W-nominal %
+          // as AC Loads' own coloring below, computed once here since
+          // both need it.
+          {
+            float load_pct = 0.0f;
+            if (api_ok && id(s_multiplus_out_w).has_state()) {
+              load_pct = id(s_multiplus_out_w).state / 1600.0f * 100.0f;
+              if (load_pct < 0.0f) load_pct = 0.0f;
+              if (load_pct > 100.0f) load_pct = 100.0f;
+            }
+            lv_bar_set_value(id(bar_electric_charger_load), (int) load_pct, LV_ANIM_OFF);
+          }
+
           // ---- AC Loads - main = output power, sub-left/right = output
           // voltage/frequency (repo-owner spec, replacing the old %-of-
           // 1600W-nominal figure - that derived number is gone, this is
@@ -1602,6 +1658,7 @@ script:
           if (!api_ok || !id(s_multiplus_out_w).has_state()) {
             lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_electric_ac_loads_state), "---");
           } else {
             float w = id(s_multiplus_out_w).state;
             snprintf(buf, sizeof(buf), "%.0fW", w);
@@ -1611,6 +1668,8 @@ script:
             if (p >= 95.0f) col = 0xE74C3C;
             else if (p >= 80.0f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(col), 0);
+            snprintf(buf, sizeof(buf), "%.0f%% VON 1600W", p);
+            lv_label_set_text(id(lbl_electric_ac_loads_state), buf);
           }
           if (!api_ok || !id(s_multiplus_out_v).has_state()) {
             lv_label_set_text(id(lbl_electric_ac_loads_sub_l), "---V");
@@ -1627,9 +1686,10 @@ script:
 
           // ---- Solar Yield (now a button - tap opens the mode/limit
           // popup, see show_solar_popup) - real MPPT charge controller.
-          // Main = PV yield power, sub-left/right = the MPPT's own DC
-          // battery-bus voltage/current (repo-owner spec, replacing the
-          // old humanized-zustand sub line).
+          // Main = PV yield power, state line = humanized zustand
+          // (restored - see lbl_electric_solar_state's own comment),
+          // sub-left/right = the MPPT's own DC battery-bus voltage/
+          // current (repo-owner spec).
           if (!api_ok || !id(s_mppt_pv_yield).has_state()) {
             lv_label_set_text(id(lbl_electric_solar), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
@@ -1637,6 +1697,13 @@ script:
             snprintf(buf, sizeof(buf), "%.0fW", id(s_mppt_pv_yield).state);
             lv_label_set_text(id(lbl_electric_solar), buf);
             lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0xFFFFFF), 0);
+          }
+          if (!api_ok || !id(s_mppt_zustand).has_state()) {
+            lv_label_set_text(id(lbl_electric_solar_state), "---");
+          } else {
+            std::string s = id(s_mppt_zustand).state;
+            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
+            lv_label_set_text(id(lbl_electric_solar_state), s.c_str());
           }
           if (!api_ok || !id(s_mppt_batt_v).has_state()) {
             lv_label_set_text(id(lbl_electric_solar_sub_l), "---V");
@@ -2069,6 +2136,30 @@ script:
           service: switch.toggle
           data:
             entity_id: switch.fram_parkmodus
+
+  # ---- Electric page flow arrows - animated, per repo-owner request
+  # ("wie bei https://github.com/skydarc/Venus-OS-Dashboard"). LVGL has
+  # no built-in "flowing dashed line" primitive to reach for here, so
+  # this fakes the same read (power visibly moving along the arrow's
+  # direction) two ways instead: the horizontal arrows (→) cycle through
+  # a small dash-approaching-the-arrowhead text sequence, the vertical
+  # one (↓, a single glyph - a text sequence doesn't read as vertical
+  # motion) pulses opacity instead. Driven by one shared frame counter
+  # rather than a separate timer per arrow, so all five stay in lockstep
+  # (reads as one coherent flow instead of five independently-blinking
+  # ones).
+  - id: animate_flow_arrows
+    then:
+      - lambda: |-
+          static const char *const kHFrames[4] = {"-  →", " - →", "  -→", "   →"};
+          int f = id(g_flow_frame);
+          lv_obj_t *h_arrows[4] = {id(arrow_shore_charger), id(arrow_charger_acloads),
+                                    id(arrow_solar_battery), id(arrow_battery_dcloads)};
+          for (auto *a : h_arrows) lv_label_set_text(a, kHFrames[f]);
+          lv_obj_set_style_text_opa(id(arrow_row_down), (f % 2 == 0) ? LV_OPA_50 : LV_OPA_COVER, 0);
+      - globals.set:
+          id: g_flow_frame
+          value: !lambda "return (id(g_flow_frame) + 1) % 4;"
 
   # ---- Climate (page_climate) --------------------------------------------
   # pages.md §5: Truma Combi 4 room-heating side, via the
@@ -2974,6 +3065,26 @@ lvgl:
                 on_click:
                   - script.execute: close_daynight_popup
 
+      # ---- Brightness dim overlay (see apply_backlight) - an `obj:`,
+      # not a `button:`: LVGL objects are non-clickable by default
+      # (only widgets like `button:` opt into catching touches), so this
+      # sits on top of every page's content without ever intercepting a
+      # tap meant for whatever's underneath - it only ever changes how
+      # dark that content LOOKS. Starts fully transparent (bg_opa 0);
+      # apply_backlight (called from on_boot and every slider move)
+      # drives the real value.
+      - obj:
+          id: obj_brightness_dim_overlay
+          align: TOP_LEFT
+          x: 0
+          y: 0
+          width: ${screen_w}
+          height: ${screen_h}
+          bg_color: 0x000000
+          bg_opa: TRANSP
+          border_width: 0
+          radius: 0
+
       # ---- Sleep overlay (pages.md's display-power open item) - LAST in
       # this widget list on purpose: LVGL draws top_layer widgets in list
       # order, so this has to come after the popup above (and everything
@@ -3019,14 +3130,32 @@ lvgl:
             x: 750
             y: 200
             # Round, not square (bug reported on real hardware): a
-            # canvas is inherently rectangular, so without both of
-            # these it rendered as a plain filled square. transparent
-            # lets the square's corners show the page's own black
-            # background through instead of a solid fill; show_face
-            # draws the actual round dial - together they're what
-            # makes it read as a circle rather than a block.
-            transparent: true
+            # canvas is inherently rectangular, so without something
+            # making the corners disappear it rendered as a plain filled
+            # square. show_face draws the actual round dial; corner_color
+            # (below) makes the square's own corners disappear into the
+            # page's real background - together they're what makes it
+            # read as a circle rather than a block.
             show_face: true
+            # Real bug fixed (2026-09-06, round 2 - hopping persisted
+            # even after m5dial_clock_sbb's first render-frequency fix,
+            # confirmed on real hardware): this used to be `transparent:
+            # true`, which needs an ARGB8888 canvas - at 450x450 that's
+            # 810112 bytes, more than this chip's ~432KB of free internal
+            # RAM, so it lived in PSRAM (see the boot log's own
+            # `alloc_canvas_buf()` warning) where even the *optimized*
+            # steady-state redraw was still slow enough to occasionally
+            # trip ESPHome's "took a long time" component warning -
+            # exactly the residual hopping reported. Since this page's
+            # background is always the same fixed solid color (never a
+            # live camera feed or photo behind the clock), true alpha
+            # transparency was never actually needed - only
+            # `corner_color` matching that fixed color was, which is
+            # opaque (405000 bytes at this size, comfortably fits in
+            # internal RAM) instead of needing an alpha channel at all.
+            # See m5dial_clock_sbb's README "Fixed" section for the full
+            # writeup of both rounds of this bug.
+            corner_color: col_page_bg
             # Real SBB clock look (design_rules.md §6's documented
             # exception, m5dial_fram's clock page uses the same
             # colors): WHITE face, BLACK hands by day - background/
@@ -3034,29 +3163,22 @@ lvgl:
             # (apply_daynight, below) swaps them at runtime for BLACK
             # face for BLACK, WHITE hands at night. Previously had
             # these backwards (white ink on a black square, no face) -
-            # that's the other half of the same bug report.
+            # that's the other half of the original bug report.
+            # corner_color above is DELIBERATELY not swapped by
+            # night_mode - the page behind the clock stays the same
+            # black regardless of day/night, so the corners have to
+            # match that fixed color either way, not invert with the
+            # face.
             background: col_clock_ink   # white face by day
             foreground: col_clock_bg    # black hands/ticks/text by day
             second_hand_color: col_clock_second
             # show_date: false (the default) - repo owner doesn't want
-            # the date/day shown, and one less text draw per frame is a
-            # small mercy for the same PSRAM-canvas cost noted below.
+            # the date/day shown.
             #
-            # render_interval was halved to 200ms here as a mitigation
-            # for `transparent: true` forcing a full-canvas-plus-60-ticks
-            # redraw every single frame - real bug, root-caused and
-            # fixed upstream in m5dial_clock_sbb (see that repo's
-            # README "Fixed" section and this repo's own roadmap): with
-            # `show_face: true` (set above), the component no longer
-            # needs that full redraw except on the first frame/a
-            # night_mode flip, exactly like the non-transparent case
-            # already didn't. Left at the component's own 100ms default
-            # now that the actual cost the 200ms was working around is
-            # gone - the choppy/"hopping" second hand this was meant to
-            # avoid was actually caused BY that cost (a full 60-tick
-            # PSRAM repaint taking longer than the render interval,
-            # which then shows up as the hand jumping to catch up),
-            # not helped by widening the interval further.
+            # render_interval left at the component's own 100ms default -
+            # the whole point of the corner_color fix above is that this
+            # canvas no longer has an unusual per-frame cost to work
+            # around.
 
         # ---- Left half: one tile per switch (pages.md §6) ---------------
         # Fridge is reserved regardless of outcome (pages.md §6: "user is
@@ -3298,23 +3420,26 @@ lvgl:
                   text: "SHORE"
                   text_font: font_ui_16
                   text_color: 0x707070
-              # Connected/disconnected - smartebl's own link reading
-              # (see draw_electric) - kept as its own line now that the
-              # main value below is the MultiPlus's real input power,
-              # not this status text like it used to be.
-              - label:
-                  id: lbl_electric_shore_status
-                  align: TOP_MID
-                  y: 34
-                  text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
               - label:
                   id: lbl_electric_shore
                   align: TOP_MID
                   y: 74
                   text: "--- W"
                   text_font: font_ui_24
+                  text_color: 0x555555
+              # Connected/disconnected - smartebl's own link reading
+              # (see draw_electric). y108: the same "state/secondary
+              # line, right under the main value" slot every box on
+              # this page uses now (Charger's mode state, AC Loads' %-
+              # of-nominal, Solar's zustand, Battery's IDLE/CHARGING/
+              # DISCHARGING) - repo-owner spec: "insert the battery's
+              # IDLE-style line everywhere, so it looks homogeneous".
+              - label:
+                  id: lbl_electric_shore_status
+                  align: TOP_MID
+                  y: 108
+                  text: "---"
+                  text_font: font_ui_16
                   text_color: 0x555555
               - label:
                   id: lbl_electric_shore_sub_l
@@ -3333,6 +3458,7 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
         - label:
+            id: arrow_shore_charger
             align: TOP_LEFT
             x: 525
             y: 255
@@ -3371,16 +3497,47 @@ lvgl:
                   text: "---"
                   text_font: font_ui_24
                   text_color: 0x555555
+              # y108: same state/secondary-line slot every box on this
+              # page uses - see lbl_electric_shore_status's own comment.
               - label:
                   id: lbl_electric_charger_sub
-                  align: BOTTOM_MID
-                  y: -14
+                  align: TOP_MID
+                  y: 108
                   text: "---"
                   text_font: font_ui_16
                   text_color: 0x555555
+              # Inverter load bar - repo owner asked what Victron
+              # GUIv2's own vertical bar here represents; best answer
+              # from this session (still unconfirmed against a real GX
+              # device): AC output power as a % of the MultiPlus's own
+              # max rated output, NOT input/throughput. Reuses AC Loads'
+              # own entity (sensor.multiplus_ausgangsleistung_l1,
+              # s_multiplus_out_w) and its 1600W-nominal assumption
+              # (same Multiplus 12/1600 caveat as that box) rather than
+              # inventing a second calculation for the same underlying
+              # number - see draw_electric for the actual %.
+              - bar:
+                  id: bar_electric_charger_load
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 12
+                  width: 14
+                  height: 186
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 4
+                  indicator:
+                    bg_color: 0x4A9EFF
+                    radius: 3
             on_click:
               - script.execute: show_charger_popup
         - label:
+            id: arrow_charger_acloads
             align: TOP_LEFT
             x: 865
             y: 255
@@ -3413,6 +3570,15 @@ lvgl:
                   text: "--- W"
                   text_font: font_ui_24
                   text_color: 0x555555
+              # y108: same state/secondary-line slot every box on this
+              # page uses - see lbl_electric_shore_status's own comment.
+              - label:
+                  id: lbl_electric_ac_loads_state
+                  align: TOP_MID
+                  y: 108
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x707070
               - label:
                   id: lbl_electric_ac_loads_sub_l
                   align: BOTTOM_LEFT
@@ -3431,6 +3597,7 @@ lvgl:
                   text_color: 0xBDC1C6
 
         - label:
+            id: arrow_row_down
             align: TOP_LEFT
             x: 695
             y: 380
@@ -3468,6 +3635,18 @@ lvgl:
                   text: "--- W"
                   text_font: font_ui_24
                   text_color: 0x555555
+              # y108: same state/secondary-line slot every box on this
+              # page uses - see lbl_electric_shore_status's own comment.
+              # Humanized MPPT zustand - had been dropped when the subs
+              # below became V/A instead, restored here rather than left
+              # out, since the sensor (s_mppt_zustand) is still real.
+              - label:
+                  id: lbl_electric_solar_state
+                  align: TOP_MID
+                  y: 108
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x707070
               - label:
                   id: lbl_electric_solar_sub_l
                   align: BOTTOM_LEFT
@@ -3487,6 +3666,7 @@ lvgl:
             on_click:
               - script.execute: show_solar_popup
         - label:
+            id: arrow_solar_battery
             align: TOP_LEFT
             x: 505
             y: 545
@@ -3525,19 +3705,24 @@ lvgl:
                   text: "---%"
                   text_font: font_ui_40
                   text_color: 0x555555
-              # State (IDLE/CHARGING/DISCHARGING) + remaining time -
-              # between the main SOC and the bottom V/A/W row.
+              # State (IDLE/CHARGING/DISCHARGING) - y108: same state/
+              # secondary-line slot every box on this page uses now, see
+              # lbl_electric_shore_status's own comment (this is the box
+              # the pattern was named after). Remaining time is EXTRA,
+              # not part of that shared slot - Battery is the one box
+              # with a second line of its own between the state line and
+              # the bottom row.
               - label:
                   id: lbl_electric_batt_state
                   align: TOP_MID
-                  y: 104
+                  y: 108
                   text: "---"
                   text_font: font_ui_16
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_time
                   align: TOP_MID
-                  y: 126
+                  y: 130
                   text: ""
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
@@ -3583,6 +3768,7 @@ lvgl:
             on_click:
               - script.execute: show_battery_popup
         - label:
+            id: arrow_battery_dcloads
             align: TOP_LEFT
             x: 885
             y: 545
@@ -3614,6 +3800,31 @@ lvgl:
                   y: 74
                   text: "--- W"
                   text_font: font_ui_24
+                  text_color: 0x555555
+              # Reserved, matching every other box's layout even though
+              # there's no real source for any of it yet (repo owner:
+              # "tbd") - keeps this box the same shape as its neighbors
+              # rather than looking unfinished, and means nothing shifts
+              # around once a real entity is picked.
+              - label:
+                  align: TOP_MID
+                  y: 108
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 14
+                  y: -14
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  align: BOTTOM_RIGHT
+                  x: -14
+                  y: -14
+                  text: "---"
+                  text_font: font_ui_16
                   text_color: 0x555555
 
         # ---- Charger/Inverter popup: mode (select.multiplus) + shore
