@@ -295,6 +295,21 @@ script:
           // right now. Main = input power, sub-left/right = input
           // voltage/frequency (repo-owner spec, replacing the old
           // W+A sub-line).
+          //
+          // Repo-owner (2026-09-06): "shore zeigt 71W an aber
+          // disconnected?" - expected, not a bug, given the above: this
+          // status word is smartebl's OWN physical shore-sense input
+          // (a separate wire/circuit on the electroblock), while the W
+          // value is the MultiPlus's real AC-input meter reading over
+          // HA - two independent sensors for "is shore power plugged
+          // in", not one value derived from the other. They can
+          // genuinely disagree (smartebl's own sense wire not tripped
+          // yet/miswired/not connected on this installation while the
+          // MultiPlus is still measuring real AC input, or vice versa)
+          // - if that mismatch is persistent rather than a one-off, the
+          // fix is in smartebl's own shore-detection wiring/firmware,
+          // not here; this page is only reporting the two entities as
+          // given.
           if (!connected) {
             lv_label_set_text(id(lbl_electric_shore_status), "---");
             lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0x555555), 0);
@@ -983,27 +998,48 @@ lvgl:
               # row_bottom_l/r's x moved in from the edge (14->24) per
               # repo-owner: "alle Werte auf der untersten Ebene sind zu
               # weit aussen" - same 24px inset Battery's own V/A/W row
-              # (further down) now uses, so every box's bottom-most
-              # values sit the same distance from their box's edges.
-              # Font sizes bumped one notch (repo-owner: "die Schriften
-              # sind unklar geworden mit vergroessern") - font_ui_20/40
-              # -> font_ui_24/48, real, freshly-rasterized glyph sets at
-              # the new sizes (see smart-ebl-display.yaml's font: block,
-              # "Electric 1/2 rescale" comment), sized to match how much
-              # bigger these boxes grew (row heights 130/170 -> 210/290)
-              # - not a runtime stretch of the old bitmaps.
+              # (further down) uses, so every box's bottom-most values
+              # sit the same distance from their box's edges.
+              #
+              # ---- 2026-09-06 re-rescale (repo-owner: "schriften eher
+              # zu gross") - the PREVIOUS round here had bumped every
+              # font one notch (font_ui_20/40 -> font_ui_24/48) to fix an
+              # earlier "Schriften sind unklar geworden" complaint when
+              # these boxes grew to 300x290 - that overshot. Reverted to
+              # the original font_ui_20/40 pair (still real, freshly-
+              # rasterized glyph sets, not a re-guess) - font_ui_48 is
+              # now unused (see smart-ebl-display.yaml's font: block) and
+              # dropped outright, same "no more unapproved deviation"
+              # cleanup this file's own header already applied to
+              # font_ui_32.
+              #
+              # row_bottom_l/r ALSO moved off the box's bottom edge, up
+              # to y:210 (TOP-anchored, was BOTTOM_LEFT/RIGHT y:-16) -
+              # repo-owner: "das darüber [dem Fusszeile-Wert] ist die
+              # Zusatzstatusleiste (Volt, Ampere, Watt), diese muss auf
+              # allen tiles auf die gleiche Höhe - bei Battery ist es am
+              # stimmigsten" - Battery's own V/A/W row (further down,
+              # lbl_electric_batt_v/a/w) already sits at exactly this
+              # y:210/x:±24 spot and is the reference height being
+              # matched here, not just a description of where these two
+              # values happened to be already. The five boxes built from
+              # this anchor have no separate footer value of their own
+              # (unlike Battery's dedicated "START ---V" starter-voltage
+              # line) - moving their one status row up to y:210 leaves
+              # their own bottom edge empty rather than inventing a
+              # second value to fill it.
               - label: &row_title
                   align: TOP_MID
                   y: 16
                   text: "SHORE"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x707070
               - label: &row_main
                   id: lbl_electric_shore
                   align: TOP_MID
                   y: 48
                   text: "--- W"
-                  text_font: font_ui_48
+                  text_font: font_ui_40
                   text_color: 0x555555
               # Connected/disconnected - smartebl's own link reading
               # (see draw_electric). Shared state/secondary-line slot
@@ -1015,23 +1051,23 @@ lvgl:
                   align: TOP_MID
                   y: 132
                   text: "---"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x555555
               - label: &row_bottom_l
                   id: lbl_electric_shore_sub_l
-                  align: BOTTOM_LEFT
+                  align: TOP_LEFT
                   x: 24
-                  y: -16
+                  y: 210
                   text: "---V"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
               - label: &row_bottom_r
                   id: lbl_electric_shore_sub_r
-                  align: BOTTOM_RIGHT
+                  align: TOP_RIGHT
                   x: -24
-                  y: -16
+                  y: 210
                   text: "---Hz"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
         # ---- Flow arrows - static, 3-state (repo-owner: a walking
         # animation "braucht Leistung" for what it conveyed; a real
@@ -1257,13 +1293,15 @@ lvgl:
                   align: TOP_MID
                   y: 164
                   text: ""
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
               # DC bus V / A / W, left / middle / right. x/width match
               # row_bottom_l/r's own 24px inset and gap exactly (repo-
               # owner: "alle Werte auf der untersten Ebene sind zu weit
               # aussen") - 24px side padding + 3x76 + 2x12 gap = 252px,
-              # i.e. 300 - 2x24.
+              # i.e. 300 - 2x24. This is the "Zusatzstatusleiste" height
+              # (y:210) row_bottom_l/r (above, Shore's own row template)
+              # was moved up to match - see that anchor's own comment.
               - label:
                   id: lbl_electric_batt_v
                   align: TOP_LEFT
@@ -1272,7 +1310,7 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---V"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_a
@@ -1281,7 +1319,7 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---A"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_w
@@ -1291,22 +1329,23 @@ lvgl:
                   width: 76
                   text_align: CENTER
                   text: "---W"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x555555
               # Starter battery voltage - smartebl's own link reading
-              # (see draw_electric), always at the very bottom. This is
-              # the row-height reference the repo owner approved
-              # ("bei battery hast du die unterste Zeile für Startbat.
-              # super") for every OTHER box's own bottom-most row
-              # (row_bottom_l/r, above) - same y=-16, not its content
-              # (this one stays its own aux value, unrelated to what any
-              # other box shows there).
+              # (see draw_electric), always at the very bottom - this IS
+              # the box's "Fusszeile" (repo-owner's own term for it), one
+              # level below the V/A/W status row above. The other five
+              # boxes on this page have no equivalent value of their own
+              # to put here (row_bottom_l/r, above, moved UP to the
+              # status-row height instead of staying down here) - this
+              # bottom-most slot is a Battery-only aux value, unrelated
+              # to what any other box shows.
               - label:
                   id: lbl_electric_batt_sub
                   align: BOTTOM_MID
                   y: -16
                   text: "START ---V"
-                  text_font: font_ui_24
+                  text_font: font_ui_20
                   text_color: 0x555555
             on_click:
               - script.execute: show_battery_popup

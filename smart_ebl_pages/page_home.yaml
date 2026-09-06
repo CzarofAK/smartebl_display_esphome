@@ -338,7 +338,17 @@ lvgl:
             height: 320
             align: TOP_LEFT
             x: 815 # keeps the same center point as the old 450x450 at (750,200)
-            y: 265
+            # y:187 (was 265) - repo-owner, 2026-09-06: "Uhr oben bündig
+            # mit den Schaltern links machen (ICEEX und LIGHT) ... Abstand
+            # zwischen Uhr und Alarmanlage gleich wie zwischen den
+            # Schaltern". LIGHT/ICEEX (below) start at y:187 - clock top
+            # now matches exactly. This 320px height already lands the
+            # clock's bottom edge (187+320=507) exactly 20px above the
+            # Alarmo tile's own new y:527 (see that widget's own comment)
+            # - the same 20px gap the three switch rows use between each
+            # other - so no resize was actually needed to satisfy the
+            # gap-matching half of that request, only this move.
+            y: 187
             # Round, not square (bug reported on real hardware): a
             # canvas is inherently rectangular, so without something
             # making the corners disappear it rendered as a plain filled
@@ -583,14 +593,21 @@ lvgl:
 
         # ---- Alarmo - see this file's own header comment for why it's
         # placed here (below the clock) rather than in the 2x3 switch
-        # grid above. Clock occupies x815-1135/y265-585 - this sits in
-        # the previously-empty strip below it, same width as the clock,
-        # centered the same way.
+        # grid above. Clock occupies x815-1135/y187-507 (see that
+        # widget's own comment) - this sits in the strip below it, same
+        # width as the clock (320), same height as one switch tile (150).
+        #
+        # y:527 (was 605), height still 150 (repo-owner, 2026-09-06:
+        # "Alarmanlage unten bündig machen mit den untersten Schaltern
+        # (POWER und PUMP). Höhe der Alarm Box gleich die der Switches") -
+        # 12V/PUMP (the bottom switch row) span y:527-677; this tile now
+        # shares that exact same y and height, so both bottoms land on
+        # 677 together.
         - button:
             id: btn_tile_alarm
             align: TOP_LEFT
             x: 815
-            y: 605
+            y: 527
             width: 320
             height: 150
             radius: 12
@@ -635,8 +652,18 @@ lvgl:
         - obj:
             id: obj_alarm_popup_panel
             align: CENTER
-            width: 460
-            height: 640
+            # ---- 2026-09-06 relayout (repo-owner: "'schliessen' überlappt
+            # 'arm home' und 'arm away'. Vorschlag: breiteres Popup und
+            # die beiden 'arm xxx' auf die Seite verschieben - können dann
+            # auch grösser werden") - exactly that: panel widened 460->700
+            # and ARM HOME/ARM AWAY/DISARM moved off the row they used to
+            # share under the keypad (where SCHLIESSEN, further down,
+            # could crowd them) into their own column to the keypad's
+            # right (see that column's own comment, below) - which also
+            # means they're no longer competing with SCHLIESSEN for the
+            # same vertical space at all, not just moved a few px apart.
+            width: 700
+            height: 580
             radius: 16
             bg_color: 0x1A1C1E
             bg_opa: COVER
@@ -659,10 +686,18 @@ lvgl:
                   text_color: 0xBDC1C6
 
               # ---- Keypad, 3 columns x 4 rows: 1-9 / CLR 0 (no OK key -
-              # see the ARM HOME/ARM AWAY/DISARM row below instead) -----
+              # see the ARM HOME/ARM AWAY/DISARM column, further right,
+              # instead). TOP_LEFT-anchored at x:40/170/300 (was TOP_MID,
+              # x:-130/0/130) now that the panel is wider than the keypad
+              # itself - centering the keypad alone would put it in the
+              # middle of the WHOLE panel, overlapping the ARM/DISARM
+              # column's own space to its right; left-anchoring keeps it
+              # exactly where it was relative to the panel's own left
+              # edge, still with a 40px margin. y offsets (110/198/286/
+              # 374) and each key's own 110x80 size are unchanged.
               - button: &alarm_key
-                  align: TOP_MID
-                  x: -130
+                  align: TOP_LEFT
+                  x: 40
                   y: 110
                   width: 110
                   height: 80
@@ -680,21 +715,21 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "1"}
               - button:
                   <<: *alarm_key
-                  x: 0
+                  x: 170
                   widgets:
                     - label: {align: CENTER, text: "2", text_font: font_ui_24, text_color: 0xBDC1C6}
                   on_click:
                     - script.execute: {id: alarm_pin_add_digit, digit: "2"}
               - button:
                   <<: *alarm_key
-                  x: 130
+                  x: 300
                   widgets:
                     - label: {align: CENTER, text: "3", text_font: font_ui_24, text_color: 0xBDC1C6}
                   on_click:
                     - script.execute: {id: alarm_pin_add_digit, digit: "3"}
               - button:
                   <<: *alarm_key
-                  x: -130
+                  x: 40
                   y: 198
                   widgets:
                     - label: {align: CENTER, text: "4", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -702,7 +737,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "4"}
               - button:
                   <<: *alarm_key
-                  x: 0
+                  x: 170
                   y: 198
                   widgets:
                     - label: {align: CENTER, text: "5", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -710,7 +745,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "5"}
               - button:
                   <<: *alarm_key
-                  x: 130
+                  x: 300
                   y: 198
                   widgets:
                     - label: {align: CENTER, text: "6", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -718,7 +753,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "6"}
               - button:
                   <<: *alarm_key
-                  x: -130
+                  x: 40
                   y: 286
                   widgets:
                     - label: {align: CENTER, text: "7", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -726,7 +761,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "7"}
               - button:
                   <<: *alarm_key
-                  x: 0
+                  x: 170
                   y: 286
                   widgets:
                     - label: {align: CENTER, text: "8", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -734,7 +769,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "8"}
               - button:
                   <<: *alarm_key
-                  x: 130
+                  x: 300
                   y: 286
                   widgets:
                     - label: {align: CENTER, text: "9", text_font: font_ui_24, text_color: 0xBDC1C6}
@@ -742,7 +777,7 @@ lvgl:
                     - script.execute: {id: alarm_pin_add_digit, digit: "9"}
               - button:
                   <<: *alarm_key
-                  x: -130
+                  x: 40
                   y: 374
                   widgets:
                     - label: {align: CENTER, text: "CLR", text_font: font_ui_20, text_color: 0xF39C12}
@@ -750,16 +785,16 @@ lvgl:
                     - script.execute: alarm_pin_clear
               - button:
                   <<: *alarm_key
-                  x: 0
+                  x: 170
                   y: 374
                   widgets:
                     - label: {align: CENTER, text: "0", text_font: font_ui_24, text_color: 0xBDC1C6}
                   on_click:
                     - script.execute: {id: alarm_pin_add_digit, digit: "0"}
-              # x:130,y:374 (bottom-right of the keypad) intentionally
+              # x:300,y:374 (bottom-right of the keypad) intentionally
               # empty - that's where the OK key used to be, replaced by
-              # the ARM HOME/ARM AWAY/DISARM row below instead of a 12th
-              # keypad key.
+              # the ARM HOME/ARM AWAY/DISARM column (further right)
+              # instead of a 12th keypad key.
 
               # ---- ARM HOME / ARM AWAY / DISARM - exactly the three
               # modes the repo owner actually uses ("ich nutze nur Armed
@@ -771,13 +806,24 @@ lvgl:
               # while already armed, DISARM hidden while disarmed - so
               # only ARM HOME/ARM AWAY are ever visible together, never
               # alongside DISARM.
+              #
+              # Own column to the keypad's right (x:460-660, 40px margin
+              # to the panel's own right edge - see this popup's header
+              # comment), not a row underneath it any more: ARM HOME/ARM
+              # AWAY stack top/bottom across the keypad's own y:110-454
+              # span (344px total; 160px tall each + a 24px gap between
+              # them, vs. the old 200x70 row) and DISARM (same column,
+              # shown instead of the pair while armed) fills that whole
+              # 344px span as one button - all three bigger than before,
+              # per the repo-owner's own "können dann auch grösser
+              # werden".
               - button:
                   id: btn_alarm_arm_home
-                  align: TOP_MID
-                  x: -105
-                  y: 470
+                  align: TOP_LEFT
+                  x: 460
+                  y: 110
                   width: 200
-                  height: 70
+                  height: 160
                   radius: 12
                   bg_color: 0x202124
                   border_width: 1
@@ -786,17 +832,17 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "ARM HOME"
-                        text_font: font_ui_16
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_alarm_arm_home
               - button:
                   id: btn_alarm_arm_away
-                  align: TOP_MID
-                  x: 105
-                  y: 470
+                  align: TOP_LEFT
+                  x: 460
+                  y: 294
                   width: 200
-                  height: 70
+                  height: 160
                   radius: 12
                   bg_color: 0x202124
                   border_width: 1
@@ -805,16 +851,17 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "ARM AWAY"
-                        text_font: font_ui_16
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_alarm_arm_away
               - button:
                   id: btn_alarm_disarm
-                  align: TOP_MID
-                  y: 470
-                  width: 420
-                  height: 70
+                  align: TOP_LEFT
+                  x: 460
+                  y: 110
+                  width: 200
+                  height: 344
                   radius: 12
                   bg_color: 0x4F1414
                   border_width: 1
@@ -824,7 +871,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "DISARM"
-                        text_font: font_ui_20
+                        text_font: font_ui_24
                         text_color: 0xFFFFFF
                   on_click:
                     - script.execute: act_alarm_disarm

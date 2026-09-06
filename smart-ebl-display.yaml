@@ -436,34 +436,26 @@ font:
     id: font_ui_40
     size: 40
     glyphs: *ui_glyphs
-  # ---- Electric 1/2 rescale (repo-owner report, 2026-09-06): "die
-  # Schriften sind unklar geworden mit vergroessern" - the row/box grid
-  # on both Electric sub-pages grew substantially (row heights 130/170
-  # -> 210/290 on Overview; the Fuses grid is a full 4x4 of 260x150
-  # cells) but every label on them kept its ORIGINAL font_ui_16/20/24
-  # bitmap, generated back when the boxes were much smaller - a real
-  # LVGL bitmap font has no continuous "size", so text that used to
-  # look proportionate in a small box just looks thin/indistinct once
-  # the box around it grows this much, not literally blurred by any
-  # runtime scaling (nothing here stretches a bitmap - each font:
-  # entry is its own freshly-rasterized glyph set at its own point
-  # size). Fix: two genuinely larger sizes, not a zoom of the existing
-  # ones, so Electric's title/state/sub-value rows and its hero
-  # main-value row get crisp glyphs sized for the current box
-  # dimensions. font_ui_28 is also reused by page_levels.yaml's own
-  # status line (see that file's own comment - a bigger, moved-up
-  # warning line, unrelated to Electric's own box-rescale reasoning but
-  # no reason to mint a THIRD "one size bigger than 24" font for it);
-  # font_ui_48 stays Electric-only (see that file's row_main template).
-  # Every other page's boxes didn't grow, so they keep the original
-  # 16/20/24/40 set unchanged.
+  # ---- Electric 1/2 rescale, ROUND 2 (repo-owner report, 2026-09-06:
+  # "schriften eher zu gross") - round 1 (see the git history on this
+  # comment) had bumped Electric's own title/state/sub-value/main-value
+  # fonts one notch each (font_ui_20/40 -> a since-removed font_ui_24/48
+  # pair) to fix an earlier "Schriften sind unklar geworden" complaint
+  # once these boxes grew to 300x290/260x150 - that overshot, per this
+  # round's report. Both Electric sub-pages (page_electric.yaml's row
+  # templates, page_electric_fuses.yaml's fuse_cap/fuse_v/fuse_state)
+  # are back on the shared font_ui_16/20/24/40 set every other page
+  # already uses - font_ui_48 is gone outright (nothing uses it any
+  # more, same "no more unapproved deviation" cleanup this file's own
+  # comment already applied to font_ui_32).
+  #
+  # font_ui_28 stays - still real, still used (page_levels.yaml's own
+  # status line, page_home.yaml's alarm-popup title/PIN display,
+  # page_electric.yaml's own flow-direction arrows - none of those were
+  # part of either "Electric 1/2" rescale, round 1 or 2).
   - file: "gfonts://Montserrat"
     id: font_ui_28
     size: 28
-    glyphs: *ui_glyphs
-  - file: "gfonts://Montserrat"
-    id: font_ui_48
-    size: 48
     glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night

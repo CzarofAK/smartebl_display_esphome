@@ -63,6 +63,16 @@ sensor:
   # every other level/speed reading on this page unless it turns out
   # otherwise (flag if so, same "assumed" caveat page_levels' Diesel
   # entity carries).
+  #
+  # OPEN ITEM (repo-owner, 2026-09-06): "beim Fanboard sind die Prozent
+  # RPMs..." - flagged as still unconfirmed, not changed here: if
+  # sensor.fan_board_fan_speed_1..4's real unit_of_measurement in HA is
+  # actually rpm rather than %, set_fan_n (draw_fans, below) is
+  # formatting a raw RPM number with a "%" suffix, which would need its
+  # own fix (drop the %, likely a wider buffer than set_fan_n's current
+  # 8 bytes for a 3-4 digit RPM value) once that's confirmed - same
+  # "flag rather than guess" precedent as this comment's own Diesel
+  # reference.
   - platform: homeassistant
     id: s_fans_board_speed_1
     entity_id: sensor.fan_board_fan_speed_1
@@ -286,6 +296,13 @@ lvgl:
             clickable: false
 
         # ---- Left half: FANBOARD ----------------------------------------
+        # scrollbar_mode: OFF (repo-owner, 2026-09-06: "jetzt sind das
+        # 'scroll' balken beim Fanboard ... wieso das? geht das nicht
+        # ohne?") - same LVGL default-scrollable-obj cause as
+        # page_levels.yaml's own tank columns (see that file's own
+        # comment for the mechanism) - this half's content (arc + big %
+        # + +/- buttons + the per-fan readout row down to y:430+~20=~450
+        # of this 460-tall box) sits right at that same overflow edge.
         - obj:
             id: obj_fans_board
             align: TOP_LEFT
@@ -295,6 +312,7 @@ lvgl:
             height: 460
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   align: TOP_MID
@@ -410,6 +428,9 @@ lvgl:
                   text_color: 0x555555
 
         # ---- Right half: HVAC (Sprinter blower motor) --------------------
+        # scrollbar_mode: OFF - same fix as FANBOARD's own half, above,
+        # applied here too (identical container, less content, but no
+        # reason to risk the same overflow-triggered indicator).
         - obj:
             id: obj_fans_hvac
             align: TOP_LEFT
@@ -419,6 +440,7 @@ lvgl:
             height: 460
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   align: TOP_MID

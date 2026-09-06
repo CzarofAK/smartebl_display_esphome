@@ -293,17 +293,21 @@ lvgl:
             border_color: 0x3C4043
             pad_all: 0
             widgets:
-              # Font sizes bumped one notch (repo-owner: "die Schriften
-              # sind unklar geworden mit vergroessern") - see
-              # smart-ebl-display.yaml's font: block, "Electric 1/2
-              # rescale" comment, and page_electric.yaml's own row
-              # templates for the matching bump on sub-page 1.
+              # Font sizes reverted (repo-owner, 2026-09-06: "schriften
+              # eher zu gross") - the previous round here had bumped
+              # every font one notch ("die Schriften sind unklar
+              # geworden mit vergroessern") once this grid grew to
+              # 260x150 cells; that overshot. Back to the original
+              # font_ui_16/24 pair - see smart-ebl-display.yaml's font:
+              # block ("Electric 1/2 rescale, round 2" comment) and
+              # page_electric.yaml's own row templates for the matching
+              # revert on sub-page 1.
               - label: &fuse_cap
                   align: TOP_LEFT
                   x: 12
                   y: 10
                   text: "F1 - WASSERPUMPE"
-                  text_font: font_ui_20
+                  text_font: font_ui_16
                   text_color: 0x707070
               - obj: &fuse_dot
                   id: dot_fuse_f1
@@ -322,7 +326,7 @@ lvgl:
                   x: 12
                   y: 44
                   text: "---V"
-                  text_font: font_ui_28
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label: &fuse_state
                   id: lbl_fuse_f1_state
@@ -330,7 +334,7 @@ lvgl:
                   x: 12
                   y: 84
                   text: "---"
-                  text_font: font_ui_20
+                  text_font: font_ui_16
                   text_color: 0x555555
         - obj:
             <<: *fuse_cell
