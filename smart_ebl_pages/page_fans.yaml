@@ -283,13 +283,24 @@ lvgl:
       on_load:
         - script.execute: poll_fans
       widgets:
+        # height: 620 (was 460, repo-owner report, 2026-09-06: "jetzt
+        # sehe ich einfach die unteren RPMs nicht mehr! und sowieso
+        # hängt da alles ganz oben. statt vertikal zentriert zu sein!")
+        # - disabling scroll (see obj_fans_board's own comment below)
+        # just clipped whatever didn't fit instead of letting you drag
+        # to it, and the box was only 460 tall against a 736px-tall
+        # (y64-800) content area to begin with - the real bug this
+        # exposed. 620 matches page_sensors_levelling.yaml's own divider
+        # (same two-halves convention, same content height), giving each
+        # half's ~454px of actual content room to be centered rather
+        # than clipped or crammed at the top.
         - obj:
             id: obj_fans_divider
             align: TOP_LEFT
             x: 705
             y: 90
             width: 1
-            height: 460
+            height: 620
             bg_color: 0x3C4043
             bg_opa: COVER
             border_width: 0
@@ -320,13 +331,18 @@ lvgl:
         # can't happen). Same fix as page_sensors_levelling.yaml's own
         # obj_levelling_root - see that container's own comment for why
         # scrollbar_mode alone was never enough on its own.
+        # height: 620 (was 460) + every child y +83 - see obj_fans_divider's
+        # own comment for why. +83 = (620-454)/2: this half's real content
+        # (title to the bottom of the RPM row) is ~454px tall, so +83
+        # centers it top/bottom in the new 620px box instead of leaving it
+        # pinned to y=0 with 166px of dead space below.
         - obj:
             id: obj_fans_board
             align: TOP_LEFT
             x: 160
             y: 90
             width: 530
-            height: 460
+            height: 620
             bg_opa: TRANSP
             border_width: 0
             scrollbar_mode: "OFF"
@@ -334,14 +350,14 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 0
+                  y: 83
                   text_font: font_ui_20
                   text: "FANBOARD"
                   text_color: 0x707070
               - arc:
                   id: arc_fans_board
                   align: TOP_MID
-                  y: 50
+                  y: 133
                   width: 200
                   height: 200
                   start_angle: 135
@@ -359,14 +375,14 @@ lvgl:
               - label:
                   id: lbl_fans_board_pct
                   align: TOP_MID
-                  y: 120
+                  y: 203
                   text_font: font_ui_40
                   text: "---%"
                   text_color: 0x555555
               - button:
                   align: TOP_MID
                   x: -95
-                  y: 300
+                  y: 383
                   width: 80
                   height: 60
                   radius: 12
@@ -384,7 +400,7 @@ lvgl:
               - button:
                   align: TOP_MID
                   x: 95
-                  y: 300
+                  y: 383
                   width: 80
                   height: 60
                   radius: 12
@@ -402,11 +418,11 @@ lvgl:
 
               # ---- Per-fan readout row (sensor.fan_board_fan_speed_1..4)
               # - read-only, see the sensor: block's own comment. Sits
-              # below the +/- buttons (which end at y=360) in the
-              # remaining 100px of this 460px-tall half.
+              # below the +/- buttons (which now end at y=443) with
+              # plenty of room left in this 620px-tall half.
               - label:
                   align: TOP_MID
-                  y: 400
+                  y: 483
                   width: 500
                   text_align: CENTER
                   text_font: font_ui_16
@@ -416,7 +432,7 @@ lvgl:
                   id: lbl_fans_board_f1
                   align: TOP_MID
                   x: -180
-                  y: 430
+                  y: 513
                   text_font: font_ui_20
                   text: "-- RPM"
                   text_color: 0x555555
@@ -424,7 +440,7 @@ lvgl:
                   id: lbl_fans_board_f2
                   align: TOP_MID
                   x: -60
-                  y: 430
+                  y: 513
                   text_font: font_ui_20
                   text: "-- RPM"
                   text_color: 0x555555
@@ -432,7 +448,7 @@ lvgl:
                   id: lbl_fans_board_f3
                   align: TOP_MID
                   x: 60
-                  y: 430
+                  y: 513
                   text_font: font_ui_20
                   text: "-- RPM"
                   text_color: 0x555555
@@ -440,7 +456,7 @@ lvgl:
                   id: lbl_fans_board_f4
                   align: TOP_MID
                   x: 180
-                  y: 430
+                  y: 513
                   text_font: font_ui_20
                   text: "-- RPM"
                   text_color: 0x555555
@@ -449,27 +465,34 @@ lvgl:
         # scrollbar_mode: OFF - same fix as FANBOARD's own half, above,
         # applied here too (identical container, less content, but no
         # reason to risk the same overflow-triggered indicator).
+        #
+        # height: 620 + every child y +83 - same fix, same +83 offset as
+        # obj_fans_board (see that container's own comment for the
+        # centering math). This half has less content so it doesn't
+        # need the extra room, but keeping the same box height and the
+        # same offset on every shared row (title/arc/pct/buttons) is
+        # what keeps both halves lined up across the divider.
         - obj:
             id: obj_fans_hvac
             align: TOP_LEFT
             x: 730
             y: 90
             width: 530
-            height: 460
+            height: 620
             bg_opa: TRANSP
             border_width: 0
             scrollbar_mode: "OFF"
             widgets:
               - label:
                   align: TOP_MID
-                  y: 0
+                  y: 83
                   text_font: font_ui_20
                   text: "HVAC"
                   text_color: 0x707070
               - arc:
                   id: arc_fans_hvac
                   align: TOP_MID
-                  y: 50
+                  y: 133
                   width: 200
                   height: 200
                   start_angle: 135
@@ -487,14 +510,14 @@ lvgl:
               - label:
                   id: lbl_fans_hvac_pct
                   align: TOP_MID
-                  y: 120
+                  y: 203
                   text_font: font_ui_40
                   text: "---%"
                   text_color: 0x555555
               - button:
                   align: TOP_MID
                   x: -95
-                  y: 300
+                  y: 383
                   width: 80
                   height: 60
                   radius: 12
@@ -512,7 +535,7 @@ lvgl:
               - button:
                   align: TOP_MID
                   x: 95
-                  y: 300
+                  y: 383
                   width: 80
                   height: 60
                   radius: 12
