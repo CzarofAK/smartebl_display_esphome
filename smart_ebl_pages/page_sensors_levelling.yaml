@@ -246,6 +246,15 @@ lvgl:
         # FANBOARD half (see either one's own comment for the mechanism)
         # - the three target rings (largest is 400x400, exactly this
         # container's own size) sit right at that overflow edge.
+        #
+        # scroll_dir: NONE (repo-owner follow-up, 2026-09-06: "libelle
+        # links kann man immernoch vertikal scrollen! kann das weg?") -
+        # scrollbar_mode only hides the indicator, it doesn't stop LVGL's
+        # default drag-to-scroll behaviour on a scrollable obj, so the
+        # 400x400 content (flush with this container's own edges, see
+        # above) could still be dragged around with no visible bar. This
+        # is the actual "reserve the slot regardless of outcome" fix -
+        # the widget was never meant to move at all.
         - obj:
             id: obj_levelling_root
             align: TOP_LEFT
@@ -256,6 +265,7 @@ lvgl:
             bg_opa: TRANSP
             border_width: 0
             scrollbar_mode: "OFF"
+            scroll_dir: NONE
             widgets:
               # ---- Static target rings (all x2 from the original
               # 200/140/80 set, see this file's header) -----------------
