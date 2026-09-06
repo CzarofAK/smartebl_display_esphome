@@ -380,6 +380,14 @@ font:
     id: font_ui_24
     size: 24
     glyphs: *ui_glyphs
+  # Electric page main-value row (repo-owner: "die Texte (alle) grösser,
+  # primär der Hauptwert") - bigger than font_ui_24, but deliberately
+  # short of Battery's own font_ui_40 "hero" size so Battery still
+  # reads as the emphasized box, not just another box like the rest.
+  - file: "gfonts://Montserrat"
+    id: font_ui_32
+    size: 32
+    glyphs: *ui_glyphs
   - file: "gfonts://Montserrat"
     id: font_ui_40
     size: 40
@@ -1461,11 +1469,24 @@ script:
             lv_label_set_text(id(lbl_status_link), "NO LINK");
             lv_obj_set_style_text_color(id(lbl_status_link), lv_color_hex(0x555555), 0);
           }
+          // Time and date are two separate labels/widgets now, not one
+          // combined string - real bug fixed (repo-owner: "das Datum
+          // schiebt bei jedem Sekundenwechsel hin und her"): Montserrat's
+          // digits aren't fixed-width (no tabular-figures rasterized
+          // here), so the TIME portion's rendered pixel width wobbled by
+          // a few px every second as its digits changed - and since the
+          // date used to sit in the same string right after it, that
+          // wobble visibly shifted the date left/right too, every
+          // second, even though the date's own digits hadn't changed.
+          // Two independently-positioned labels means each one's own
+          // fixed x is unaffected by how wide the OTHER one renders.
           auto t = id(homeassistant_time).now();
           if (t.is_valid()) {
-            lv_label_set_text(id(lbl_status_time), t.strftime("%H:%M:%S   %d.%m.%Y").c_str());
+            lv_label_set_text(id(lbl_status_time), t.strftime("%H:%M:%S").c_str());
+            lv_label_set_text(id(lbl_status_date), t.strftime("%d.%m.%Y").c_str());
           } else {
-            lv_label_set_text(id(lbl_status_time), "--:--:--   --.--.----");
+            lv_label_set_text(id(lbl_status_time), "--:--:--");
+            lv_label_set_text(id(lbl_status_date), "--.--.----");
           }
 
           // ---- Inside temperature - HA-fed (Truma room sensor via
@@ -2731,7 +2752,20 @@ lvgl:
           x: 20
           y: 20
           text_font: font_ui_24
-          text: "--:--:--   --.--.----"
+          text: "--:--:--"
+          text_color: 0xBDC1C6
+      # Own fixed x (independent of the time label's own width) - see
+      # draw_status_bar's comment for the jitter this fixes. 200: clear
+      # of "--:--:--"/any real time's widest rendering at font_ui_24
+      # (well under 150px) with margin, well before lbl_status_temp_in
+      # (~x470, TOP_MID x=-170 on a 1280px-wide bar).
+      - label:
+          id: lbl_status_date
+          align: TOP_LEFT
+          x: 200
+          y: 20
+          text_font: font_ui_24
+          text: "--.--.----"
           text_color: 0xBDC1C6
       - label:
           id: lbl_status_temp_in
@@ -3418,7 +3452,7 @@ lvgl:
         # coordinates (x215/555/895, y122/452) rather than a bespoke
         # size - a box with less content just has more breathing room
         # inside it, which is the normal look for an equal-size grid.
-        - obj:
+        - obj: &box_frame
             id: obj_electric_shore
             align: TOP_LEFT
             x: 215
@@ -3430,63 +3464,77 @@ lvgl:
             bg_opa: COVER
             border_width: 1
             border_color: 0x3C4043
+            # Real, LVGL-default cause of repo-owner's "die Abstände sind
+            # immer noch unterschiedlich", even though every box already
+            # used the identical y-values (12/74/108/-14) for each row:
+            # `button:` widgets (Charger/Solar/Battery, below) carry
+            # LVGL's default theme padding, `obj:` widgets (this one)
+            # don't - so `align: TOP_MID, y: 12` lands at a DIFFERENT
+            # absolute position depending on which widget type a box
+            # happens to be built from, since LVGL aligns children
+            # against the parent's padded content box, not its outer
+            # border. Zeroing it here, once, and letting every box merge
+            # this frame in (see `<<: *box_frame` below) removes the
+            # discrepancy at its root instead of hand-tuning each
+            # button-box's numbers to compensate.
+            pad_all: 0
             widgets:
-              # ---- Row template (repo-owner: "definiere die Abstände
-              # zwischen den Zeilen, definiere Schriftgrösse/Style von
-              # jeder Zeile") - every box on this page uses exactly
-              # these four row slots, top-anchored so they land at the
-              # same y regardless of which box, plus one bottom-anchored
-              # row that free-floats to whatever's left of the (now
-              # equal) box height:
-              #   title  y=12   font_ui_16  0x707070 (muted label)
-              #   main   y=74   font_ui_24  state-dependent color
-              #   state  y=108  font_ui_16  state-dependent color
-              #   bottom y=-14  font_ui_16  0xBDC1C6/0x707070, BOTTOM-anchored
-              # Battery is the one deliberate exception (font_ui_40
-              # "hero" main value, extra rows between state and bottom)
-              # - see its own widgets below - everything else follows
-              # this template exactly, including AC Loads (its former
-              # duplicate %-of-1600W state line was removed, not
-              # reflowed, per repo-owner: already shown on Inverter/
-              # Charger's own load bar).
-              - label:
+              # ---- Row templates (repo-owner: "leg für die Boxen ein
+              # Template an, und nimm für jede Box DASSELBE Template") -
+              # these are YAML anchors (`&name`), not just matching
+              # numbers typed six times over: every other box below
+              # merges them in with `<<: *row_main` etc. (the same
+              # merge-key mechanism `glyphs: *ui_glyphs` already uses in
+              # the font: block above), overriding only what's actually
+              # box-specific (id, text, an accent color where one box
+              # deliberately differs). Change a row's y/font/color here
+              # and every box picks it up - they cannot drift apart
+              # again the way hand-copied numbers did. Sizes bumped a
+              # step up all round per repo-owner ("Texte grösser,
+              # primär der Hauptwert und die unteren") - font_ui_16->20
+              # for label/state/bottom rows, font_ui_24->32 for the main
+              # value (Battery's own font_ui_40 "hero" stays biggest -
+              # see its own widgets further down).
+              - label: &row_title
                   align: TOP_MID
-                  y: 12
+                  y: 16
                   text: "SHORE"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x707070
-              - label:
+              - label: &row_main
                   id: lbl_electric_shore
                   align: TOP_MID
-                  y: 74
+                  y: 54
                   text: "--- W"
-                  text_font: font_ui_24
+                  text_font: font_ui_32
                   text_color: 0x555555
               # Connected/disconnected - smartebl's own link reading
-              # (see draw_electric). y108: the shared state/secondary-
-              # line slot (see the row-template comment above).
-              - label:
+              # (see draw_electric). Shared state/secondary-line slot
+              # every box on this page uses except AC Loads (its former
+              # duplicate %-of-1600W line was removed outright, not
+              # reflowed - see that box's own comment).
+              - label: &row_state
                   id: lbl_electric_shore_status
                   align: TOP_MID
-                  y: 108
+                  y: 112
                   text: "---"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x555555
-              - label:
+              - label: &row_bottom_l
                   id: lbl_electric_shore_sub_l
                   align: BOTTOM_LEFT
                   x: 14
-                  y: -14
+                  y: -16
                   text: "---V"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
-              - label:
+              - label: &row_bottom_r
                   id: lbl_electric_shore_sub_r
                   align: BOTTOM_RIGHT
                   x: -14
-                  y: -14
+                  y: -16
                   text: "---Hz"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
         # ---- Flow arrows - static, 3-state (repo-owner: a walking
         # animation "braucht Leistung" for what it conveyed; a real
@@ -3509,40 +3557,24 @@ lvgl:
         # itself changed (mode button order, limit centering), not this
         # box's own content.
         - button:
+            <<: *box_frame
             id: btn_electric_charger
-            align: TOP_LEFT
             x: 555
-            y: 122
-            width: 300
-            height: 290
-            radius: 12
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
             shadow_width: 0
             widgets:
               - label:
-                  align: TOP_MID
-                  y: 12
+                  <<: *row_title
                   text: "INVERTER / CHARGER"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_main
                   id: lbl_electric_charger
-                  align: TOP_MID
-                  y: 74
                   text: "---"
-                  text_font: font_ui_24
-                  text_color: 0x555555
-              # y108: same state/secondary-line slot every box on this
-              # page uses - see lbl_electric_shore_status's own comment.
+              # Shared state/secondary-line slot - see row_state's own
+              # comment (on the Shore box, above).
               - label:
+                  <<: *row_state
                   id: lbl_electric_charger_sub
-                  align: TOP_MID
-                  y: 108
                   text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
               # Inverter load bar - repo owner asked what Victron
               # GUIv2's own vertical bar here represents; best answer
               # from this session (still unconfirmed against a real GX
@@ -3586,53 +3618,31 @@ lvgl:
             text: "-"
             text_color: 0x707070
         - obj:
+            <<: *box_frame
             id: obj_electric_ac_loads
-            align: TOP_LEFT
             x: 895
-            y: 122
-            width: 300
-            height: 290
-            radius: 12
-            bg_color: 0x202124
-            bg_opa: COVER
-            border_width: 1
-            border_color: 0x3C4043
             widgets:
               - label:
-                  align: TOP_MID
-                  y: 12
+                  <<: *row_title
                   text: "AC LOADS"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_main
                   id: lbl_electric_ac_loads
-                  align: TOP_MID
-                  y: 74
                   text: "--- W"
-                  text_font: font_ui_24
-                  text_color: 0x555555
               # State/secondary-line slot deliberately left empty here
-              # (repo-owner: the %-of-1600W figure that used to live at
-              # y108 is already shown by the Inverter/Charger box's own
-              # load bar - same underlying number, no need to say it
+              # (repo-owner: the %-of-1600W figure that used to live in
+              # that slot is already shown by the Inverter/Charger box's
+              # own load bar - same underlying number, no need to say it
               # twice). No lbl_electric_ac_loads_state widget any more;
               # draw_electric no longer writes one either.
               - label:
+                  <<: *row_bottom_l
                   id: lbl_electric_ac_loads_sub_l
-                  align: BOTTOM_LEFT
-                  x: 14
-                  y: -14
                   text: "---V"
-                  text_font: font_ui_16
-                  text_color: 0xBDC1C6
               - label:
+                  <<: *row_bottom_r
                   id: lbl_electric_ac_loads_sub_r
-                  align: BOTTOM_RIGHT
-                  x: -14
-                  y: -14
                   text: "---Hz"
-                  text_font: font_ui_16
-                  text_color: 0xBDC1C6
 
         # The one connection that genuinely reverses in this topology:
         # charging pulls energy DOWN from the Inverter/Charger into the
@@ -3659,56 +3669,35 @@ lvgl:
         # charge-limit popup (show_solar_popup), same shape as the
         # Charger box above.
         - button:
+            <<: *box_frame
             id: btn_electric_solar
-            align: TOP_LEFT
             x: 215
             y: 452
-            width: 300
-            height: 290
-            radius: 12
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
             shadow_width: 0
             widgets:
               - label:
-                  align: TOP_MID
-                  y: 12
+                  <<: *row_title
                   text: "SOLAR YIELD"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_main
                   id: lbl_electric_solar
-                  align: TOP_MID
-                  y: 74
                   text: "--- W"
-                  text_font: font_ui_24
-                  text_color: 0x555555
-              # y108: same state/secondary-line slot every box on this
-              # page uses - see lbl_electric_shore_status's own comment.
-              # Humanized MPPT zustand - had been dropped when the subs
-              # below became V/A instead, restored here rather than left
-              # out, since the sensor (s_mppt_zustand) is still real.
+              # Shared state/secondary-line slot - see row_state's own
+              # comment (on the Shore box, above). Humanized MPPT
+              # zustand - had been dropped when the subs below became
+              # V/A instead, restored here rather than left out, since
+              # the sensor (s_mppt_zustand) is still real.
               - label:
+                  <<: *row_state
                   id: lbl_electric_solar_state
-                  align: TOP_MID
-                  y: 108
                   text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_bottom_l
                   id: lbl_electric_solar_sub_l
-                  align: BOTTOM_LEFT
-                  x: 14
-                  y: -14
                   text: "---V"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_bottom_r
                   id: lbl_electric_solar_sub_r
-                  align: BOTTOM_RIGHT
-                  x: -14
-                  y: -14
                   text: "---A"
                   text_font: font_ui_16
                   text_color: 0x707070
@@ -3729,12 +3718,16 @@ lvgl:
         # see the V/A/W row's own comment for how that row was
         # rebalanced to fit).
         - button:
+            <<: *box_frame
             id: btn_electric_battery
-            align: TOP_LEFT
             x: 555
             y: 452
-            width: 300
-            height: 290
+            # The one box that deliberately does NOT take box_frame's
+            # radius/bg_color/border as-is - repo-owner's "emphasized"
+            # accent styling for the hero box. Still inherits width,
+            # height and (crucially, see box_frame's own comment)
+            # pad_all: 0 from the shared frame - only the look, not the
+            # geometry, is special-cased here.
             radius: 16
             bg_color: 0x14324F
             border_width: 2
@@ -3742,38 +3735,38 @@ lvgl:
             shadow_width: 0
             widgets:
               - label:
-                  align: TOP_MID
-                  y: 12
+                  <<: *row_title
                   text: "BATTERY"
-                  text_font: font_ui_16
                   text_color: 0xBDC1C6
+              # Battery keeps its own bigger font_ui_40 "hero" value
+              # rather than row_main's font_ui_32 - see the font: block's
+              # own comment. y44 (was 34): shifted down to clear the
+              # title's own taller font_ui_20 (was font_ui_16) below it;
+              # still ends at the same y~96 row_state (below) starts
+              # from in every other box, so no other row needed to move.
               - label:
                   id: lbl_electric_batt_main
                   align: TOP_MID
-                  y: 34
+                  y: 44
                   text: "---%"
                   text_font: font_ui_40
                   text_color: 0x555555
-              # State (IDLE/CHARGING/DISCHARGING) - y108: same state/
-              # secondary-line slot every box on this page uses now, see
-              # lbl_electric_shore_status's own comment (this is the box
-              # the pattern was named after). Remaining time is EXTRA,
+              # Shared state/secondary-line slot - see row_state's own
+              # comment (on the Shore box, above; this is the box the
+              # pattern was named after). Remaining time below is EXTRA,
               # not part of that shared slot - Battery is the one box
               # with a second line of its own between the state line and
               # the bottom row.
               - label:
+                  <<: *row_state
                   id: lbl_electric_batt_state
-                  align: TOP_MID
-                  y: 108
                   text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
               - label:
                   id: lbl_electric_batt_time
                   align: TOP_MID
-                  y: 130
+                  y: 142
                   text: ""
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
               # DC bus V / A / W, left / middle / right. width 84 (was
               # 100, tuned for the old 340px-wide box) so the three
@@ -3784,39 +3777,39 @@ lvgl:
                   id: lbl_electric_batt_v
                   align: TOP_LEFT
                   x: 14
-                  y: 196
+                  y: 188
                   width: 84
                   text_align: CENTER
                   text: "---V"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_a
                   align: TOP_MID
-                  y: 196
+                  y: 188
                   width: 84
                   text_align: CENTER
                   text: "---A"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x555555
               - label:
                   id: lbl_electric_batt_w
                   align: TOP_RIGHT
                   x: -14
-                  y: 196
+                  y: 188
                   width: 84
                   text_align: CENTER
                   text: "---W"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x555555
               # Starter battery voltage - smartebl's own link reading
               # (see draw_electric), always at the very bottom.
               - label:
                   id: lbl_electric_batt_sub
                   align: BOTTOM_MID
-                  y: -14
+                  y: -16
                   text: "START ---V"
-                  text_font: font_ui_16
+                  text_font: font_ui_20
                   text_color: 0x555555
             on_click:
               - script.execute: show_battery_popup
@@ -3829,56 +3822,36 @@ lvgl:
             text: "-"
             text_color: 0x707070
         - obj:
+            <<: *box_frame
             id: obj_electric_dc_loads
-            align: TOP_LEFT
             x: 895
             y: 452
-            width: 300
-            height: 290
-            radius: 12
-            bg_color: 0x202124
-            bg_opa: COVER
-            border_width: 1
-            border_color: 0x3C4043
             widgets:
               - label:
-                  align: TOP_MID
-                  y: 12
+                  <<: *row_title
                   text: "DC LOADS"
-                  text_font: font_ui_16
-                  text_color: 0x707070
               - label:
+                  <<: *row_main
                   id: lbl_electric_dc_loads
-                  align: TOP_MID
-                  y: 74
                   text: "--- W"
-                  text_font: font_ui_24
-                  text_color: 0x555555
               # Reserved, matching every other box's layout even though
               # there's no real source for any of it yet (repo owner:
               # "tbd") - keeps this box the same shape as its neighbors
               # rather than looking unfinished, and means nothing shifts
-              # around once a real entity is picked.
+              # around once a real entity is picked. Own ids (rather than
+              # none, as before) so a future draw_electric addition has
+              # something to target directly - each row's `<<:` anchor
+              # already carries an id (Shore's own), which would
+              # otherwise collide as a duplicate once merged in here.
               - label:
-                  align: TOP_MID
-                  y: 108
-                  text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
+                  <<: *row_state
+                  id: lbl_electric_dc_loads_state
               - label:
-                  align: BOTTOM_LEFT
-                  x: 14
-                  y: -14
-                  text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
+                  <<: *row_bottom_l
+                  id: lbl_electric_dc_loads_sub_l
               - label:
-                  align: BOTTOM_RIGHT
-                  x: -14
-                  y: -14
-                  text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x555555
+                  <<: *row_bottom_r
+                  id: lbl_electric_dc_loads_sub_r
 
         # ---- Charger/Inverter popup: mode (select.multiplus) + shore
         # current limit (number.multiplus_strombegrenzung). Hidden by
