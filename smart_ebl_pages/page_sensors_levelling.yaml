@@ -138,28 +138,39 @@ script:
           // 2026-09-06 relayout (see this file's own header) -
           // proportions unchanged, just twice the size.
           //
-          // ox sign RESOLVED on real hardware (2026-09-06, repo-owner:
-          // "die zahlen und die blase/punkt sind ausser sync ... VL
-          // 5cm, VR 16cm, HL 0cm, HR 10cm - die blase ist aber ganz
-          // hinten und einwenig nach rechts verschoben. als würden wir
-          // nach vorne links hängend stehen!"). Left/right average of
-          // those corner cm readings (higher cm = lower/more-sunk
-          // corner - see set_corner's own coloring below, same scale):
-          // left (VL+HL)/2 = 2.5, right (VR+HR)/2 = 13 - the right side
-          // is the sunk one, so the bubble (same "floats toward the
-          // high side" convention as a real bubble level) belongs on
-          // the LEFT. The old `-(...)` put it on the right instead -
-          // backwards, exactly the previously-UNVERIFIED direction-sign
-          // caveat this file's header used to flag, now confirmed and
-          // flipped. oy (front/back) checked out fine against the same
-          // numbers (front avg 10.5 > back avg 5 -> bubble correctly at
-          // the back) and is unchanged.
+          // ox sign RESOLVED FOR REAL, 2026-09-06 - the previous round's
+          // flip (dropping the `-`) was WRONG, caught by the repo owner
+          // testing again (VL 11cm, VR 0cm, HL 16cm, HR 5cm - "die
+          // bubble sollte doch vorne rechts sein, oder?") and confirmed
+          // by pulling the actual mpu6050_fram firmware's own tilt math
+          // (custom_mpu/.basics.yaml equivalent), not just guessing from
+          // corner-cm averages a second time. That source defines
+          // roll/pitch sign in its own comments (`roll + = rechts
+          // runter`, `pitch + = vorne runter`) and computes each
+          // corner's relative height as:
+          //   h_vl=-sp*A/2+sr*Sv/2  h_vr=-sp*A/2-sr*Sv/2
+          //   h_hl= sp*A/2+sr*Sh/2  h_hr= sp*A/2-sr*Sh/2  (sp/sr = sin(pitch/roll))
+          // Feeding this exact request's live readings (pitch -0.776°,
+          // roll -3.355°) through that formula reproduces the reported
+          // 11/0/16/5cm almost exactly - confirming these two sensors
+          // and the four corner numbers were never out of sync at all,
+          // only this file's own ox/oy signs were in question. Negative
+          // roll here means (per "+ = rechts runter") the LEFT side is
+          // down, right is up - bubble (floats to the high side) belongs
+          // right, i.e. ox must come out positive. `-(-3.355/4)*170 ≈
+          // +143` (the ORIGINAL, pre-previous-round formula) gets that
+          // right; last round's edit (`(lat/...)*R_MAX`, no negation)
+          // gives -143 - it had flipped a formula that was already
+          // correct. Restored the negation here. oy independently
+          // checked out against the same two readings (pitch negative ->
+          // front up per "+ = vorne runter" -> oy should be negative/
+          // front, and `(-0.776/4)*170 ≈ -33` is) and stays unchanged.
           const float R_MAX = 170.0f, DEG_MAX = 4.0f;
           bool lat_ok = api_ok && id(s_levelling_lat).has_state();
           bool lon_ok = api_ok && id(s_levelling_lon).has_state();
           float ox = 0, oy = 0;
           if (lat_ok) {
-            ox = (id(s_levelling_lat).state / DEG_MAX) * R_MAX;
+            ox = -(id(s_levelling_lat).state / DEG_MAX) * R_MAX;
             if (ox > R_MAX) ox = R_MAX;
             if (ox < -R_MAX) ox = -R_MAX;
           }
