@@ -380,14 +380,13 @@ font:
     id: font_ui_24
     size: 24
     glyphs: *ui_glyphs
-  # Electric page main-value row (repo-owner: "die Texte (alle) grösser,
-  # primär der Hauptwert") - bigger than font_ui_24, but deliberately
-  # short of Battery's own font_ui_40 "hero" size so Battery still
-  # reads as the emphasized box, not just another box like the rest.
-  - file: "gfonts://Montserrat"
-    id: font_ui_32
-    size: 32
-    glyphs: *ui_glyphs
+  # Electric page main-value row - repo-owner: "alle Boxen folgen dem
+  # selben, vorgegebenen Raster inkl. allem, nur ich genehmige
+  # Abweichungen" - Battery's main value is NOT an approved deviation,
+  # it uses the exact same row_main template as the other five boxes
+  # now (see row_main's own comment). font_ui_32 (the previous
+  # "everyone but Battery" main-value size) was removed since nothing
+  # uses it any more - font_ui_40 is now the one shared main-value size.
   - file: "gfonts://Montserrat"
     id: font_ui_40
     size: 40
@@ -3480,21 +3479,32 @@ lvgl:
             pad_all: 0
             widgets:
               # ---- Row templates (repo-owner: "leg für die Boxen ein
-              # Template an, und nimm für jede Box DASSELBE Template") -
-              # these are YAML anchors (`&name`), not just matching
-              # numbers typed six times over: every other box below
-              # merges them in with `<<: *row_main` etc. (the same
-              # merge-key mechanism `glyphs: *ui_glyphs` already uses in
-              # the font: block above), overriding only what's actually
-              # box-specific (id, text, an accent color where one box
-              # deliberately differs). Change a row's y/font/color here
-              # and every box picks it up - they cannot drift apart
-              # again the way hand-copied numbers did. Sizes bumped a
-              # step up all round per repo-owner ("Texte grösser,
-              # primär der Hauptwert und die unteren") - font_ui_16->20
-              # for label/state/bottom rows, font_ui_24->32 for the main
-              # value (Battery's own font_ui_40 "hero" stays biggest -
-              # see its own widgets further down).
+              # Template an, und nimm für jede Box DASSELBE Template,
+              # inkl. allem - nur ich genehmige Abweichungen") - these
+              # are YAML anchors (`&name`), not just matching numbers
+              # typed six times over: every other box below merges them
+              # in with `<<: *row_main` etc. (the same merge-key
+              # mechanism `glyphs: *ui_glyphs` already uses in the font:
+              # block above), overriding only what's genuinely
+              # box-specific (id, text). No box overrides a row's
+              # position, font, or size any more - Battery's main value
+              # used to (font_ui_40 "hero" vs. everyone else's
+              # font_ui_32) and that was never an approved deviation, so
+              # it's gone: font_ui_40 is now the one shared main-value
+              # size everyone uses (see row_main below), and Battery's
+              # own main-value widget was replaced with a plain
+              # `<<: *row_main` like every other box.
+              #
+              # row_state moved down (was y=112) to give row_main's
+              # bigger font room to breathe, per repo-owner: "der Text
+              # (Absorption etc.) kann weiter runter, um dem Hauptwert
+              # mehr Platz zu geben".
+              #
+              # row_bottom_l/r's x moved in from the edge (14->24) per
+              # repo-owner: "alle Werte auf der untersten Ebene sind zu
+              # weit aussen" - same 24px inset Battery's own V/A/W row
+              # (further down) now uses, so every box's bottom-most
+              # values sit the same distance from their box's edges.
               - label: &row_title
                   align: TOP_MID
                   y: 16
@@ -3504,9 +3514,9 @@ lvgl:
               - label: &row_main
                   id: lbl_electric_shore
                   align: TOP_MID
-                  y: 54
+                  y: 48
                   text: "--- W"
-                  text_font: font_ui_32
+                  text_font: font_ui_40
                   text_color: 0x555555
               # Connected/disconnected - smartebl's own link reading
               # (see draw_electric). Shared state/secondary-line slot
@@ -3516,14 +3526,14 @@ lvgl:
               - label: &row_state
                   id: lbl_electric_shore_status
                   align: TOP_MID
-                  y: 112
+                  y: 132
                   text: "---"
                   text_font: font_ui_20
                   text_color: 0x555555
               - label: &row_bottom_l
                   id: lbl_electric_shore_sub_l
                   align: BOTTOM_LEFT
-                  x: 14
+                  x: 24
                   y: -16
                   text: "---V"
                   text_font: font_ui_20
@@ -3531,7 +3541,7 @@ lvgl:
               - label: &row_bottom_r
                   id: lbl_electric_shore_sub_r
                   align: BOTTOM_RIGHT
-                  x: -14
+                  x: -24
                   y: -16
                   text: "---Hz"
                   text_font: font_ui_20
@@ -3699,8 +3709,6 @@ lvgl:
                   <<: *row_bottom_r
                   id: lbl_electric_solar_sub_r
                   text: "---A"
-                  text_font: font_ui_16
-                  text_color: 0x707070
             on_click:
               - script.execute: show_solar_popup
         - label:
@@ -3738,19 +3746,15 @@ lvgl:
                   <<: *row_title
                   text: "BATTERY"
                   text_color: 0xBDC1C6
-              # Battery keeps its own bigger font_ui_40 "hero" value
-              # rather than row_main's font_ui_32 - see the font: block's
-              # own comment. y44 (was 34): shifted down to clear the
-              # title's own taller font_ui_20 (was font_ui_16) below it;
-              # still ends at the same y~96 row_state (below) starts
-              # from in every other box, so no other row needed to move.
+              # Same row_main template as every other box now (repo-
+              # owner: no more unapproved deviation - see row_main's own
+              # comment on the Shore box). SOC's own color-by-threshold
+              # (white/orange/red) is still set in draw_electric, only
+              # the position/font came from the anchor.
               - label:
+                  <<: *row_main
                   id: lbl_electric_batt_main
-                  align: TOP_MID
-                  y: 44
                   text: "---%"
-                  text_font: font_ui_40
-                  text_color: 0x555555
               # Shared state/secondary-line slot - see row_state's own
               # comment (on the Shore box, above; this is the box the
               # pattern was named after). Remaining time below is EXTRA,
@@ -3764,21 +3768,21 @@ lvgl:
               - label:
                   id: lbl_electric_batt_time
                   align: TOP_MID
-                  y: 142
+                  y: 164
                   text: ""
                   text_font: font_ui_20
                   text_color: 0xBDC1C6
-              # DC bus V / A / W, left / middle / right. width 84 (was
-              # 100, tuned for the old 340px-wide box) so the three
-              # columns still fit with a clean 10px gap now that this
-              # box is 300px wide like every other one: 14px side
-              # padding + 3x84 + 2x10 gap = 272px, i.e. 300 - 2x14.
+              # DC bus V / A / W, left / middle / right. x/width match
+              # row_bottom_l/r's own 24px inset and gap exactly (repo-
+              # owner: "alle Werte auf der untersten Ebene sind zu weit
+              # aussen") - 24px side padding + 3x76 + 2x12 gap = 252px,
+              # i.e. 300 - 2x24.
               - label:
                   id: lbl_electric_batt_v
                   align: TOP_LEFT
-                  x: 14
-                  y: 188
-                  width: 84
+                  x: 24
+                  y: 210
+                  width: 76
                   text_align: CENTER
                   text: "---V"
                   text_font: font_ui_20
@@ -3786,8 +3790,8 @@ lvgl:
               - label:
                   id: lbl_electric_batt_a
                   align: TOP_MID
-                  y: 188
-                  width: 84
+                  y: 210
+                  width: 76
                   text_align: CENTER
                   text: "---A"
                   text_font: font_ui_20
@@ -3795,15 +3799,21 @@ lvgl:
               - label:
                   id: lbl_electric_batt_w
                   align: TOP_RIGHT
-                  x: -14
-                  y: 188
-                  width: 84
+                  x: -24
+                  y: 210
+                  width: 76
                   text_align: CENTER
                   text: "---W"
                   text_font: font_ui_20
                   text_color: 0x555555
               # Starter battery voltage - smartebl's own link reading
-              # (see draw_electric), always at the very bottom.
+              # (see draw_electric), always at the very bottom. This is
+              # the row-height reference the repo owner approved
+              # ("bei battery hast du die unterste Zeile für Startbat.
+              # super") for every OTHER box's own bottom-most row
+              # (row_bottom_l/r, above) - same y=-16, not its content
+              # (this one stays its own aux value, unrelated to what any
+              # other box shows there).
               - label:
                   id: lbl_electric_batt_sub
                   align: BOTTOM_MID
@@ -3843,15 +3853,22 @@ lvgl:
               # something to target directly - each row's `<<:` anchor
               # already carries an id (Shore's own), which would
               # otherwise collide as a duplicate once merged in here.
+              # Text overridden to a bare "---" (real bug fixed - repo
+              # owner: "wieso hat es V und Hz bei der DC box?"):
+              # row_bottom_l/r's own default text ("---V"/"---Hz") is
+              # Shore's own AC-side units, meaningless copied verbatim
+              # onto a DC box with no voltage/frequency reading at all.
               - label:
                   <<: *row_state
                   id: lbl_electric_dc_loads_state
               - label:
                   <<: *row_bottom_l
                   id: lbl_electric_dc_loads_sub_l
+                  text: "---"
               - label:
                   <<: *row_bottom_r
                   id: lbl_electric_dc_loads_sub_r
+                  text: "---"
 
         # ---- Charger/Inverter popup: mode (select.multiplus) + shore
         # current limit (number.multiplus_strombegrenzung). Hidden by
