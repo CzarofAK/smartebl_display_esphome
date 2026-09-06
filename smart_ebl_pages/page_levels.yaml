@@ -1,0 +1,543 @@
+# =============================================================================
+#  smart_ebl_pages/page_levels.yaml -- page: Levels
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5's original 5-column catalog, exactly as specified:
+# Fresh / Waste (both smartebl's own tank1_level/tank2_level, over the
+# RS232 link) + Gas A / Gas I / Diesel (Home Assistant - smartebl's
+# hardware has no dual-bottle gas or fuel-tank input of its own, so these
+# three are sourced from HA instead, same precedent as page_electric
+# reusing m5dial_fram's real Victron entities). tank3_level is wired but
+# not shown on this page (reserved, see the sensor: block's own comment).
+# =============================================================================
+
+sensor:
+  # Tanks - page_levels (docs/pages.md §5's "Levels" row). tank1/tank2
+  # were already wired here before that page existed (README's earlier
+  # "reserved for that future page" note) - now consumed. tank3_level is
+  # NEW: protocol.md listed it "planned" (not yet wired on the display
+  # side) but smartebl's own smart-ebl.yaml already broadcasts it
+  # (group 2's `T2;tank1_level=..;tank2_level=..;tank3_level=..;`) - the
+  # README's own "wire one more else if" pattern applies, see the reader
+  # below. WHICH physical tank tank3 is remains unconfirmed - smartebl's
+  # CLAUDE.md documents exactly 3 generic tank-sensor inputs, compatible
+  # with any of fresh/grey/LPG per that hardware's own datasheet, with no
+  # fixed assignment. NOT shown on page_levels (repo-owner: keep that
+  # page's original 5-column Fresh/Waste/Gas A/Gas I/Diesel catalog as
+  # specified) - kept wired, same "reserved for later" status tank1/
+  # tank2 themselves had before page_levels existed, in case a use for
+  # it turns up.
+  - platform: template
+    id: s_tank1_level
+    name: "Freshwater Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: template
+    id: s_tank2_level
+    name: "Greywater Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: template
+    id: s_tank3_level
+    name: "Tank 3 Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+
+  # ---- Levels page (page_levels) - Gas A (outside bottle, "in use")/
+  # Gas I (inside bottle, "reserve") + Diesel (repo-owner-confirmed real
+  # entities, not the link - smartebl's hardware has only 3 generic
+  # tank-sensor inputs (CLAUDE.md), already spoken for by tank1/tank2/
+  # tank3 above, no dual-bottle gas sensing or fuel-tank input of its
+  # own). Gas A/Gas I are the same real HA entities m5dial_fram/
+  # page_gas.yaml already reads for these two physical bottles (this
+  # vehicle's actual gas monitoring is external to smartebl) - same
+  # precedent as page_electric reusing m5dial_fram's real Victron
+  # entities; "A"/"I" = außen (outside)/innen (inside), confirmed by the
+  # repo owner. Diesel is `sensor.nw19939_fuel_level` (repo-owner-
+  # supplied, an OBD/vehicle-telematics entity by the naming) -
+  # ASSUMED already a 0-100% reading like the other four levels here;
+  # flag if that's wrong (a raw liter value, say) so the bar/thresholds
+  # can be fixed to match.
+  - platform: homeassistant
+    id: s_gas_a
+    entity_id: sensor.gas_1_stand
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: homeassistant
+    id: s_gas_i
+    entity_id: sensor.gas_2_stand
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: homeassistant
+    id: s_diesel_level
+    entity_id: sensor.nw19939_fuel_level
+    on_value:
+      - script.execute: draw_levels
+
+script:
+  # ---- Levels (page_levels) - pages.md §5's original "Levels" row,
+  # exactly: Fresh (`tank1_level`, link) / Waste (`tank2_level`, link) /
+  # Gas A, außen/"in use" (HA `sensor.gas_1_stand`) / Gas I, innen/
+  # "reserve" (HA `sensor.gas_2_stand`) / Diesel (HA
+  # `sensor.nw19939_fuel_level`, repo-owner-supplied) - see the sensor:
+  # block's own comment (above, where s_gas_a/s_gas_i/s_diesel_level are
+  # declared) for the entity-level detail.
+  - id: poll_levels
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gas_1_stand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gas_2_stand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.nw19939_fuel_level
+
+  - id: draw_levels
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+          char buf[32];
+
+          // ---- FRISCH (tank1, link) - same 10%/25% thresholds as
+          // m5dial_fram/page_water.yaml's fresh ring (design_rules.md
+          // §2: must not disagree with the M5Dial about thresholds).
+          float fresh = connected ? id(s_tank1_level).state : 0.0f;
+          uint32_t fresh_col = !connected ? 0x555555 :
+              (fresh < 10.0f ? 0xE74C3C : (fresh < 25.0f ? 0xF39C12 : 0x4A9EFF));
+          lv_bar_set_value(id(bar_levels_fresh), connected ? (int) fresh : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_fresh), lv_color_hex(fresh_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_fresh_cap), lv_color_hex(fresh_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_fresh_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          if (!connected) {
+            lv_label_set_text(id(lbl_levels_fresh_pct), "---%");
+            lv_label_set_text(id(lbl_levels_fresh_l), "--- L");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", fresh);
+            lv_label_set_text(id(lbl_levels_fresh_pct), buf);
+            // 180 L - same vehicle-fixed constant m5dial_fram/
+            // page_water.yaml uses for this same physical tank (read
+            // there via HA, here via the link - same tank either way).
+            snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.80f);
+            lv_label_set_text(id(lbl_levels_fresh_l), buf);
+          }
+
+          // ---- WASTE (tank2, link) - same >=80%/>=95% thresholds as
+          // m5dial_fram/page_water.yaml's grey ring.
+          float waste = connected ? id(s_tank2_level).state : 0.0f;
+          uint32_t waste_col = !connected ? 0x555555 :
+              (waste >= 95.0f ? 0xE74C3C : (waste >= 80.0f ? 0xF39C12 : 0x9AA0A6));
+          lv_bar_set_value(id(bar_levels_waste), connected ? (int) waste : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_waste), lv_color_hex(waste_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_waste_cap), lv_color_hex(waste_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_waste_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          if (!connected) {
+            lv_label_set_text(id(lbl_levels_waste_pct), "---%");
+            lv_label_set_text(id(lbl_levels_waste_l), "--- L");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", waste);
+            lv_label_set_text(id(lbl_levels_waste_pct), buf);
+            snprintf(buf, sizeof(buf), "%.0f L", waste * 0.90f);
+            lv_label_set_text(id(lbl_levels_waste_l), buf);
+          }
+
+          // ---- DIESEL (HA, sensor.nw19939_fuel_level) - ASSUMED
+          // already a 0-100% reading like the other four (see sensor:
+          // block's own comment - flag if that's wrong). Thresholds are
+          // a generic low-fuel-warning guess (10%/25%, same shape as
+          // Fresh's), not a value the repo owner gave - easy to retune
+          // once confirmed against how this vehicle's own gauge reads.
+          bool diesel_ok = api_ok && id(s_diesel_level).has_state();
+          float diesel = diesel_ok ? id(s_diesel_level).state : 0.0f;
+          uint32_t diesel_col = !diesel_ok ? 0x555555 :
+              (diesel < 10.0f ? 0xE74C3C : (diesel < 25.0f ? 0xF39C12 : 0xBDC1C6));
+          lv_bar_set_value(id(bar_levels_diesel), diesel_ok ? (int) diesel : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_diesel), lv_color_hex(diesel_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_diesel_cap), lv_color_hex(diesel_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_diesel_pct), lv_color_hex(diesel_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!diesel_ok) {
+            lv_label_set_text(id(lbl_levels_diesel_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", diesel);
+            lv_label_set_text(id(lbl_levels_diesel_pct), buf);
+          }
+
+          // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
+          // same 10%/25% thresholds and "in use"/"reserve" accent colors
+          // as m5dial_fram/page_gas.yaml.
+          bool gas_a_ok = api_ok && id(s_gas_a).has_state();
+          bool gas_i_ok = api_ok && id(s_gas_i).has_state();
+          float gas_a = gas_a_ok ? id(s_gas_a).state : 0.0f;
+          float gas_i = gas_i_ok ? id(s_gas_i).state : 0.0f;
+          uint32_t gas_a_col = !gas_a_ok ? 0x555555 :
+              (gas_a < 10.0f ? 0xE74C3C : (gas_a < 25.0f ? 0xF39C12 : 0x4A9EFF));
+          uint32_t gas_i_col = !gas_i_ok ? 0x555555 :
+              (gas_i < 10.0f ? 0xE74C3C : (gas_i < 25.0f ? 0xF39C12 : 0x9AA0A6));
+          lv_bar_set_value(id(bar_levels_gas_a), gas_a_ok ? (int) gas_a : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_gas_a), lv_color_hex(gas_a_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_a_cap), lv_color_hex(gas_a_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_a_pct), lv_color_hex(gas_a_ok ? 0xFFFFFF : 0x555555), 0);
+          lv_bar_set_value(id(bar_levels_gas_i), gas_i_ok ? (int) gas_i : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_gas_i), lv_color_hex(gas_i_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_i_cap), lv_color_hex(gas_i_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_i_pct), lv_color_hex(gas_i_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!gas_a_ok) {
+            lv_label_set_text(id(lbl_levels_gas_a_pct), "---%");
+            lv_label_set_text(id(lbl_levels_gas_a_kg), "--- kg");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", gas_a);
+            lv_label_set_text(id(lbl_levels_gas_a_pct), buf);
+            // 10.5 kg net bottle - same vehicle-fixed constant
+            // m5dial_fram/page_gas.yaml uses for the same physical bottle.
+            snprintf(buf, sizeof(buf), "%.1f kg", gas_a * 0.105f);
+            lv_label_set_text(id(lbl_levels_gas_a_kg), buf);
+          }
+          if (!gas_i_ok) {
+            lv_label_set_text(id(lbl_levels_gas_i_pct), "---%");
+            lv_label_set_text(id(lbl_levels_gas_i_kg), "--- kg");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", gas_i);
+            lv_label_set_text(id(lbl_levels_gas_i_pct), buf);
+            snprintf(buf, sizeof(buf), "%.1f kg", gas_i * 0.105f);
+            lv_label_set_text(id(lbl_levels_gas_i_kg), buf);
+          }
+
+          // ---- Combined status line - page-local precedence only
+          // (pages.md §7's cross-category alarm ranking across the WHOLE
+          // display is still an open item, not solved here): damage
+          // before inconvenience, within-category thresholds straight
+          // from m5dial_fram/page_water.yaml + page_gas.yaml, same
+          // wording those pages use. Diesel slotted in with fuel
+          // (running dry) treated as an inconvenience, same tier as
+          // fresh water, not a damage-tier item.
+          std::string status;
+          uint32_t status_col = 0x555555;
+          if (!connected && !(gas_a_ok && gas_i_ok) && !diesel_ok) {
+            status = "KEINE VERBINDUNG";
+          } else if (connected && waste >= 95.0f) {
+            status = "ABWASSER VOLL"; status_col = 0xE74C3C;
+          } else if (connected && fresh < 10.0f) {
+            status = "FRISCHWASSER LEER"; status_col = 0xE74C3C;
+          } else if (gas_a_ok && gas_i_ok && gas_a < 10.0f && gas_i < 10.0f) {
+            status = "GAS LEER"; status_col = 0xE74C3C;
+          } else if (diesel_ok && diesel < 10.0f) {
+            status = "DIESEL LEER"; status_col = 0xE74C3C;
+          } else if (connected && waste >= 80.0f) {
+            status = "ABWASSER VOLL"; status_col = 0xF39C12;
+          } else if (connected && fresh < 25.0f) {
+            status = "FRISCHWASSER KNAPP"; status_col = 0xF39C12;
+          } else if (gas_a_ok && gas_i_ok && gas_a < 25.0f && gas_i < 25.0f) {
+            status = "GAS KNAPP"; status_col = 0xF39C12;
+          } else if (diesel_ok && diesel < 25.0f) {
+            status = "DIESEL KNAPP"; status_col = 0xF39C12;
+          } else if (gas_a_ok && gas_a < 10.0f) {
+            status = "GAS A LEER"; status_col = 0x707070;
+          } else if (gas_i_ok && gas_i < 10.0f) {
+            status = "GAS I LEER"; status_col = 0x707070;
+          }
+          lv_label_set_text(id(lbl_levels_status), status.c_str());
+          lv_obj_set_style_text_color(id(lbl_levels_status), lv_color_hex(status_col), 0);
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_levels
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Levels (page_levels) - pages.md §5's original catalog, as specified:
+    # Fresh/Waste (link) + Gas A/Gas I/Diesel (HA) - see poll_levels'/
+    # draw_levels' own header comment (above, in the script: block) and
+    # the sensor: block's own comment for exactly which entity backs
+    # each column.
+    #
+    # 5 columns, each its own local coordinate container (same trick as
+    # page_climate's obj_truma_room/obj_truma_water) at content-area-
+    # centered x's: 5x160px columns + 4x27px gaps = 908px, centered in
+    # the 1150px content area (nav rail ends x130, right edge x1280) ->
+    # 121px side margin -> columns start x251/438/625/812/999. A
+    # vertical LVGL `bar` (width < height) fills bottom-up by construction
+    # (LVGL's own bar widget picks its fill axis from its own aspect
+    # ratio) - the "Victron-style vertical tank column" from
+    # smartebl_display/docs/design.md's original mockup, without hand-
+    # rolling segmented-bar geometry LVGL already gives for free.
+    - id: page_levels
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_levels
+      widgets:
+        # ---- FRISCH (tank1, link) ------------------------------------
+        - obj:
+            id: obj_levels_fresh
+            align: TOP_LEFT
+            x: 251
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_fresh_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "FRISCH"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_fresh
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_fresh_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_fresh_l
+                  align: TOP_MID
+                  y: 420
+                  text: "--- L"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- WASTE (tank2, link) ----------------------------------------
+        - obj:
+            id: obj_levels_waste
+            align: TOP_LEFT
+            x: 438
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_waste_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "WASTE"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_waste
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_waste_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_waste_l
+                  align: TOP_MID
+                  y: 420
+                  text: "--- L"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- DIESEL (HA, sensor.nw19939_fuel_level) ---------------------
+        - obj:
+            id: obj_levels_diesel
+            align: TOP_LEFT
+            x: 625
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_diesel_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "DIESEL"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_diesel
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_diesel_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              # No absolute-value (liter) line - tank capacity not given,
+              # see sensor: block's own comment on this entity.
+
+        # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
+        - obj:
+            id: obj_levels_gas_a
+            align: TOP_LEFT
+            x: 812
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_gas_a_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "GAS A"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_gas_a
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_gas_a_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_gas_a_kg
+                  align: TOP_MID
+                  y: 420
+                  text: "--- kg"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- GAS I (HA, sensor.gas_2_stand) -----------------------------
+        - obj:
+            id: obj_levels_gas_i
+            align: TOP_LEFT
+            x: 999
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_gas_i_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "GAS I"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_gas_i
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_gas_i_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_gas_i_kg
+                  align: TOP_MID
+                  y: 420
+                  text: "--- kg"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        - label:
+            id: lbl_levels_status
+            align: BOTTOM_MID
+            y: -16
+            text: ""
+            text_font: font_ui_16
+            text_color: 0x555555
+

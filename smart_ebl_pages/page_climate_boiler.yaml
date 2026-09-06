@@ -1,0 +1,1156 @@
+# =============================================================================
+#  smart_ebl_pages/page_climate_boiler.yaml -- page: Truma (Climate + Boiler)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5: ONE page for both sides of the repo owner's own Truma
+# Combi 4 (room heating "Climate" left half, water heating "Boiler" right
+# half), via the womolin_controller MQTT integration - same entities
+# m5dial_fram/page_climate.yaml already uses. Originally two separate
+# pages/nav entries, merged per repo-owner request - kept as one page
+# file here too, since the two halves share entities (s_truma_status/
+# s_truma_heating_mode/s_truma_error_code, the Truma CP Plus alive/error
+# binary sensors) that would otherwise have to live in a third,
+# artificial "shared" file.
+# =============================================================================
+
+text_sensor:
+  # ---- Truma status/error - ONE shared Truma CP Plus unit behind both
+  # Climate and Boiler (room + water are two sides of the same Combi 4),
+  # so these have no room/water suffix in HA and are shown on BOTH
+  # pages' footers (draw_climate/draw_boiler), not duplicated per page.
+  # text_sensor, not sensor: these are status/mode/error STRINGS
+  # ("Heizen", an error code, etc.), not numbers - a plain `sensor:`
+  # would try to parse them as floats. Real entity_ids confirmed by the
+  # repo owner (womolin_controller MQTT integration) - not a guess like
+  # the rest of this section used to be.
+  - platform: homeassistant
+    id: s_truma_operating_status
+    entity_id: sensor.womolin_controller_mqtt_operating_status
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_heating_mode
+    entity_id: sensor.womolin_controller_mqtt_heating_mode
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_error_code
+    entity_id: sensor.womolin_controller_mqtt_heater_error_code
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  # ---- Fan level (Lüfterstufe), room-heating side only. NOT a separate
+  # select entity - repo owner confirmed climate.womolin_controller_
+  # mqtt_truma_room carries its own `fan_mode` attribute (HA's standard
+  # climate-domain concept), with fan_modes: off/low/medium/high (real
+  # values, confirmed) - so this reads/writes that climate entity
+  # directly (attribute: fan_mode / climate.set_fan_mode), same entity
+  # s_climate_room_temp/s_climate_target already use, just a third
+  # attribute off it.
+  - platform: homeassistant
+    id: s_climate_fan_mode
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: fan_mode
+    on_value:
+      - script.execute: draw_climate
+
+  # ---- Truma climate/boiler current+target temperature - read as TEXT,
+  # not `sensor: platform: homeassistant`, and parsed by hand below.
+  #
+  # Real bug fixed: the Truma's `current_temperature` attribute goes
+  # HA-side `None` while the unit reports nothing usable (seen in the
+  # field as `[W][homeassistant.sensor:014]: 'climate.womolin_
+  # controller_mqtt_truma_water': Can't convert 'None' to number!` on
+  # every single state push while that lasts). That warning is emitted
+  # unconditionally, before any `filters:`/`on_value:` of ours ever
+  # runs - a numeric `homeassistant` sensor has no way to suppress it,
+  # short of not being a numeric sensor. A `text_sensor` reading the same
+  # attribute never tries a float parse itself, so it never warns; the
+  # lambdas below do that parse by hand and simply skip publishing to
+  # the matching `sensor: platform: template` (s_climate_room_temp/
+  # s_climate_target/s_boiler_temp/s_boiler_target above) when the text
+  # is "None"/"unknown"/"unavailable" - same net effect as the old
+  # numeric sensor's own behavior (which also silently kept the last
+  # published value on an unparseable attribute, per ESPHome's own
+  # `homeassistant` sensor source), just without the log spam.
+  - platform: homeassistant
+    id: s_climate_room_temp_raw
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: current_temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_climate_room_temp).publish_state(v);
+
+  - platform: homeassistant
+    id: s_climate_target_raw
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_climate_target).publish_state(v);
+
+  - platform: homeassistant
+    id: s_boiler_temp_raw
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: current_temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_boiler_temp).publish_state(v);
+
+  - platform: homeassistant
+    id: s_boiler_target_raw
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_boiler_target).publish_state(v);
+
+globals:
+  # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
+  # link. Kept in this same globals: block rather than a second one
+  # further down - see draw_climate/act_climate_* below for how these
+  # are used.
+  - id: g_climate_temp_pending
+    type: float
+    restore_value: false
+    initial_value: "20"
+
+  # Gates the "---" placeholder - g_climate_temp_pending can't be told
+  # apart from "genuinely 20°C" on its own.
+  - id: g_climate_temp_known
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # Optimistic HEIZ state shown instantly on tap, ahead of
+  # s_climate_heater_on's own confirmation.
+  - id: g_climate_heater_optimistic
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_climate_heater_optimistic_valid
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # ---- Boiler (page_boiler) - same womolin_controller integration as
+  # Climate, water-heating side of the same Truma Combi 4. Three fixed
+  # tiers (ECO 40°C / mid 60°C / BOOST 80°C), not continuous - see
+  # act_boiler_temp_up/down below.
+  - id: g_boiler_temp_pending
+    type: float
+    restore_value: false
+    initial_value: "40"
+  - id: g_boiler_temp_known
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_boiler_heater_optimistic
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: g_boiler_heater_optimistic_valid
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+sensor:
+  # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
+  # link. Same entities m5dial_fram/page_climate.yaml already uses.
+  # Also feeds the status bar's "inside" temperature (draw_status_bar) -
+  # reusing this rather than a second HA entity, since the Truma room
+  # sensor already *is* the cabin's inside temperature.
+  #
+  # `platform: template`, published from s_climate_room_temp_raw's
+  # text_sensor below rather than read directly as `platform:
+  # homeassistant` - see that text_sensor's own comment for why (fixes
+  # the 'Can't convert 'None' to number!' warning this attribute used to
+  # spam whenever the Truma reports no current temperature).
+  - platform: template
+    id: s_climate_room_temp
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    on_value:
+      - script.execute: draw_climate
+      - script.execute: draw_status_bar
+
+  # `platform: template`, published from s_climate_target_raw below - same
+  # "avoid the None-to-number warning" reason as s_climate_room_temp above.
+  # The target temperature is much less likely to ever go None than the
+  # current one (it's a setpoint, not a live reading), but there's no
+  # reason to leave it on the warning-prone path either.
+  - platform: template
+    id: s_climate_target
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    on_value:
+      - lambda: |-
+          id(g_climate_temp_pending) = x;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+
+  # ---- Boiler (page_boiler) - HA-fed via womolin_controller, water-
+  # heating side of the same Truma Combi 4 as Climate. Both template
+  # sensors below, published from the text_sensor:'s raw attribute
+  # readers - see s_climate_room_temp's comment for why.
+  - platform: template
+    id: s_boiler_temp
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    on_value:
+      - script.execute: draw_boiler
+
+  - platform: template
+    id: s_boiler_target
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    on_value:
+      - lambda: |-
+          id(g_boiler_temp_pending) = x;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
+
+binary_sensor:
+  # ---- Climate (page_climate) - HA-fed via womolin_controller ---------
+  - platform: homeassistant
+    id: s_climate_heater_on
+    entity_id: switch.womolin_controller_mqtt_activate_room_heater
+    on_state:
+      # Real state just arrived - stop trusting the optimistic guess.
+      - globals.set:
+          id: g_climate_heater_optimistic_valid
+          value: "false"
+      - script.execute: draw_climate
+
+  # ---- Boiler (page_boiler) - HA-fed via womolin_controller ------------
+  - platform: homeassistant
+    id: s_boiler_heater_on
+    entity_id: switch.womolin_controller_mqtt_activate_water_heater
+    on_state:
+      - globals.set:
+          id: g_boiler_heater_optimistic_valid
+          value: "false"
+      - script.execute: draw_boiler
+
+  # ---- "Actually heating" vs. "activated" - the activate switch above
+  # is the on/off gate the HEIZ/BOILER button toggles; these reflect
+  # whether the Truma is actually running right now, which can lag the
+  # gate (ignition, water already at temp, etc.) - shown as a small
+  # secondary indicator, not instead of the button's own state.
+  - platform: homeassistant
+    id: s_climate_heater_active
+    entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+    on_state:
+      - script.execute: draw_climate
+
+  - platform: homeassistant
+    id: s_boiler_heater_active
+    entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+    on_state:
+      - script.execute: draw_boiler
+
+  # ---- Truma status/error, shared by both pages - see the sensor:
+  # block above for why there's no room/water split here.
+  - platform: homeassistant
+    id: s_truma_has_error
+    entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+    on_state:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+  - platform: homeassistant
+    id: s_truma_cp_plus_alive
+    entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+    on_state:
+      - script.execute: draw_climate
+      - script.execute: draw_boiler
+
+script:
+  # ---- Climate (page_climate) --------------------------------------------
+  # pages.md §5: Truma Combi 4 room-heating side, via the
+  # womolin_controller MQTT integration - "same entities
+  # m5dial_fram/page_climate.yaml already uses". Data source is HA over
+  # Wi-Fi (api:), NOT the RS232 link - unlike page_home/page_electric.
+  #
+  # Adapted from that page for a touchscreen rather than a rotary
+  # encoder: no arm/disarm "SET then turn the knob" step (there's no
+  # knob to fight over with page navigation on this device) - the +/-
+  # buttons write directly, debounced the same way. That's the only
+  # real difference; the optimistic-heater-toggle and invalid-value
+  # handling are carried over unchanged.
+  - id: poll_climate
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+      - script.execute: poll_truma_status
+
+  # Shared Truma status/error - see sensor: block's header comment.
+  # Called from both poll_climate and poll_boiler; the extra calls are
+  # cheap and this way neither page depends on the other having loaded
+  # first (m5dial_fram/design_rules.md §9's own reasoning for polling
+  # unconditionally rather than guessing what's "probably already
+  # fresh").
+  - id: poll_truma_status
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.womolin_controller_mqtt_operating_status
+
+  - id: act_climate_heater
+    then:
+      - lambda: |-
+          bool cur = id(g_climate_heater_optimistic_valid)
+              ? id(g_climate_heater_optimistic)
+              : (id(s_climate_heater_on).has_state() && id(s_climate_heater_on).state);
+          id(g_climate_heater_optimistic) = !cur;
+          id(g_climate_heater_optimistic_valid) = true;
+      - script.execute: draw_climate
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+
+  # 1°C step, clamped 5-30 - confirmed real (climate.womolin_controller_
+  # mqtt_truma_room's own min_temp/max_temp/target_temp_step attributes,
+  # not a guess anymore).
+  - id: act_climate_temp_up
+    then:
+      - lambda: |-
+          float v = id(g_climate_temp_pending) + 1.0f;
+          if (v > 30.0f) v = 30.0f;
+          id(g_climate_temp_pending) = v;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+      - script.execute: climate_temp_write_debounced
+
+  - id: act_climate_temp_down
+    then:
+      - lambda: |-
+          float v = id(g_climate_temp_pending) - 1.0f;
+          if (v < 5.0f) v = 5.0f;
+          id(g_climate_temp_pending) = v;
+          id(g_climate_temp_known) = true;
+      - script.execute: draw_climate
+      - script.execute: climate_temp_write_debounced
+
+  - id: climate_temp_write_now
+    then:
+      - homeassistant.service:
+          service: climate.set_temperature
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+          data_template:
+            temperature: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_climate_temp_pending));"
+
+  - id: climate_temp_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: climate_temp_write_now
+
+  # ---- Fan level (Lüfterstufe) - tap-to-cycle through the confirmed
+  # real fan_modes (off/low/medium/high), same single-button-cycle
+  # shape as m5dial_fram/page_power_3.yaml's MODE button (ON->CHG->INV
+  # ->OFF) rather than a 4-button popup - four fan speeds fit fine in
+  # one tap-through button, and there's less room on this half of the
+  # page than the Electric popup has to spare.
+  - id: act_climate_fan_cycle
+    then:
+      - homeassistant.service:
+          service: climate.set_fan_mode
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_room
+          data_template:
+            fan_mode: "{{ mode }}"
+          variables:
+            mode: !lambda |-
+              std::string m = id(s_climate_fan_mode).has_state() ? id(s_climate_fan_mode).state : "off";
+              if (m == "off") return std::string("low");
+              if (m == "low") return std::string("medium");
+              if (m == "medium") return std::string("high");
+              return std::string("off");
+
+  - id: draw_climate
+    mode: restart
+    then:
+      # ---- Arc: room temp as % of a 5-30°C range - same "arc is always
+      # a percentage of a sensible range" rule m5dial_fram/design_rules.md
+      # §8 uses (there's no natural 0-100% for a temperature otherwise).
+      # 5/30 matches act_climate_temp_up/down's own existing clamp, so
+      # the arc and the +/- buttons agree on what "full range" means.
+      - lvgl.arc.update:
+          id: arc_climate_temp
+          value: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return 0.0f;
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return 0.0f;
+            float p = (id(s_climate_room_temp).state - 5.0f) / (30.0f - 5.0f) * 100.0f;
+            if (p > 100.0f) p = 100.0f;
+            if (p < 0.0f) p = 0.0f;
+            return p;
+          indicator:
+            arc_color: !lambda |-
+              #ifdef USE_API
+              if (!api_is_connected()) return lv_color_hex(0x555555);
+              #endif
+              if (!id(s_climate_room_temp).has_state()) return lv_color_hex(0x555555);
+              return lv_color_hex(0x4A9EFF);
+
+      - lvgl.label.update:
+          id: lbl_climate_temp
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("---°C");
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return std::string("---°C");
+            return str_sprintf("%.0f°C", id(s_climate_room_temp).state);
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(s_climate_room_temp).has_state()) return lv_color_hex(0x555555);
+            return lv_color_hex(0xFFFFFF);
+
+      - lvgl.label.update:
+          id: lbl_climate_target
+          # Two lines ("SOLL" / "nn°C", see the widget's own comment) -
+          # both branches below keep that same two-line shape so the
+          # label's height never jumps between states.
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("SOLL\n---°C");
+            #endif
+            if (!id(g_climate_temp_known)) return std::string("SOLL\n---°C");
+            return str_sprintf("SOLL\n%.0f°C", id(g_climate_temp_pending));
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(g_climate_temp_known)) return lv_color_hex(0x555555);
+            return lv_color_hex(0xBDC1C6);
+
+      - lvgl.label.update:
+          id: lbl_climate_heater
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("HEIZ ---");
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? std::string("HEIZ EIN") : std::string("HEIZ AUS");
+            }
+            if (!id(s_climate_heater_on).has_state()) return std::string("HEIZ ---");
+            return id(s_climate_heater_on).state ? std::string("HEIZ EIN")
+                                          : std::string("HEIZ AUS");
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0xBDC1C6);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x555555);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
+                                          : lv_color_hex(0xBDC1C6);
+
+      - lvgl.widget.update:
+          id: btn_climate_heater
+          bg_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x202124);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x1B5E3A) : lv_color_hex(0x202124);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x202124);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x1B5E3A)
+                                          : lv_color_hex(0x202124);
+          border_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x3C4043);
+            #endif
+            if (id(g_climate_heater_optimistic_valid)) {
+              return id(g_climate_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0x3C4043);
+            }
+            if (!id(s_climate_heater_on).has_state()) return lv_color_hex(0x3C4043);
+            return id(s_climate_heater_on).state ? lv_color_hex(0x2ECC71)
+                                          : lv_color_hex(0x3C4043);
+
+      # ---- "Actually heating" indicator - distinct from the button
+      # above, which reflects the on/off gate, not whether the Truma
+      # is really running right now.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_climate_heater_active).has_state()) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x555555), 0);
+          } else if (id(s_climate_heater_active).state) {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV JA");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_climate_active), "AKTIV NEIN");
+            lv_obj_set_style_text_color(id(lbl_climate_active), lv_color_hex(0x707070), 0);
+          }
+
+      # ---- Fan level (Lüfterstufe) - tap-to-cycle, see
+      # act_climate_fan_cycle's own comment.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_climate_fan_mode), "LÜFTER ---");
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_climate_fan_mode).has_state()) {
+            lv_label_set_text(id(lbl_climate_fan_mode), "LÜFTER ---");
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode), lv_color_hex(0x555555), 0);
+          } else {
+            std::string m = id(s_climate_fan_mode).state;
+            std::string disp = m;
+            for (auto &c : disp) c = ::toupper(c);
+            lv_label_set_text(id(lbl_climate_fan_mode), ("LÜFTER " + disp).c_str());
+            lv_obj_set_style_text_color(id(lbl_climate_fan_mode),
+                lv_color_hex(m == "off" ? 0xBDC1C6 : 0x4A9EFF), 0);
+          }
+
+      # ---- Truma status/error footer - shared unit, see sensor: block's
+      # header comment. Priority: error > CP Plus not connected >
+      # operating status/heating mode > empty.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_truma_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x555555), 0);
+            return;
+          }
+          #endif
+          if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
+            std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
+            lv_label_set_text(id(lbl_truma_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xE74C3C), 0);
+          } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
+            lv_label_set_text(id(lbl_truma_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xF39C12), 0);
+          } else if (id(s_truma_operating_status).has_state()) {
+            std::string txt = id(s_truma_operating_status).state;
+            if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
+            lv_label_set_text(id(lbl_truma_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x707070), 0);
+          } else {
+            lv_label_set_text(id(lbl_truma_status), "");
+          }
+
+  # ---- Boiler (page_boiler) ----------------------------------------------
+  # Water-heating side of the same Truma Combi 4 as Climate, same
+  # womolin_controller integration, same touch-adapted +/- shape - but
+  # NOT continuously adjustable: this Truma boiler only actually has
+  # three fixed levels, ECO (40°C) / an unnamed middle one (60°C, name
+  # TBD - ask before labelling it, don't guess) / BOOST (80°C), same as
+  # m5dial_fram/page_boiler.yaml's own act_boiler_temp_up/down - copied
+  # verbatim rather than re-derived.
+  - id: poll_boiler
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_water
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+      - script.execute: poll_truma_status
+
+  - id: act_boiler_heater
+    then:
+      - lambda: |-
+          bool cur = id(g_boiler_heater_optimistic_valid)
+              ? id(g_boiler_heater_optimistic)
+              : (id(s_boiler_heater_on).has_state() && id(s_boiler_heater_on).state);
+          id(g_boiler_heater_optimistic) = !cur;
+          id(g_boiler_heater_optimistic_valid) = true;
+      - script.execute: draw_boiler
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+
+  # Steps between exactly 40/60/80, never in between - sending a value
+  # off this Truma's three real levels would either get silently
+  # clamped or just not correspond to anything the physical panel can
+  # select.
+  - id: act_boiler_temp_up
+    then:
+      - lambda: |-
+          float v = id(g_boiler_temp_pending);
+          if (v < 60.0f) v = 60.0f;
+          else v = 80.0f;
+          id(g_boiler_temp_pending) = v;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
+      - script.execute: boiler_temp_write_debounced
+
+  - id: act_boiler_temp_down
+    then:
+      - lambda: |-
+          float v = id(g_boiler_temp_pending);
+          if (v > 60.0f) v = 60.0f;
+          else v = 40.0f;
+          id(g_boiler_temp_pending) = v;
+          id(g_boiler_temp_known) = true;
+      - script.execute: draw_boiler
+      - script.execute: boiler_temp_write_debounced
+
+  - id: boiler_temp_write_now
+    then:
+      - homeassistant.service:
+          service: climate.set_temperature
+          data:
+            entity_id: climate.womolin_controller_mqtt_truma_water
+          data_template:
+            temperature: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_boiler_temp_pending));"
+
+  - id: boiler_temp_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: boiler_temp_write_now
+
+  - id: draw_boiler
+    mode: restart
+    then:
+      # ---- Arc: water temp as % of the 40-80°C range this Truma
+      # boiler's three fixed tiers span - same reasoning as
+      # arc_climate_temp above.
+      - lvgl.arc.update:
+          id: arc_boiler_temp
+          value: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return 0.0f;
+            #endif
+            if (!id(s_boiler_temp).has_state()) return 0.0f;
+            float p = (id(s_boiler_temp).state - 40.0f) / (80.0f - 40.0f) * 100.0f;
+            if (p > 100.0f) p = 100.0f;
+            if (p < 0.0f) p = 0.0f;
+            return p;
+          indicator:
+            arc_color: !lambda |-
+              #ifdef USE_API
+              if (!api_is_connected()) return lv_color_hex(0x555555);
+              #endif
+              if (!id(s_boiler_temp).has_state()) return lv_color_hex(0x555555);
+              return lv_color_hex(0x4A9EFF);
+
+      - lvgl.label.update:
+          id: lbl_boiler_temp
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("---°C");
+            #endif
+            if (!id(s_boiler_temp).has_state()) return std::string("---°C");
+            return str_sprintf("%.0f°C", id(s_boiler_temp).state);
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(s_boiler_temp).has_state()) return lv_color_hex(0x555555);
+            return lv_color_hex(0xFFFFFF);
+
+      - lvgl.label.update:
+          id: lbl_boiler_target
+          # Same two-line "SOLL" / "nn°C" shape as lbl_climate_target - the
+          # ECO/BOOST tag (this Truma boiler's fixed tiers, see
+          # act_boiler_temp_up/down) gets its own third line rather than
+          # being crammed onto the value line, which doesn't fit "80°C
+          # BOOST" in the 100px gap between the +/- buttons.
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("SOLL\n---°C");
+            #endif
+            if (!id(g_boiler_temp_known)) return std::string("SOLL\n---°C");
+            float v = id(g_boiler_temp_pending);
+            std::string tag = (v <= 40.0f) ? "\nECO" : (v >= 80.0f) ? "\nBOOST" : "";
+            return str_sprintf("SOLL\n%.0f°C", v) + tag;
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (!id(g_boiler_temp_known)) return lv_color_hex(0x555555);
+            return lv_color_hex(0xBDC1C6);
+
+      - lvgl.label.update:
+          id: lbl_boiler_heater
+          text: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return std::string("BOILER ---");
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? std::string("BOILER EIN") : std::string("BOILER AUS");
+            }
+            if (!id(s_boiler_heater_on).has_state()) return std::string("BOILER ---");
+            return id(s_boiler_heater_on).state ? std::string("BOILER EIN")
+                                         : std::string("BOILER AUS");
+          text_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x555555);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0xBDC1C6);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x555555);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x2ECC71)
+                                         : lv_color_hex(0xBDC1C6);
+
+      - lvgl.widget.update:
+          id: btn_boiler_heater
+          bg_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x202124);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x1B5E3A) : lv_color_hex(0x202124);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x202124);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x1B5E3A)
+                                         : lv_color_hex(0x202124);
+          border_color: !lambda |-
+            #ifdef USE_API
+            if (!api_is_connected()) return lv_color_hex(0x3C4043);
+            #endif
+            if (id(g_boiler_heater_optimistic_valid)) {
+              return id(g_boiler_heater_optimistic) ? lv_color_hex(0x2ECC71) : lv_color_hex(0x3C4043);
+            }
+            if (!id(s_boiler_heater_on).has_state()) return lv_color_hex(0x3C4043);
+            return id(s_boiler_heater_on).state ? lv_color_hex(0x2ECC71)
+                                         : lv_color_hex(0x3C4043);
+
+      # ---- "Actually heating" indicator - see draw_climate's identical
+      # block for why this is separate from the button's own state.
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x555555), 0);
+          } else
+          #endif
+          if (!id(s_boiler_heater_active).has_state()) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV ---");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x555555), 0);
+          } else if (id(s_boiler_heater_active).state) {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV JA");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x2ECC71), 0);
+          } else {
+            lv_label_set_text(id(lbl_boiler_active), "AKTIV NEIN");
+            lv_obj_set_style_text_color(id(lbl_boiler_active), lv_color_hex(0x707070), 0);
+          }
+
+      # ---- Truma status/error footer - same shared unit/logic as
+      # draw_climate's identical block (see sensor: block's header
+      # comment for why there's no room/water split here).
+      - lambda: |-
+          #ifdef USE_API
+          if (!api_is_connected()) {
+            lv_label_set_text(id(lbl_truma_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x555555), 0);
+            return;
+          }
+          #endif
+          if (id(s_truma_has_error).has_state() && id(s_truma_has_error).state) {
+            std::string code = id(s_truma_error_code).has_state() ? id(s_truma_error_code).state : "?";
+            lv_label_set_text(id(lbl_truma_status), ("FEHLER " + code).c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xE74C3C), 0);
+          } else if (id(s_truma_cp_plus_alive).has_state() && !id(s_truma_cp_plus_alive).state) {
+            lv_label_set_text(id(lbl_truma_status), "TRUMA NICHT VERBUNDEN");
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0xF39C12), 0);
+          } else if (id(s_truma_operating_status).has_state()) {
+            std::string txt = id(s_truma_operating_status).state;
+            if (id(s_truma_heating_mode).has_state()) txt += " / " + id(s_truma_heating_mode).state;
+            lv_label_set_text(id(lbl_truma_status), txt.c_str());
+            lv_obj_set_style_text_color(id(lbl_truma_status), lv_color_hex(0x707070), 0);
+          } else {
+            lv_label_set_text(id(lbl_truma_status), "");
+          }
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_climate
+        - script.execute: draw_boiler
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Truma (page_climate) - pages.md §5, ONE page for both sides of the
+    # same Truma Combi 4 (repo owner's own unit): left = Heizung (room
+    # heating, the entities/scripts already named s_climate_*/
+    # act_climate_*/draw_climate), right = Boiler (water heating,
+    # s_boiler_*/act_boiler_*/draw_boiler) - previously two separate
+    # pages/nav entries, merged per repo-owner request. Two plain `obj:`
+    # containers (obj_truma_room/obj_truma_water) act as local coordinate
+    # origins so each half's widgets can use align/y offsets relative to
+    # THAT half, the same way a whole page normally would - see
+    # design_rules.md §9's arc/label pattern, now scoped per-container
+    # instead of per-page.
+    - id: page_climate
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_climate
+        - script.execute: poll_boiler
+      widgets:
+        - obj:
+            id: obj_truma_divider
+            align: TOP_LEFT
+            x: 705
+            y: 90
+            width: 1
+            height: 650
+            bg_color: 0x3C4043
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+            clickable: false
+
+        # ---- Left half: Heizung (room) -----------------------------------
+        - obj:
+            id: obj_truma_room
+            align: TOP_LEFT
+            x: 160
+            y: 90
+            width: 530
+            height: 650
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "HEIZUNG"
+                  text_color: 0x707070
+
+              - arc:
+                  id: arc_climate_temp
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+
+              - label:
+                  id: lbl_climate_temp
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---°C"
+                  text_color: 0x555555
+
+              # "SOLL" / "nn°C" stacked, centered in the gap BETWEEN the
+              # +/- buttons below (not a separate line above them, like
+              # this used to be) - x:0 sits exactly midway between
+              # btn_climate_temp_down's x:-95 and btn_climate_temp_up's
+              # x:95, width:100 keeps it clear of both (each button is
+              # 80px wide, so the gap between their inner edges is
+              # 2*95-80=110px). Two lines via "\n" in one label rather
+              # than two separate ones - simpler to keep centered as one
+              # unit, and there's only ever one color/visibility state to
+              # update (see draw_climate below).
+              - label:
+                  id: lbl_climate_target
+                  align: TOP_MID
+                  x: 0
+                  y: 316
+                  width: 100
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "SOLL\n---°C"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_climate_temp_down
+                  align: TOP_MID
+                  x: -95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_climate_temp_down
+
+              - button:
+                  id: btn_climate_temp_up
+                  align: TOP_MID
+                  x: 95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_climate_temp_up
+
+              - button:
+                  id: btn_climate_heater
+                  align: TOP_MID
+                  y: 390
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_climate_heater
+                        align: CENTER
+                        text: "HEIZ ---"
+                        text_font: font_ui_20
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_climate_heater
+
+              - label:
+                  id: lbl_climate_active
+                  align: TOP_MID
+                  y: 462
+                  text_font: font_ui_16
+                  text: "AKTIV ---"
+                  text_color: 0x555555
+
+              # ---- Fan level (Lüfterstufe) - tap-to-cycle through the
+              # confirmed real fan_modes (off/low/medium/high), climate.
+              # womolin_controller_mqtt_truma_room's own attribute - see
+              # act_climate_fan_cycle's comment for why one cycling button
+              # instead of the Electric popup's 4-button shape.
+              - button:
+                  id: btn_climate_fan_mode
+                  align: TOP_MID
+                  y: 500
+                  width: 200
+                  height: 44
+                  radius: 10
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  shadow_width: 0
+                  widgets:
+                    - label:
+                        id: lbl_climate_fan_mode
+                        align: CENTER
+                        text_font: font_ui_16
+                        text: "LÜFTER ---"
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_climate_fan_cycle
+
+        # ---- Right half: Boiler (water) -----------------------------------
+        - obj:
+            id: obj_truma_water
+            align: TOP_LEFT
+            x: 730
+            y: 90
+            width: 530
+            height: 650
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "BOILER"
+                  text_color: 0x707070
+
+              - arc:
+                  id: arc_boiler_temp
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+
+              - label:
+                  id: lbl_boiler_temp
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---°C"
+                  text_color: 0x555555
+
+              # "SOLL" / "nn°C" stacked, centered between the +/- buttons -
+              # same layout as lbl_climate_target above, mirrored.
+              - label:
+                  id: lbl_boiler_target
+                  align: TOP_MID
+                  x: 0
+                  y: 316
+                  width: 100
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "SOLL\n---°C"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_boiler_temp_down
+                  align: TOP_MID
+                  x: -95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_boiler_temp_down
+
+              - button:
+                  id: btn_boiler_temp_up
+                  align: TOP_MID
+                  x: 95
+                  y: 310
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_boiler_temp_up
+
+              - button:
+                  id: btn_boiler_heater
+                  align: TOP_MID
+                  y: 390
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_boiler_heater
+                        align: CENTER
+                        text: "BOILER ---"
+                        text_font: font_ui_20
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_boiler_heater
+
+              - label:
+                  id: lbl_boiler_active
+                  align: TOP_MID
+                  y: 462
+                  text_font: font_ui_16
+                  text: "AKTIV ---"
+                  text_color: 0x555555
+
+        # ---- Shared footer - ONE Truma unit behind both halves, so its
+        # status/error shows once here instead of on two separate pages
+        # (see sensor:/text_sensor: blocks' own header comments).
+        - label:
+            id: lbl_truma_status
+            align: BOTTOM_MID
+            y: -12
+            width: 1000
+            text_font: font_ui_16
+            text: ""
+            text_color: 0x555555
+

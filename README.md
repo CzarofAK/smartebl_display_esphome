@@ -128,6 +128,33 @@ historical reference, marked removed there too.
                      Home Assistant / OTA / logging
 ```
 
+## Repository layout
+
+As of 2026-09-06, pages are split out of `smart-ebl-display.yaml` into
+their own files, analogous to `m5dial_fram`'s own page-package structure
+— see `docs/design_rules.md` §5 for the full convention.
+
+```
+smartebl_display_esphome/
+├── smart-ebl-display.yaml      # board/hardware, palette, nav rail, status
+│                                #   bar, link reader/writer, packages: list
+├── .basics.yaml                 # Wi-Fi/API/OTA (gitignored, from basic.yaml.example)
+├── smart_ebl_pages/
+│   ├── page_home.yaml            # Mainscreen: clock + 5 switch tiles
+│   ├── page_electric.yaml        # Electric, sub-page 1: Victron overview
+│   ├── page_electric_fuses.yaml  # Electric, sub-page 2: 16-fuse grid
+│   ├── page_climate_boiler.yaml  # Truma: room heating + water heating
+│   ├── page_levels.yaml          # Fresh/Waste/Gas A/Gas I/Diesel
+│   ├── page_fans.yaml            # FANBOARD + HVAC blower
+│   ├── page_sensors_overview.yaml    # Sensors, sub-page 1 (placeholder)
+│   └── page_sensors_levelling.yaml   # Sensors, sub-page 2: spirit level
+└── docs/                        # hardware.md, protocol.md, pages.md, design_rules.md
+```
+
+Editing one page no longer means scrolling a 6000+ line file, and adding
+a page means one new file plus one `packages:` line in the device file —
+not touching every top-level key in it.
+
 ## The RS232 link — controlling everything `smartebl` controls, without a network hop
 
 The two boards are connected point-to-point, full-duplex, over the same wire

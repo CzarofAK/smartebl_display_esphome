@@ -1,0 +1,482 @@
+# =============================================================================
+#  smart_ebl_pages/page_electric_fuses.yaml -- page: Electric, sub-page 2 (Fuses)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5: Electric section's sub-page 2, reached by re-tapping
+# the ELECTRIC nav icon while already on page_electric (nav_show_electric,
+# in the main device file - this page has no nav entry of its own). All
+# 16 fuses, protocol.md group 1 - fuse_fN_ok = voltage > 1.0V, smartebl's
+# own rule for itself (design_rules.md §2), reused here.
+# =============================================================================
+
+sensor:
+  # ---- Fuses (page_electric_fuses, docs/pages.md §5's Electric "page 2"
+  # sub-page). All 16, protocol.md group 1 - smartebl already broadcasts
+  # this group (see that repo's smart-ebl.yaml) but nothing on the
+  # display side consumed it until now. Names/functions are smartebl's
+  # own real fuse table (CLAUDE.md "Outputs"/"Special Outputs"), not the
+  # old Nextion mockup's generic "Fuse.1 Main" placeholders - real
+  # function per fuse, same one smartebl's own hardware datasheet uses.
+  # `fuse_fN_ok = voltage > 1.0V` (design_rules.md §2) is computed in
+  # draw_fuses directly from these, not a separate binary_sensor here -
+  # same reasoning as smartebl's own fuse_fN_ok template sensors: no
+  # need to send/store both the raw value and its derived boolean.
+  - platform: template
+    id: s_fuse_f1_voltage
+    name: "Fuse F1 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f2_voltage
+    name: "Fuse F2 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f3_voltage
+    name: "Fuse F3 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f4_voltage
+    name: "Fuse F4 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f5_voltage
+    name: "Fuse F5 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f6_voltage
+    name: "Fuse F6 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f7_voltage
+    name: "Fuse F7 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f8_voltage
+    name: "Fuse F8 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f9_voltage
+    name: "Fuse F9 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f10_voltage
+    name: "Fuse F10 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f11_voltage
+    name: "Fuse F11 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f12_voltage
+    name: "Fuse F12 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f13_voltage
+    name: "Fuse F13 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f14_voltage
+    name: "Fuse F14 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f15_voltage
+    name: "Fuse F15 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f16_voltage
+    name: "Fuse F16 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+
+script:
+  # ---- Fuses (page_electric_fuses, Electric section's sub-page 2) -
+  # protocol.md group 1, all 16, now real on both ends (see the sensor:
+  # block's own comment). `fuse_fN_ok = voltage > 1.0V` is smartebl's
+  # OWN rule for itself (design_rules.md §2), reused here - but applied
+  # more carefully than a blanket "low voltage = blown fuse" would be:
+  # these ADCs read the LOAD side of each fuse, so a SWITCHED group
+  # (Light/12V/AUX/Pump) reads near 0V any time its own group switch is
+  # simply off, same as a blown fuse would look. Cross-referencing each
+  # switched fuse against its own group's mirror (already on this
+  # display via the link) turns "AUS" (switch off, expected, not a
+  # fault) and "AUSGEFALLEN?" (should be live, isn't - a real fault)
+  # into two different things instead of one ambiguous red dot. F2/F3
+  # (vehicle/D+-controlled) and F10 (fridge D+/programmable) have no
+  # switch mirror on this display to check against - shown read-only,
+  # never alarmed, same "don't claim precision this display doesn't
+  # have" reasoning as the Home page's Fridge tile.
+  - id: draw_fuses
+    mode: restart
+    then:
+      - lambda: |-
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+
+          // kind: 0 = permanent (always expected live), 1 = switched
+          // (expected live only while sw_state is true), 2 = vehicle/
+          // D+-controlled or conditional (no known expectation here).
+          auto set_fuse = [&](lv_obj_t *dot, lv_obj_t *lbl_v, lv_obj_t *lbl_state,
+                               float v, int kind, bool sw_state) {
+            char b[16];
+            if (!connected) {
+              lv_label_set_text(lbl_v, "---V");
+              lv_label_set_text(lbl_state, "---");
+              lv_obj_set_style_text_color(lbl_state, lv_color_hex(0x555555), 0);
+              lv_obj_set_style_bg_color(dot, lv_color_hex(0x555555), 0);
+              return;
+            }
+            snprintf(b, sizeof(b), "%.2fV", v);
+            lv_label_set_text(lbl_v, b);
+            bool live = v > 1.0f;
+            uint32_t col; std::string txt;
+            if (kind == 0) {
+              col = live ? 0x2ECC71 : 0xE74C3C;
+              txt = live ? "OK" : "AUSGEFALLEN";
+            } else if (kind == 1) {
+              if (sw_state && !live) { col = 0xE74C3C; txt = "AUSGEFALLEN?"; }
+              else if (sw_state) { col = 0x2ECC71; txt = "OK"; }
+              else { col = 0x707070; txt = "AUS"; }
+            } else {
+              col = live ? 0x2ECC71 : 0x555555;
+              txt = live ? "OK" : "---";
+            }
+            lv_label_set_text(lbl_state, txt.c_str());
+            lv_obj_set_style_text_color(lbl_state, lv_color_hex(col), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+          };
+
+          set_fuse(id(dot_fuse_f1), id(lbl_fuse_f1_v), id(lbl_fuse_f1_state),
+                    id(s_fuse_f1_voltage).state, 1, id(sw_pump_mirror).state);
+          set_fuse(id(dot_fuse_f2), id(lbl_fuse_f2_v), id(lbl_fuse_f2_state),
+                    id(s_fuse_f2_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f3), id(lbl_fuse_f3_v), id(lbl_fuse_f3_state),
+                    id(s_fuse_f3_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f4), id(lbl_fuse_f4_v), id(lbl_fuse_f4_state),
+                    id(s_fuse_f4_voltage).state, 1, id(sw_light_mirror).state);
+          set_fuse(id(dot_fuse_f5), id(lbl_fuse_f5_v), id(lbl_fuse_f5_state),
+                    id(s_fuse_f5_voltage).state, 1, id(sw_light_mirror).state);
+          set_fuse(id(dot_fuse_f6), id(lbl_fuse_f6_v), id(lbl_fuse_f6_state),
+                    id(s_fuse_f6_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f7), id(lbl_fuse_f7_v), id(lbl_fuse_f7_state),
+                    id(s_fuse_f7_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f8), id(lbl_fuse_f8_v), id(lbl_fuse_f8_state),
+                    id(s_fuse_f8_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f9), id(lbl_fuse_f9_v), id(lbl_fuse_f9_state),
+                    id(s_fuse_f9_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f10), id(lbl_fuse_f10_v), id(lbl_fuse_f10_state),
+                    id(s_fuse_f10_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f11), id(lbl_fuse_f11_v), id(lbl_fuse_f11_state),
+                    id(s_fuse_f11_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f12), id(lbl_fuse_f12_v), id(lbl_fuse_f12_state),
+                    id(s_fuse_f12_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f13), id(lbl_fuse_f13_v), id(lbl_fuse_f13_state),
+                    id(s_fuse_f13_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f14), id(lbl_fuse_f14_v), id(lbl_fuse_f14_state),
+                    id(s_fuse_f14_voltage).state, 1, id(sw_12v_mirror).state);
+          set_fuse(id(dot_fuse_f15), id(lbl_fuse_f15_v), id(lbl_fuse_f15_state),
+                    id(s_fuse_f15_voltage).state, 1, id(sw_12v_mirror).state);
+          set_fuse(id(dot_fuse_f16), id(lbl_fuse_f16_v), id(lbl_fuse_f16_state),
+                    id(s_fuse_f16_voltage).state, 1, id(sw_12v_mirror).state);
+
+          // ---- Footer: first real fault found, permanent fuses first
+          // (a genuinely unexpected 0V there) then switched fuses whose
+          // own group is commanded on but reading dead.
+          const char *fault = nullptr;
+          if (connected) {
+            if (id(s_fuse_f6_voltage).state <= 1.0f) fault = "F6";
+            else if (id(s_fuse_f7_voltage).state <= 1.0f) fault = "F7";
+            else if (id(s_fuse_f8_voltage).state <= 1.0f) fault = "F8";
+            else if (id(s_fuse_f9_voltage).state <= 1.0f) fault = "F9";
+            else if (id(sw_pump_mirror).state && id(s_fuse_f1_voltage).state <= 1.0f) fault = "F1";
+            else if (id(sw_light_mirror).state && id(s_fuse_f4_voltage).state <= 1.0f) fault = "F4";
+            else if (id(sw_light_mirror).state && id(s_fuse_f5_voltage).state <= 1.0f) fault = "F5";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f11_voltage).state <= 1.0f) fault = "F11";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f12_voltage).state <= 1.0f) fault = "F12";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f13_voltage).state <= 1.0f) fault = "F13";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f14_voltage).state <= 1.0f) fault = "F14";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f15_voltage).state <= 1.0f) fault = "F15";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f16_voltage).state <= 1.0f) fault = "F16";
+          }
+          if (!connected) {
+            lv_label_set_text(id(lbl_fuses_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_fuses_status), lv_color_hex(0x555555), 0);
+          } else if (fault) {
+            char b[32];
+            snprintf(b, sizeof(b), "SICHERUNG %s AUSGEFALLEN", fault);
+            lv_label_set_text(id(lbl_fuses_status), b);
+            lv_obj_set_style_text_color(id(lbl_fuses_status), lv_color_hex(0xE74C3C), 0);
+          } else {
+            lv_label_set_text(id(lbl_fuses_status), "");
+          }
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_fuses
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Electric / Fuses (page_electric_fuses) - Electric section's sub-
+    # page 2 (pages.md §5), reached by re-tapping the ELECTRIC nav
+    # button while already on Electric (nav_show_electric's own subpage
+    # cycle). 16 fuses, 4x4 grid: 4x260px cells + 3x20px gaps = 1100px,
+    # centered in the 1150px content area -> 25px side margin -> columns
+    # x155/435/715/995; 4x150px rows + 3x20px gaps = 660px, centered in
+    # the 736px content height -> 38px top/bottom margin -> rows
+    # y102/272/442/612. Names are smartebl's own real fuse table
+    # (CLAUDE.md), not the old Nextion mockup's generic placeholders -
+    # see draw_fuses' own header for the switched-vs-permanent coloring
+    # logic and s_fuse_fN_voltage's own comment for the group1 wiring.
+    - id: page_electric_fuses
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - obj: &fuse_cell
+            id: obj_fuse_f1
+            align: TOP_LEFT
+            x: 155
+            y: 102
+            width: 260
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            pad_all: 0
+            widgets:
+              - label: &fuse_cap
+                  align: TOP_LEFT
+                  x: 12
+                  y: 10
+                  text: "F1 - WASSERPUMPE"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - obj: &fuse_dot
+                  id: dot_fuse_f1
+                  align: TOP_RIGHT
+                  x: -12
+                  y: 14
+                  width: 16
+                  height: 16
+                  radius: 8
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+              - label: &fuse_v
+                  id: lbl_fuse_f1_v
+                  align: TOP_LEFT
+                  x: 12
+                  y: 44
+                  text: "---V"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label: &fuse_state
+                  id: lbl_fuse_f1_state
+                  align: TOP_LEFT
+                  x: 12
+                  y: 84
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f2
+            x: 435
+            widgets:
+              - label: {<<: *fuse_cap, text: "F2 - KONTURLICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f2}
+              - label: {<<: *fuse_v, id: lbl_fuse_f2_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f2_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f3
+            x: 715
+            widgets:
+              - label: {<<: *fuse_cap, text: "F3 - MARKISENLICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f3}
+              - label: {<<: *fuse_v, id: lbl_fuse_f3_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f3_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f4
+            x: 995
+            widgets:
+              - label: {<<: *fuse_cap, text: "F4 - LICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f4}
+              - label: {<<: *fuse_v, id: lbl_fuse_f4_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f4_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f5
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F5 - LICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f5}
+              - label: {<<: *fuse_v, id: lbl_fuse_f5_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f5_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f6
+            x: 435
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F6 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f6}
+              - label: {<<: *fuse_v, id: lbl_fuse_f6_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f6_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f7
+            x: 715
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F7 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f7}
+              - label: {<<: *fuse_v, id: lbl_fuse_f7_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f7_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f8
+            x: 995
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F8 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f8}
+              - label: {<<: *fuse_v, id: lbl_fuse_f8_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f8_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f9
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F9 - KÜHLSCHRANK"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f9}
+              - label: {<<: *fuse_v, id: lbl_fuse_f9_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f9_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f10
+            x: 435
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F10 - KÜHLSCHRANK D+"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f10}
+              - label: {<<: *fuse_v, id: lbl_fuse_f10_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f10_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f11
+            x: 715
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F11 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f11}
+              - label: {<<: *fuse_v, id: lbl_fuse_f11_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f11_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f12
+            x: 995
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F12 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f12}
+              - label: {<<: *fuse_v, id: lbl_fuse_f12_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f12_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f13
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F13 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f13}
+              - label: {<<: *fuse_v, id: lbl_fuse_f13_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f13_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f14
+            x: 435
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F14 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f14}
+              - label: {<<: *fuse_v, id: lbl_fuse_f14_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f14_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f15
+            x: 715
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F15 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f15}
+              - label: {<<: *fuse_v, id: lbl_fuse_f15_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f15_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f16
+            x: 995
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F16 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f16}
+              - label: {<<: *fuse_v, id: lbl_fuse_f16_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f16_state}
+
+        - label:
+            id: lbl_fuses_status
+            align: BOTTOM_MID
+            y: -12
+            text: ""
+            text_font: font_ui_16
+            text_color: 0x555555
+

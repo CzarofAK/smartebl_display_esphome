@@ -1,0 +1,261 @@
+# =============================================================================
+#  smart_ebl_pages/page_sensors_levelling.yaml -- page: Sensors, sub-page 2 (Levelling)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5: ported from m5dial_fram/page_levelling.yaml - same
+# MPU6050 tilt sensor + four pre-computed per-corner cm entities, same
+# bubble-target-rings metaphor. Reached as Sensors section's sub-page 2
+# (nav_show_sensors, main device file) - this page has no nav entry of
+# its own.
+# =============================================================================
+
+sensor:
+  # ---- Sensors/Levelling (page_sensors_levelling) - same MPU6050 tilt
+  # sensor + four pre-computed per-corner cm entities m5dial_fram's
+  # page_levelling.yaml already reads (see that file's own header for
+  # why the degrees-to-cm math happens in HA, not on any display).
+  - platform: homeassistant
+    id: s_levelling_lon
+    entity_id: sensor.mpu6050_pitch
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_lat
+    entity_id: sensor.mpu6050_roll
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_vl
+    entity_id: sensor.mpu6050_womo_vl_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_vr
+    entity_id: sensor.mpu6050_womo_vr_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_hl
+    entity_id: sensor.mpu6050_womo_hl_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_hr
+    entity_id: sensor.mpu6050_womo_hr_cm
+    on_value:
+      - script.execute: draw_levelling
+
+script:
+  # ---- Sensors / Levelling (page_sensors_levelling, Sensors section's
+  # sub-page 2) - ported from m5dial_fram/page_levelling.yaml, same real
+  # entities, same bubble-level metaphor and per-corner cm readout (see
+  # that file's own header for the full reasoning, including its own
+  # still-open item: the corner sensors read 0 until an HA-side template
+  # sensor does the real degrees-to-cm math, per that file's OPEN ITEM
+  # note - nothing to change here once that lands, same as there).
+  # Read-only, no button, same as the M5Dial version - and no arc
+  # (design_rules.md §3: a tilt isn't a 0-100% quantity either).
+  - id: poll_levelling
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_pitch
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_roll
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_vl_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_vr_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_hl_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_hr_cm
+
+  - id: draw_levelling
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+
+          // ---- Bubble position - R_MAX=85px maps to DEG_MAX=4°, same
+          // as m5dial_fram/page_levelling.yaml (same UNVERIFIED
+          // direction-sign caveat that file's header documents - flip
+          // here too if it reads backwards on the real device).
+          const float R_MAX = 85.0f, DEG_MAX = 4.0f;
+          bool lat_ok = api_ok && id(s_levelling_lat).has_state();
+          bool lon_ok = api_ok && id(s_levelling_lon).has_state();
+          float ox = 0, oy = 0;
+          if (lat_ok) {
+            ox = -(id(s_levelling_lat).state / DEG_MAX) * R_MAX;
+            if (ox > R_MAX) ox = R_MAX;
+            if (ox < -R_MAX) ox = -R_MAX;
+          }
+          if (lon_ok) {
+            oy = (id(s_levelling_lon).state / DEG_MAX) * R_MAX;
+            if (oy > R_MAX) oy = R_MAX;
+            if (oy < -R_MAX) oy = -R_MAX;
+          }
+          // obj_levelling_bubble's parent is obj_levelling_root, a local
+          // 200x200 coordinate container (same "local coordinate origin"
+          // trick page_climate's own obj_truma_room/obj_truma_water use)
+          // centered in the content area rather than the whole screen -
+          // see that container's own widget comment. lv_obj_set_pos is
+          // always parent-relative, so ox/oy=0 has to land on the
+          // container's own center: (200-26)/2 = 87 on both axes.
+          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox + 87, (int) oy + 87);
+
+          bool vl_ok = api_ok && id(s_levelling_vl).has_state();
+          bool vr_ok = api_ok && id(s_levelling_vr).has_state();
+          bool hl_ok = api_ok && id(s_levelling_hl).has_state();
+          bool hr_ok = api_ok && id(s_levelling_hr).has_state();
+
+          // Bubble color follows the worst corner (cm), same as
+          // m5dial_fram - so the bubble and the four numbers never
+          // disagree about how bad it is.
+          uint32_t bubble_col = 0x555555;
+          if (vl_ok && vr_ok && hl_ok && hr_ok) {
+            float v = id(s_levelling_vl).state;
+            float t;
+            t = id(s_levelling_vr).state; if (t > v) v = t;
+            t = id(s_levelling_hl).state; if (t > v) v = t;
+            t = id(s_levelling_hr).state; if (t > v) v = t;
+            if (v < 0.0f) v = 0.0f;
+            bubble_col = v >= 3.0f ? 0xE74C3C : (v >= 1.5f ? 0xF39C12 : 0xFFFFFF);
+          }
+          lv_obj_set_style_bg_color(id(obj_levelling_bubble), lv_color_hex(bubble_col), 0);
+
+          auto set_corner = [&](lv_obj_t *lbl, const char *prefix, bool ok, float raw) {
+            char b[16];
+            if (!ok) {
+              snprintf(b, sizeof(b), "%s --cm", prefix);
+              lv_label_set_text(lbl, b);
+              lv_obj_set_style_text_color(lbl, lv_color_hex(0x555555), 0);
+              return;
+            }
+            float v = raw < 0.0f ? 0.0f : raw;
+            snprintf(b, sizeof(b), "%s %.0fcm", prefix, v);
+            lv_label_set_text(lbl, b);
+            uint32_t col = v >= 3.0f ? 0xE74C3C : (v >= 1.5f ? 0xF39C12 : 0xBDC1C6);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(col), 0);
+          };
+          set_corner(id(lbl_levelling_vl), "VL", vl_ok, vl_ok ? id(s_levelling_vl).state : 0.0f);
+          set_corner(id(lbl_levelling_vr), "VR", vr_ok, vr_ok ? id(s_levelling_vr).state : 0.0f);
+          set_corner(id(lbl_levelling_hl), "HL", hl_ok, hl_ok ? id(s_levelling_hl).state : 0.0f);
+          set_corner(id(lbl_levelling_hr), "HR", hr_ok, hr_ok ? id(s_levelling_hr).state : 0.0f);
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_levelling
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Sensors, sub-page 2 (page_sensors_levelling) - ported from
+    # m5dial_fram/page_levelling.yaml, see draw_levelling's own header
+    # comment (in the script: block, above) for the full reasoning.
+    # obj_levelling_root is a local 200x200 coordinate container (same
+    # trick as page_climate's obj_truma_room/obj_truma_water) centered
+    # in the content area: x=(130+1280)/2-100=605, y=(64+800)/2-100=332.
+    - id: page_sensors_levelling
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_levelling
+      widgets:
+        - obj:
+            id: obj_levelling_root
+            align: TOP_LEFT
+            x: 605
+            y: 332
+            width: 200
+            height: 200
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              # ---- Static target rings -----------------------------------
+              - obj:
+                  align: CENTER
+                  width: 200
+                  height: 200
+                  radius: 100
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2A2D30
+              - obj:
+                  align: CENTER
+                  width: 140
+                  height: 140
+                  radius: 70
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2A2D30
+              - obj:
+                  align: CENTER
+                  width: 80
+                  height: 80
+                  radius: 40
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2ECC71
+
+              # ---- The bubble itself ---------------------------------------
+              - obj:
+                  id: obj_levelling_bubble
+                  align: CENTER
+                  width: 26
+                  height: 26
+                  radius: 13
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+
+              # ---- Four corners: cm to add, VL/VR top, HL/HR bottom --------
+              - label:
+                  id: lbl_levelling_vl
+                  align: CENTER
+                  x: -44
+                  y: -54
+                  text: "VL --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_vr
+                  align: CENTER
+                  x: 44
+                  y: -54
+                  text: "VR --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_hl
+                  align: CENTER
+                  x: -44
+                  y: 54
+                  text: "HL --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_hr
+                  align: CENTER
+                  x: 44
+                  y: 54
+                  text: "HR --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555

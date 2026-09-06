@@ -150,3 +150,42 @@ the actual device once real pages are built, not guessed in advance.
   but now feed one cross-category ranking instead of several independent
   per-page ones. That ranking is itself still a draft — see
   `docs/pages.md` §7.
+
+## 5. Repo layout
+
+Analogous to `m5dial_fram/design_rules.md` §12/§13, adapted for this
+device's own file split (2026-09-06) — this repo has only one physical
+display, so there's no second `.m5dial_fram.yaml`-style header file for
+a sibling device to share; everything that isn't page content simply
+stays in the device file itself.
+
+| File | Contains |
+|---|---|
+| `smart-ebl-display.yaml` | Everything every page shares: board/hardware setup (`esp32:`, `psram:`, `i2c:`, `esp_ldo:`, `display:`, `touchscreen:`, `external_components:`), the color/font/layout-grid basics, the RS232 link reader/writer (`uart:`/`interval:`/`send_link_command` — `link_` prefix, §2), the persistent nav rail + status bar + day/night + sleep (LVGL `top_layer`), and the `packages:` list that pulls every page in. Device-specific (`esp32:`, `logger: hardware_uart`), so — unlike `m5dial_fram_cockpit.yaml` — this file is not thin; it just no longer holds page content. |
+| `.basics.yaml` (gitignored) | Wi-Fi/API/OTA credentials — copy from `basic.yaml.example`. |
+| `smart_ebl_pages/page_<name>.yaml` | One page (or one sub-page) each, self-contained: its own `text_sensor:`/`sensor:`/`binary_sensor:`/`switch:`/`globals:`/`script:` entries plus its own `lvgl: pages:` entry, and — if it needs a draw on boot — its own `esphome: on_boot:` list entry (`packages:` concatenates these across files, same as every other list key; see the device file's own `on_boot:` comment for why it's the list form, not the single-trigger shorthand). A page with two sub-pages (Electric, Sensors) is two files, `page_<name>.yaml` + `page_<name>_<subpage>.yaml` — each sub-page stands on its own, per repo-owner decision, even though the two currently share a nav entry. |
+
+Deciding whether something belongs in the device file or a page file:
+lives in the device file only if it's genuinely page-independent
+infrastructure (nav rail, status bar, link reader/writer, day/night,
+sleep, board/palette/font/grid) — same test as `link_`-prefixed items
+already get under §10's naming scheme. Everything a specific page reads,
+writes, or draws — even a value that happens to also feed the status bar
+(`s_climate_room_temp`'s inside-temperature reading, still declared in
+`page_climate_boiler.yaml`) — belongs in that page's own file; a
+cross-file `script.execute`/`id()` reference is normal and expected
+(ESPHome's `packages:` merges everything into one config regardless of
+which file declared it), not a sign something was split wrong.
+
+Before flashing after touching this split:
+
+1. Adding a page: create `smart_ebl_pages/page_<name>.yaml` following an
+   existing page file's shape, then add one line to the device file's
+   `packages:` list. No other file needs touching.
+2. Run `esphome config smart-ebl-display.yaml` and check no `id:` occurs
+   twice — same most-common-error warning `m5dial_fram/design_rules.md`
+   §13 already flags for its own package split.
+3. The `page_electric`/`page_electric_fuses` row/box templates (`&box_frame`/
+   `&row_main`/etc., §1's own `merge_warnings: false` comment) are YAML
+   anchors — keep anchor and every alias that uses it inside the *same*
+   page file; an anchor doesn't resolve across a `packages:` boundary.
