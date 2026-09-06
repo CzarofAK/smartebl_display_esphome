@@ -2813,6 +2813,7 @@ lvgl:
           bg_opa: COVER
           border_width: 0
           radius: 0
+          clickable: false
 
       # ---- Left nav rail (x 0-nav_w, y bar_h-screen_h) ----
       # Real bug fixed (repo-owner report): this used to run the full
@@ -2839,6 +2840,7 @@ lvgl:
           bg_opa: COVER
           border_width: 0
           radius: 0
+          clickable: false
       - button:
           id: btn_nav_home
           align: TOP_LEFT
@@ -3066,13 +3068,22 @@ lvgl:
                   - script.execute: close_daynight_popup
 
       # ---- Brightness dim overlay (see apply_backlight) - an `obj:`,
-      # not a `button:`: LVGL objects are non-clickable by default
-      # (only widgets like `button:` opt into catching touches), so this
-      # sits on top of every page's content without ever intercepting a
-      # tap meant for whatever's underneath - it only ever changes how
-      # dark that content LOOKS. Starts fully transparent (bg_opa 0);
-      # apply_backlight (called from on_boot and every slider move)
-      # drives the real value.
+      # not a `button:`, but that alone does NOT make it non-clickable:
+      # stock LVGL sets LV_OBJ_FLAG_CLICKABLE on every object created by
+      # lv_obj_create(), `button:` widgets are not special-cased, they
+      # just default that same flag on too. Confirmed as a real bug on
+      # real hardware (2026-09-06): this being full-screen, always
+      # present (only bg_opa changes) and drawn AFTER the status bar/nav
+      # rail in this same top_layer list meant it sat on top of and
+      # silently swallowed every touch across the whole UI, on every
+      # page - matching "touch stops working entirely" exactly.
+      # `clickable: false` (the same flat boolean-flag pattern already
+      # used for `hidden:` throughout this file, mapping to
+      # LV_OBJ_FLAG_CLICKABLE) makes it change how dark the content
+      # LOOKS without ever intercepting a tap meant for whatever's
+      # underneath. Starts fully transparent (bg_opa 0); apply_backlight
+      # (called from on_boot and every slider move) drives the real
+      # value.
       - obj:
           id: obj_brightness_dim_overlay
           align: TOP_LEFT
@@ -3084,6 +3095,7 @@ lvgl:
           bg_opa: TRANSP
           border_width: 0
           radius: 0
+          clickable: false
 
       # ---- Sleep overlay (pages.md's display-power open item) - LAST in
       # this widget list on purpose: LVGL draws top_layer widgets in list
@@ -4319,6 +4331,7 @@ lvgl:
             bg_opa: COVER
             border_width: 0
             radius: 0
+            clickable: false
 
         # ---- Left half: Heizung (room) -----------------------------------
         - obj:
