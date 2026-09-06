@@ -602,13 +602,6 @@ globals:
     restore_value: false
     initial_value: "false"
 
-  # ---- Electric page (page_electric) flow-arrow animation (see
-  # animate_flow_arrows) - 0-3, one shared frame counter for all 5 arrows.
-  - id: g_flow_frame
-    type: int
-    restore_value: false
-    initial_value: "0"
-
   # ---- Electric page (page_electric) popup - shore/grid current limit
   # (number.multiplus_strombegrenzung) being locally edited, same
   # debounced-write pattern as m5dial_fram/page_power_2.yaml's own
@@ -1238,19 +1231,6 @@ interval:
     then:
       - script.execute: check_sleep_idle
 
-  # Electric page flow-arrow animation - only runs while that page is
-  # actually visible (g_current_page == 1, see nav_show_electric), same
-  # "don't animate what nobody can see" reasoning as any other idle-page
-  # optimization - LVGL still redraws every 300ms regardless of which
-  # page is on top, so a hidden page's animation would be pure waste.
-  - interval: 300ms
-    then:
-      - if:
-          condition:
-            lambda: "return id(g_current_page) == 1;"
-          then:
-            - script.execute: animate_flow_arrows
-
 # =============================================================================
 # Link writer - composes protocol.md §7 command frames
 # =============================================================================
@@ -1655,10 +1635,13 @@ script:
           // before (Multiplus 12/1600, same caveat m5dial_fram/
           // page_power_3.yaml's own comment carries: not exact, thermal
           // derating isn't tracked here) - just against the new sensor.
+          // No state-line write here any more (repo-owner: the %-of-
+          // 1600W figure duplicated what the Inverter/Charger box's own
+          // load bar already shows) - `p` is still computed, only to
+          // pick this label's own warning color at 80%/95% of nominal.
           if (!api_ok || !id(s_multiplus_out_w).has_state()) {
             lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
-            lv_label_set_text(id(lbl_electric_ac_loads_state), "---");
           } else {
             float w = id(s_multiplus_out_w).state;
             snprintf(buf, sizeof(buf), "%.0fW", w);
@@ -1668,8 +1651,6 @@ script:
             if (p >= 95.0f) col = 0xE74C3C;
             else if (p >= 80.0f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(col), 0);
-            snprintf(buf, sizeof(buf), "%.0f%% VON 1600W", p);
-            lv_label_set_text(id(lbl_electric_ac_loads_state), buf);
           }
           if (!api_ok || !id(s_multiplus_out_v).has_state()) {
             lv_label_set_text(id(lbl_electric_ac_loads_sub_l), "---V");
@@ -1856,6 +1837,48 @@ script:
             if (start_v < 12.0f) col = 0xE74C3C;
             else if (start_v < 12.4f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(col), 0);
+          }
+
+          // ---- Flow-direction arrows - replaces the old 300ms-
+          // interval walking animation (repo-owner: "braucht das viel
+          // Leistung?" - and even if it doesn't, a real power-flow
+          // topology only has 3 meaningful states per connection: `→`
+          // this direction, `←` the other, or `-` nothing flowing).
+          // Updated here, once per draw_electric call (i.e. only when
+          // the underlying HA values actually change), not on a timer -
+          // a real redraw-cost saving, not just a simpler readout.
+          //
+          // Four of these five connections are physically one-
+          // directional in this topology - mains, the inverter's own
+          // AC output, solar, and DC loads are all a pure source or a
+          // pure sink, never both - so they only ever need forward/dash,
+          // not a reverse arrow. Small threshold (5W) rather than >0 so
+          // sensor noise at true idle doesn't flicker the arrow.
+          auto set_flow = [&](lv_obj_t *arrow, bool has_state, float watts) {
+            lv_label_set_text(arrow, (has_state && watts > 5.0f) ? "→" : "-");
+          };
+          set_flow(id(arrow_shore_charger), api_ok && id(s_multiplus_in_w).has_state(),
+              api_ok && id(s_multiplus_in_w).has_state() ? id(s_multiplus_in_w).state : 0.0f);
+          set_flow(id(arrow_charger_acloads), api_ok && id(s_multiplus_out_w).has_state(),
+              api_ok && id(s_multiplus_out_w).has_state() ? id(s_multiplus_out_w).state : 0.0f);
+          set_flow(id(arrow_solar_battery), api_ok && id(s_mppt_pv_yield).has_state(),
+              api_ok && id(s_mppt_pv_yield).has_state() ? id(s_mppt_pv_yield).state : 0.0f);
+          set_flow(id(arrow_battery_dcloads), api_ok && id(s_dc_loads).has_state(),
+              api_ok && id(s_dc_loads).has_state() ? id(s_dc_loads).state : 0.0f);
+
+          // The Charger<->Battery link is the one connection that
+          // really reverses: charging pulls energy DOWN from the
+          // charger/solar side into the battery, discharging pushes it
+          // back UP through the inverter to the AC loads. Reuses the
+          // exact same IDLE/CHARGING/DISCHARGING classification as the
+          // Battery box itself (computed above) rather than a second,
+          // possibly-disagreeing threshold on the same current sensor.
+          if (batt_state == "CHARGING") {
+            lv_label_set_text(id(arrow_row_down), "↓");
+          } else if (batt_state == "DISCHARGING") {
+            lv_label_set_text(id(arrow_row_down), "↑");
+          } else {
+            lv_label_set_text(id(arrow_row_down), "-");
           }
 
           // ---- Charger/Inverter popup (hidden unless open, see
@@ -2136,30 +2159,6 @@ script:
           service: switch.toggle
           data:
             entity_id: switch.fram_parkmodus
-
-  # ---- Electric page flow arrows - animated, per repo-owner request
-  # ("wie bei https://github.com/skydarc/Venus-OS-Dashboard"). LVGL has
-  # no built-in "flowing dashed line" primitive to reach for here, so
-  # this fakes the same read (power visibly moving along the arrow's
-  # direction) two ways instead: the horizontal arrows (→) cycle through
-  # a small dash-approaching-the-arrowhead text sequence, the vertical
-  # one (↓, a single glyph - a text sequence doesn't read as vertical
-  # motion) pulses opacity instead. Driven by one shared frame counter
-  # rather than a separate timer per arrow, so all five stay in lockstep
-  # (reads as one coherent flow instead of five independently-blinking
-  # ones).
-  - id: animate_flow_arrows
-    then:
-      - lambda: |-
-          static const char *const kHFrames[4] = {"-  →", " - →", "  -→", "   →"};
-          int f = id(g_flow_frame);
-          lv_obj_t *h_arrows[4] = {id(arrow_shore_charger), id(arrow_charger_acloads),
-                                    id(arrow_solar_battery), id(arrow_battery_dcloads)};
-          for (auto *a : h_arrows) lv_label_set_text(a, kHFrames[f]);
-          lv_obj_set_style_text_opa(id(arrow_row_down), (f % 2 == 0) ? LV_OPA_50 : LV_OPA_COVER, 0);
-      - globals.set:
-          id: g_flow_frame
-          value: !lambda "return (id(g_flow_frame) + 1) % 4;"
 
   # ---- Climate (page_climate) --------------------------------------------
   # pages.md §5: Truma Combi 4 room-heating side, via the
@@ -3408,32 +3407,51 @@ lvgl:
       on_load:
         - script.execute: poll_electric
       widgets:
-        # ---- Row 1 (y=162, h=210): Shore -> Inverter/Charger -> AC Loads
-        # Horizontally centered as a block between the nav rail (ends
-        # x130) and the right edge (x1280): 3x300 + 2x40 gap = 980px,
-        # centered in the 1150px content area -> starts x215. Row 2
-        # below centers its own, differently-sized block the same way.
-        # Vertically, the two-row block (row1 210 + 40 gap + row2 290 =
-        # 540) is centered in the content height (736) -> 98px margin
-        # top and bottom, row1 starts y162 (item 9: both rows taller
-        # than before and the margins now match, top and bottom - this
-        # page used to leave most of the content area empty).
+        # ---- 3x2 grid, all six boxes the SAME size (repo-owner: "mache
+        # alle rechtecke gleich gross") - 300x290 each, gap_x=40,
+        # gap_y=40. Horizontally: 3x300 + 2x40 = 980px, centered in the
+        # 1150px content area (nav rail ends x130, right edge x1280) ->
+        # 85px side margin -> columns start x215/555/895. Vertically:
+        # 2x290 + 40 gap = 620px, centered in the 736px content height
+        # (bar_h=64 to screen_h=800) -> 58px top/bottom margin -> rows
+        # start y122/452. Every box below reuses these same six
+        # coordinates (x215/555/895, y122/452) rather than a bespoke
+        # size - a box with less content just has more breathing room
+        # inside it, which is the normal look for an equal-size grid.
         - obj:
             id: obj_electric_shore
             align: TOP_LEFT
             x: 215
-            y: 162
+            y: 122
             width: 300
-            height: 210
+            height: 290
             radius: 12
             bg_color: 0x202124
             bg_opa: COVER
             border_width: 1
             border_color: 0x3C4043
             widgets:
+              # ---- Row template (repo-owner: "definiere die Abstände
+              # zwischen den Zeilen, definiere Schriftgrösse/Style von
+              # jeder Zeile") - every box on this page uses exactly
+              # these four row slots, top-anchored so they land at the
+              # same y regardless of which box, plus one bottom-anchored
+              # row that free-floats to whatever's left of the (now
+              # equal) box height:
+              #   title  y=12   font_ui_16  0x707070 (muted label)
+              #   main   y=74   font_ui_24  state-dependent color
+              #   state  y=108  font_ui_16  state-dependent color
+              #   bottom y=-14  font_ui_16  0xBDC1C6/0x707070, BOTTOM-anchored
+              # Battery is the one deliberate exception (font_ui_40
+              # "hero" main value, extra rows between state and bottom)
+              # - see its own widgets below - everything else follows
+              # this template exactly, including AC Loads (its former
+              # duplicate %-of-1600W state line was removed, not
+              # reflowed, per repo-owner: already shown on Inverter/
+              # Charger's own load bar).
               - label:
                   align: TOP_MID
-                  y: 10
+                  y: 12
                   text: "SHORE"
                   text_font: font_ui_16
                   text_color: 0x707070
@@ -3445,12 +3463,8 @@ lvgl:
                   text_font: font_ui_24
                   text_color: 0x555555
               # Connected/disconnected - smartebl's own link reading
-              # (see draw_electric). y108: the same "state/secondary
-              # line, right under the main value" slot every box on
-              # this page uses now (Charger's mode state, AC Loads' %-
-              # of-nominal, Solar's zustand, Battery's IDLE/CHARGING/
-              # DISCHARGING) - repo-owner spec: "insert the battery's
-              # IDLE-style line everywhere, so it looks homogeneous".
+              # (see draw_electric). y108: the shared state/secondary-
+              # line slot (see the row-template comment above).
               - label:
                   id: lbl_electric_shore_status
                   align: TOP_MID
@@ -3474,13 +3488,19 @@ lvgl:
                   text: "---Hz"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
+        # ---- Flow arrows - static, 3-state (repo-owner: a walking
+        # animation "braucht Leistung" for what it conveyed; a real
+        # power-flow topology needs at most forward/reverse/none per
+        # connection anyway). Text is set in draw_electric, not on a
+        # timer - see that script's own "Flow-direction arrows" comment
+        # for why each one only needs the states it actually has.
         - label:
             id: arrow_shore_charger
             align: TOP_LEFT
             x: 525
-            y: 255
+            y: 252
             text_font: font_ui_24
-            text: "→"
+            text: "-"
             text_color: 0x707070
 
         # Inverter/Charger is now a BUTTON - tap opens the mode/shore-
@@ -3492,9 +3512,9 @@ lvgl:
             id: btn_electric_charger
             align: TOP_LEFT
             x: 555
-            y: 162
+            y: 122
             width: 300
-            height: 210
+            height: 290
             radius: 12
             bg_color: 0x202124
             border_width: 1
@@ -3503,7 +3523,7 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 10
+                  y: 12
                   text: "INVERTER / CHARGER"
                   text_font: font_ui_16
                   text_color: 0x707070
@@ -3533,13 +3553,17 @@ lvgl:
               # (same Multiplus 12/1600 caveat as that box) rather than
               # inventing a second calculation for the same underlying
               # number - see draw_electric for the actual %.
+              # RIGHT_MID (not TOP_RIGHT + a manually-computed y/height
+              # half-split) so it's vertically centered in the box by
+              # construction - repo-owner: "die vertikale bar vertikal
+              # einmitten" - and stays centered automatically if this
+              # box's height ever changes again, no math to redo.
               - bar:
                   id: bar_electric_charger_load
-                  align: TOP_RIGHT
+                  align: RIGHT_MID
                   x: -16
-                  y: 12
                   width: 14
-                  height: 186
+                  height: 250
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -3557,17 +3581,17 @@ lvgl:
             id: arrow_charger_acloads
             align: TOP_LEFT
             x: 865
-            y: 255
+            y: 252
             text_font: font_ui_24
-            text: "→"
+            text: "-"
             text_color: 0x707070
         - obj:
             id: obj_electric_ac_loads
             align: TOP_LEFT
             x: 895
-            y: 162
+            y: 122
             width: 300
-            height: 210
+            height: 290
             radius: 12
             bg_color: 0x202124
             bg_opa: COVER
@@ -3576,7 +3600,7 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 10
+                  y: 12
                   text: "AC LOADS"
                   text_font: font_ui_16
                   text_color: 0x707070
@@ -3587,15 +3611,12 @@ lvgl:
                   text: "--- W"
                   text_font: font_ui_24
                   text_color: 0x555555
-              # y108: same state/secondary-line slot every box on this
-              # page uses - see lbl_electric_shore_status's own comment.
-              - label:
-                  id: lbl_electric_ac_loads_state
-                  align: TOP_MID
-                  y: 108
-                  text: "---"
-                  text_font: font_ui_16
-                  text_color: 0x707070
+              # State/secondary-line slot deliberately left empty here
+              # (repo-owner: the %-of-1600W figure that used to live at
+              # y108 is already shown by the Inverter/Charger box's own
+              # load bar - same underlying number, no need to say it
+              # twice). No lbl_electric_ac_loads_state widget any more;
+              # draw_electric no longer writes one either.
               - label:
                   id: lbl_electric_ac_loads_sub_l
                   align: BOTTOM_LEFT
@@ -3613,25 +3634,36 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
+        # The one connection that genuinely reverses in this topology:
+        # charging pulls energy DOWN from the Inverter/Charger into the
+        # Battery, discharging pushes it back UP through the inverter to
+        # power AC loads - unlike the four horizontal arrows (mains,
+        # inverter output, solar, DC loads are all one-directional
+        # sources/sinks, see draw_electric's own comment), so this one
+        # needs all three states: ↓/↑/-, not just one arrow direction
+        # and a dash.
         - label:
             id: arrow_row_down
             align: TOP_LEFT
             x: 695
-            y: 380
+            y: 420
             text_font: font_ui_24
-            text: "↓"
+            text: "-"
             text_color: 0x707070
 
-        # ---- Row 2 (y=412, h=290): Solar -> Battery (emphasized) -> DC Loads
+        # ---- Row 2 (y=452, h=290): Solar -> Battery (emphasized) -> DC
+        # Loads - same 300x290 grid as row 1 (see the top-of-page
+        # comment); column x is identical to row 1's (215/555/895) too,
+        # since every box is now the same width.
         # Solar Yield is now a BUTTON too - tap opens its own ON/OFF +
         # charge-limit popup (show_solar_popup), same shape as the
         # Charger box above.
         - button:
             id: btn_electric_solar
             align: TOP_LEFT
-            x: 235
-            y: 412
-            width: 260
+            x: 215
+            y: 452
+            width: 300
             height: 290
             radius: 12
             bg_color: 0x202124
@@ -3686,22 +3718,22 @@ lvgl:
             id: arrow_solar_battery
             align: TOP_LEFT
             x: 505
-            y: 545
+            y: 582
             text_font: font_ui_24
-            text: "→"
+            text: "-"
             text_color: 0x707070
 
         # Battery - now a BUTTON (opens the park-mode popup below, see
-        # show_battery_popup). Taller (170 -> 290) to fit the new state/
-        # remaining-time line and the 3-across V/A/W row without the
-        # overlap the repo owner reported (the old mid line and the
-        # starter-voltage line used to sit right on top of each other).
+        # show_battery_popup), and the same 300x290 grid cell as every
+        # other box (was a wider 340px special case - narrowed by 40px,
+        # see the V/A/W row's own comment for how that row was
+        # rebalanced to fit).
         - button:
             id: btn_electric_battery
             align: TOP_LEFT
-            x: 535
-            y: 412
-            width: 340
+            x: 555
+            y: 452
+            width: 300
             height: 290
             radius: 16
             bg_color: 0x14324F
@@ -3743,13 +3775,17 @@ lvgl:
                   text: ""
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
-              # DC bus V / A / W, left / middle / right.
+              # DC bus V / A / W, left / middle / right. width 84 (was
+              # 100, tuned for the old 340px-wide box) so the three
+              # columns still fit with a clean 10px gap now that this
+              # box is 300px wide like every other one: 14px side
+              # padding + 3x84 + 2x10 gap = 272px, i.e. 300 - 2x14.
               - label:
                   id: lbl_electric_batt_v
                   align: TOP_LEFT
                   x: 14
                   y: 196
-                  width: 100
+                  width: 84
                   text_align: CENTER
                   text: "---V"
                   text_font: font_ui_16
@@ -3758,7 +3794,7 @@ lvgl:
                   id: lbl_electric_batt_a
                   align: TOP_MID
                   y: 196
-                  width: 100
+                  width: 84
                   text_align: CENTER
                   text: "---A"
                   text_font: font_ui_16
@@ -3768,7 +3804,7 @@ lvgl:
                   align: TOP_RIGHT
                   x: -14
                   y: 196
-                  width: 100
+                  width: 84
                   text_align: CENTER
                   text: "---W"
                   text_font: font_ui_16
@@ -3788,16 +3824,16 @@ lvgl:
             id: arrow_battery_dcloads
             align: TOP_LEFT
             x: 885
-            y: 545
+            y: 582
             text_font: font_ui_24
-            text: "→"
+            text: "-"
             text_color: 0x707070
         - obj:
             id: obj_electric_dc_loads
             align: TOP_LEFT
-            x: 915
-            y: 412
-            width: 260
+            x: 895
+            y: 452
+            width: 300
             height: 290
             radius: 12
             bg_color: 0x202124
