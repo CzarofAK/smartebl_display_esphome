@@ -170,7 +170,7 @@ logger:
 # would also be fine now that the real cause is fixed.
 psram:
   mode: hex
-  speed: 100MHz
+  speed: 200MHz
 
 # Include Wi-Fi/OTA/API/time/the restart watchdog - logger: lives above
 # instead, not in .basics.yaml (see that file's closing comment on why).
