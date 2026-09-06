@@ -117,6 +117,23 @@ the actual device once real pages are built, not guessed in advance.
   `clock_face` widget and `m5dial_clock_sbb`'s README) - that removes
   one contributor, not the underlying upstream issue itself. Not
   something this repo can fix on its own; watch esphome#16873.
+  **Still recurring (confirmed against a fuller real boot log, roughly
+  every 30-90s during normal WiFi+HA operation, not just at boot) -
+  non-fatal, the panel keeps working.** One mitigation was tried and
+  **reverted**: `lvgl: buffer_size: 25%` (shrinking LVGL's own staging
+  draw buffer, separate from the DSI peripheral's continuous full-frame
+  hardware buffer which stays full-size regardless, so LVGL's rendering
+  work would contend less with that continuous DMA read on the shared
+  PSRAM bus) - the commonly-recommended starting point for this symptom
+  on ESP32-P4 MIPI-DSI boards, not a finding of this repo's own. Pulled
+  after the repo owner reported visible flicker on real hardware right
+  after it landed (same flash as `page_levels`) - consistent with a
+  smaller buffer meaning more, smaller flushes, one of which landing
+  mid-scan would read exactly like a faint tear. Back to ESPHome's own
+  default (unset, full-frame buffer); the underrun log line itself is
+  still open, unresolved upstream (esphome#16873) - a confirmed new
+  visual artifact was worse than an already-tracked non-fatal log line,
+  so this wasn't a net improvement to keep.
 - ~~**Multi-page navigation model.**~~ Decided at the concept level:
   [`docs/pages.md`](pages.md) — a persistent left nav rail (not a
   swipe/tab-bar), a bottom-left quick-switch popup reachable from any
