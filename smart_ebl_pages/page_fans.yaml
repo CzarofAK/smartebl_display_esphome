@@ -308,13 +308,18 @@ lvgl:
         # scrollbar_mode: AUTO + scroll_dir: VER (repo-owner follow-up,
         # 2026-09-06: "fanboard auch, wie oben [page_sensors_levelling's
         # bubble level]. scrollen vertikal diesmal aber mit scrollbar
-        # oder so (eine linie)") - unlike the bubble level, this half's
-        # content genuinely does overflow its box (see the comment
-        # above), so the fix here isn't to kill scrolling but to show it:
-        # AUTO only draws the indicator while the content is actually
-        # scrollable/being scrolled (never a static always-on bar), and
-        # scroll_dir: VER limits the drag itself to vertical, matching
-        # the request and this box's own overflow axis.
+        # oder so (eine linie)") - tried showing the scroll instead of
+        # killing it, since this half's content genuinely does overflow
+        # its box (see the comment above). Reverted (repo-owner report
+        # after PR #26 merged, 2026-09-06: "trotz gemergtem PR #26, kann
+        # ich das 'Fanboard' immer noch nach oben und unten schieben")
+        # once asked directly - the repo owner wants it locked the same
+        # way the now-confirmed-correct Levelling widget is, not merely
+        # given a visible handle: scroll_dir: NONE kills the drag outright
+        # and scrollbar_mode: OFF matches (no indicator for a scroll that
+        # can't happen). Same fix as page_sensors_levelling.yaml's own
+        # obj_levelling_root - see that container's own comment for why
+        # scrollbar_mode alone was never enough on its own.
         - obj:
             id: obj_fans_board
             align: TOP_LEFT
@@ -324,8 +329,8 @@ lvgl:
             height: 460
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: "AUTO"
-            scroll_dir: VER
+            scrollbar_mode: "OFF"
+            scroll_dir: NONE
             widgets:
               - label:
                   align: TOP_MID
