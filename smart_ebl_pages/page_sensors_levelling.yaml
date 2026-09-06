@@ -133,18 +133,33 @@ script:
           #endif
 
           // ---- Bubble position - R_MAX=170px maps to DEG_MAX=4°, same
-          // as m5dial_fram/page_levelling.yaml (same UNVERIFIED
-          // direction-sign caveat that file's header documents - flip
-          // here too if it reads backwards on the real device). R_MAX
-          // doubled (85->170) along with every other dimension in this
-          // widget for the 2026-09-06 relayout (see this file's own
-          // header) - proportions unchanged, just twice the size.
+          // as m5dial_fram/page_levelling.yaml. R_MAX doubled (85->170)
+          // along with every other dimension in this widget for the
+          // 2026-09-06 relayout (see this file's own header) -
+          // proportions unchanged, just twice the size.
+          //
+          // ox sign RESOLVED on real hardware (2026-09-06, repo-owner:
+          // "die zahlen und die blase/punkt sind ausser sync ... VL
+          // 5cm, VR 16cm, HL 0cm, HR 10cm - die blase ist aber ganz
+          // hinten und einwenig nach rechts verschoben. als würden wir
+          // nach vorne links hängend stehen!"). Left/right average of
+          // those corner cm readings (higher cm = lower/more-sunk
+          // corner - see set_corner's own coloring below, same scale):
+          // left (VL+HL)/2 = 2.5, right (VR+HR)/2 = 13 - the right side
+          // is the sunk one, so the bubble (same "floats toward the
+          // high side" convention as a real bubble level) belongs on
+          // the LEFT. The old `-(...)` put it on the right instead -
+          // backwards, exactly the previously-UNVERIFIED direction-sign
+          // caveat this file's header used to flag, now confirmed and
+          // flipped. oy (front/back) checked out fine against the same
+          // numbers (front avg 10.5 > back avg 5 -> bubble correctly at
+          // the back) and is unchanged.
           const float R_MAX = 170.0f, DEG_MAX = 4.0f;
           bool lat_ok = api_ok && id(s_levelling_lat).has_state();
           bool lon_ok = api_ok && id(s_levelling_lon).has_state();
           float ox = 0, oy = 0;
           if (lat_ok) {
-            ox = -(id(s_levelling_lat).state / DEG_MAX) * R_MAX;
+            ox = (id(s_levelling_lat).state / DEG_MAX) * R_MAX;
             if (ox > R_MAX) ox = R_MAX;
             if (ox < -R_MAX) ox = -R_MAX;
           }
