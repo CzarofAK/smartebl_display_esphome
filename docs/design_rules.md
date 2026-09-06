@@ -105,6 +105,18 @@ the actual device once real pages are built, not guessed in advance.
   MIPI-DSI UI usable. Keep an eye on redraw cost (avoid a
   whole-screen `draw_` script running every 200 ms if it turns out to
   cost real frame time) once more than the one bring-up page exists.
+  **Confirmed on real hardware (2026-09-06):** intermittent
+  `E lcd.dsi: can't fetch data from external memory fast enough,
+  underrun happens` in the boot log - almost certainly this same
+  upstream concern (the main LVGL display buffer at this resolution is
+  large enough that it has to live in PSRAM regardless of anything this
+  repo's own config does, and DSI's own DMA fetch competing with
+  anything else on the PSRAM bus can starve it). The Mainscreen clock's
+  own canvas used to add to that PSRAM pressure until it was shrunk to
+  fit internal RAM instead (see `smart-ebl-display.yaml`'s
+  `clock_face` widget and `m5dial_clock_sbb`'s README) - that removes
+  one contributor, not the underlying upstream issue itself. Not
+  something this repo can fix on its own; watch esphome#16873.
 - ~~**Multi-page navigation model.**~~ Decided at the concept level:
   [`docs/pages.md`](pages.md) — a persistent left nav rail (not a
   swipe/tab-bar), a bottom-left quick-switch popup reachable from any

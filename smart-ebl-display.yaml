@@ -3124,11 +3124,27 @@ lvgl:
         - sbb_clock:
             id: clock_face
             time_id: homeassistant_time
-            width: 450
-            height: 450
+            # 450 -> 320 (2026-09-06, round 3, confirmed on real
+            # hardware): even after corner_color (below) dropped this
+            # canvas from ARGB8888 to plain RGB565 (810112 -> 405120
+            # bytes), the boot log still showed it landing in PSRAM
+            # (`alloc_canvas_buf()`'s own warning). The static linker
+            # report this file's comments used to cite (~432KB free
+            # internal RAM) is a compile-time bss/data budget, not the
+            # ACTUAL free heap left over at runtime once Wi-Fi/esp_hosted/
+            # LVGL's own (much larger) display buffer have all already
+            # claimed their share by the time this widget's setup() runs
+            # - that real number is smaller and wasn't knowable without
+            # flashing real hardware. 320x320 (204800 bytes, exactly half
+            # of the previous size) leaves enough headroom below whatever
+            # that real ceiling turns out to be. No more "took a long
+            # time" warnings for sbb_clock on the real device at this
+            # size - see m5dial_clock_sbb's README for the full writeup.
+            width: 320
+            height: 320
             align: TOP_LEFT
-            x: 750
-            y: 200
+            x: 815 # keeps the same center point as the old 450x450 at (750,200)
+            y: 265
             # Round, not square (bug reported on real hardware): a
             # canvas is inherently rectangular, so without something
             # making the corners disappear it rendered as a plain filled
@@ -3137,24 +3153,13 @@ lvgl:
             # page's real background - together they're what makes it
             # read as a circle rather than a block.
             show_face: true
-            # Real bug fixed (2026-09-06, round 2 - hopping persisted
-            # even after m5dial_clock_sbb's first render-frequency fix,
-            # confirmed on real hardware): this used to be `transparent:
-            # true`, which needs an ARGB8888 canvas - at 450x450 that's
-            # 810112 bytes, more than this chip's ~432KB of free internal
-            # RAM, so it lived in PSRAM (see the boot log's own
-            # `alloc_canvas_buf()` warning) where even the *optimized*
-            # steady-state redraw was still slow enough to occasionally
-            # trip ESPHome's "took a long time" component warning -
-            # exactly the residual hopping reported. Since this page's
-            # background is always the same fixed solid color (never a
-            # live camera feed or photo behind the clock), true alpha
-            # transparency was never actually needed - only
-            # `corner_color` matching that fixed color was, which is
-            # opaque (405000 bytes at this size, comfortably fits in
-            # internal RAM) instead of needing an alpha channel at all.
-            # See m5dial_clock_sbb's README "Fixed" section for the full
-            # writeup of both rounds of this bug.
+            # `corner_color`, not `transparent: true` (real bug fixed,
+            # round 2 - see m5dial_clock_sbb's README "Fixed" section for
+            # the full writeup): this page's background is always the
+            # same fixed solid color, so true alpha transparency was
+            # never actually needed for the square canvas's corners to
+            # disappear into it - only matching that fixed color opaquely
+            # was, which needs a plain RGB565 canvas instead of ARGB8888.
             corner_color: col_page_bg
             # Real SBB clock look (design_rules.md §6's documented
             # exception, m5dial_fram's clock page uses the same
