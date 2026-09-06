@@ -7,12 +7,16 @@
 # Nextion used - see docs/protocol.md for the link and docs/hardware.md
 # for every pin used below, INCLUDING which ones are still placeholders.
 #
-# STATUS: first release - three real pages (Mainscreen/Home, Electric/
-# Victron-style overview, Climate), per docs/pages.md's page catalog.
-# See README.md "Status & Roadmap" before assuming this covers
-# everything smartebl exposes - most of the catalog (Levels, Boiler,
-# Fans, Light/Features, Sensors+Levelling) is still follow-up work, and
-# the Electric page only has its overview sub-page, not the fuse grid.
+# STATUS: this comment had drifted stale (still said "first release,
+# three pages" long after Boiler/sleep/day-night/several Electric
+# reworks landed) - corrected here rather than left wrong, per this
+# project's own house rule. Current page catalog (docs/pages.md):
+# Home, Electric (Overview + Fuses sub-pages), Truma (Climate+Boiler
+# merged), Levels, Fans, Sensors (placeholder sub-page 1 + real
+# Levelling sub-page 2). See README.md "Status & Roadmap" for the full,
+# maintained changelog - still open: Sensors sub-page 1's real content
+# (no HA entity list yet) and Light/Features (no floor-plan entity_ids
+# yet), both per docs/pages.md §7.
 # =============================================================================
 
 substitutions:
@@ -61,6 +65,20 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
+  # Confirmed harmless, per ESPHome's own yaml_util.py (read on 2026.8.2):
+  # the page_electric row-template pattern below (`&box_frame`/`&row_main`/
+  # etc., merged into each box via `<<:`) is BY DESIGN - every real box
+  # intentionally overrides the anchor's placeholder `id:`/`text:`/`x:`
+  # with its own value, and the override DOES win (verified: `esphome
+  # config` on this exact file dumps each box with its own correct id/
+  # position/text, not the anchor's). The ~19 "Key '...' was dropped
+  # while processing a '<<' merge" warnings this triggers on every single
+  # compile all point at the ANCHOR's own definition line (not the
+  # overriding box), which is just where ESPHome's merge-key warning
+  # renderer sources the reported position from - not a sign anything is
+  # actually broken. Silenced here rather than left to reappear on every
+  # future `esphome compile`, per the warning's own suggested remedy.
+  merge_warnings: false
   on_boot:
     # design_rules.md §2's "one script per page, also called from
     # on_boot" pattern: draw whatever's in the link/HA buffers right
@@ -75,6 +93,10 @@ esphome:
       - script.execute: draw_electric
       - script.execute: draw_climate
       - script.execute: draw_boiler
+      - script.execute: draw_levels
+      - script.execute: draw_fuses
+      - script.execute: draw_fans
+      - script.execute: draw_levelling
       # apply_daynight itself updates lbl_daynight_toggle's text now (see
       # that script) - draw_daynight_popup separately primes the popup's
       # own widgets (mode highlight, slider, % label) so they're never
@@ -673,6 +695,35 @@ globals:
     restore_value: false
     initial_value: "false"
 
+  # ---- Nav rail sub-page indicators (pages.md §2's "1/2" pattern -
+  # tapping the active section's icon again cycles to its next sub-page).
+  # 0 = first sub-page, 1 = second. See nav_show_electric/nav_show_sensors.
+  - id: g_electric_subpage
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: g_sensors_subpage
+    type: int
+    restore_value: false
+    initial_value: "0"
+
+  # ---- Fans (page_fans) - HA-fed via number.fan_speed_control/
+  # number.hvac_fan_battery, same entities m5dial_fram/page_fans.yaml
+  # uses. Touch has no rotary encoder to "arm" - each column's own +/-
+  # buttons write directly - so unlike that file's g_edit_target dance,
+  # these two pendings are always live: synced from the real HA value on
+  # every on_value push (see the sensor: block above), stepped by +/-,
+  # and written back debounced, same lag-avoiding shape as
+  # g_climate_temp_pending.
+  - id: g_fans_board_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+  - id: g_fans_hvac_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+
 # ---- Local mirrors of smartebl's entities (protocol.md §5, groups 2-4) ----
 # Only the slice this release's three pages actually show - extend by
 # adding both a sensor/switch here AND the matching `else if` in the
@@ -682,20 +733,243 @@ globals:
 # page in this release shows a fuse grid or system diagnostics.
 
 sensor:
-  # Tanks - not shown on any page in this release (no Levels page yet),
-  # kept wired since smartebl already broadcasts them and the parser
-  # needs somewhere to publish to; reserved for that future page.
+  # Tanks - page_levels (docs/pages.md §5's "Levels" row). tank1/tank2
+  # were already wired here before that page existed (README's earlier
+  # "reserved for that future page" note) - now consumed. tank3_level is
+  # NEW: protocol.md listed it "planned" (not yet wired on the display
+  # side) but smartebl's own smart-ebl.yaml already broadcasts it
+  # (group 2's `T2;tank1_level=..;tank2_level=..;tank3_level=..;`) - the
+  # README's own "wire one more else if" pattern applies, see the reader
+  # below. WHICH physical tank tank3 is remains unconfirmed - smartebl's
+  # CLAUDE.md documents exactly 3 generic tank-sensor inputs, compatible
+  # with any of fresh/grey/LPG per that hardware's own datasheet, with no
+  # fixed assignment. Labeled generically ("TANK 3") on page_levels
+  # rather than guessing "Diesel"/"Gas" - see that page's own comment for
+  # why this replaces docs/pages.md's original Gas A/Gas I/Diesel columns
+  # (pages.md corrected to match, see that file for the full reasoning).
   - platform: template
     id: s_tank1_level
     name: "Freshwater Level (via link)"
     unit_of_measurement: "%"
     accuracy_decimals: 0
+    on_value:
+      - script.execute: draw_levels
 
   - platform: template
     id: s_tank2_level
     name: "Greywater Level (via link)"
     unit_of_measurement: "%"
     accuracy_decimals: 0
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: template
+    id: s_tank3_level
+    name: "Tank 3 Level (via link)"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    on_value:
+      - script.execute: draw_levels
+
+  # ---- Fuses (page_electric_fuses, docs/pages.md §5's Electric "page 2"
+  # sub-page). All 16, protocol.md group 1 - smartebl already broadcasts
+  # this group (see that repo's smart-ebl.yaml) but nothing on the
+  # display side consumed it until now. Names/functions are smartebl's
+  # own real fuse table (CLAUDE.md "Outputs"/"Special Outputs"), not the
+  # old Nextion mockup's generic "Fuse.1 Main" placeholders - real
+  # function per fuse, same one smartebl's own hardware datasheet uses.
+  # `fuse_fN_ok = voltage > 1.0V` (design_rules.md §2) is computed in
+  # draw_fuses directly from these, not a separate binary_sensor here -
+  # same reasoning as smartebl's own fuse_fN_ok template sensors: no
+  # need to send/store both the raw value and its derived boolean.
+  - platform: template
+    id: s_fuse_f1_voltage
+    name: "Fuse F1 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f2_voltage
+    name: "Fuse F2 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f3_voltage
+    name: "Fuse F3 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f4_voltage
+    name: "Fuse F4 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f5_voltage
+    name: "Fuse F5 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f6_voltage
+    name: "Fuse F6 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f7_voltage
+    name: "Fuse F7 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f8_voltage
+    name: "Fuse F8 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f9_voltage
+    name: "Fuse F9 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f10_voltage
+    name: "Fuse F10 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f11_voltage
+    name: "Fuse F11 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f12_voltage
+    name: "Fuse F12 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f13_voltage
+    name: "Fuse F13 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f14_voltage
+    name: "Fuse F14 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f15_voltage
+    name: "Fuse F15 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+  - platform: template
+    id: s_fuse_f16_voltage
+    name: "Fuse F16 Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_fuses
+
+  # ---- Levels page (page_levels) - Gas A/Gas I. NOT smartebl/the link -
+  # smartebl's hardware only has 3 generic tank-sensor inputs (CLAUDE.md),
+  # already spoken for by tank1/tank2/tank3 above, with no dual-bottle
+  # gas sensing of its own. Same real HA entities m5dial_fram's
+  # page_gas.yaml already reads for these two physical bottles (this
+  # vehicle's actual gas monitoring is external to smartebl) - same
+  # precedent as page_electric reusing m5dial_fram's real Victron
+  # entities. Diesel (docs/pages.md's original mockup's "FRAM-Diesel"
+  # column) has no known real entity ANYWHERE in this project (checked
+  # m5dial_fram too) - not built, see page_levels's own comment.
+  - platform: homeassistant
+    id: s_gas_a
+    entity_id: sensor.gas_1_stand
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: homeassistant
+    id: s_gas_i
+    entity_id: sensor.gas_2_stand
+    on_value:
+      - script.execute: draw_levels
+
+  # ---- Sensors/Levelling (page_sensors_levelling) - same MPU6050 tilt
+  # sensor + four pre-computed per-corner cm entities m5dial_fram's
+  # page_levelling.yaml already reads (see that file's own header for
+  # why the degrees-to-cm math happens in HA, not on any display).
+  - platform: homeassistant
+    id: s_levelling_lon
+    entity_id: sensor.mpu6050_pitch
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_lat
+    entity_id: sensor.mpu6050_roll
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_vl
+    entity_id: sensor.mpu6050_womo_vl_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_vr
+    entity_id: sensor.mpu6050_womo_vr_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_hl
+    entity_id: sensor.mpu6050_womo_hl_cm
+    on_value:
+      - script.execute: draw_levelling
+  - platform: homeassistant
+    id: s_levelling_hr
+    entity_id: sensor.mpu6050_womo_hr_cm
+    on_value:
+      - script.execute: draw_levelling
+
+  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
+  # already uses (FANBOARD + the Sprinter's OEM HVAC blower motor - see
+  # that file's own header for the battery_mode_allowed caveat on HVAC).
+  - platform: homeassistant
+    id: s_fans_board_speed
+    entity_id: number.fan_speed_control
+    on_value:
+      # Keep g_fans_board_pending in sync with HA's own confirmed value -
+      # see the globals: block's own comment for why (no "armed" state to
+      # gate this on, unlike m5dial_fram's rotary-encoder version).
+      - globals.set: {id: g_fans_board_pending, value: !lambda "return x;"}
+      - script.execute: draw_fans
+  - platform: homeassistant
+    id: s_fans_hvac_speed
+    entity_id: number.hvac_fan_battery
+    on_value:
+      - globals.set: {id: g_fans_hvac_pending, value: !lambda "return x;"}
+      - script.execute: draw_fans
 
   - platform: template
     id: s_leisure_battery_voltage
@@ -1179,6 +1453,40 @@ interval:
                         id(s_tank1_level).publish_state(f);
                       } else if (key == "tank2_level") {
                         id(s_tank2_level).publish_state(f);
+                      } else if (key == "tank3_level") {
+                        id(s_tank3_level).publish_state(f);
+                      } else if (key == "fuse_f1_voltage") {
+                        id(s_fuse_f1_voltage).publish_state(f);
+                      } else if (key == "fuse_f2_voltage") {
+                        id(s_fuse_f2_voltage).publish_state(f);
+                      } else if (key == "fuse_f3_voltage") {
+                        id(s_fuse_f3_voltage).publish_state(f);
+                      } else if (key == "fuse_f4_voltage") {
+                        id(s_fuse_f4_voltage).publish_state(f);
+                      } else if (key == "fuse_f5_voltage") {
+                        id(s_fuse_f5_voltage).publish_state(f);
+                      } else if (key == "fuse_f6_voltage") {
+                        id(s_fuse_f6_voltage).publish_state(f);
+                      } else if (key == "fuse_f7_voltage") {
+                        id(s_fuse_f7_voltage).publish_state(f);
+                      } else if (key == "fuse_f8_voltage") {
+                        id(s_fuse_f8_voltage).publish_state(f);
+                      } else if (key == "fuse_f9_voltage") {
+                        id(s_fuse_f9_voltage).publish_state(f);
+                      } else if (key == "fuse_f10_voltage") {
+                        id(s_fuse_f10_voltage).publish_state(f);
+                      } else if (key == "fuse_f11_voltage") {
+                        id(s_fuse_f11_voltage).publish_state(f);
+                      } else if (key == "fuse_f12_voltage") {
+                        id(s_fuse_f12_voltage).publish_state(f);
+                      } else if (key == "fuse_f13_voltage") {
+                        id(s_fuse_f13_voltage).publish_state(f);
+                      } else if (key == "fuse_f14_voltage") {
+                        id(s_fuse_f14_voltage).publish_state(f);
+                      } else if (key == "fuse_f15_voltage") {
+                        id(s_fuse_f15_voltage).publish_state(f);
+                      } else if (key == "fuse_f16_voltage") {
+                        id(s_fuse_f16_voltage).publish_state(f);
                       } else if (key == "leisure_battery_voltage") {
                         id(s_leisure_battery_voltage).publish_state(f);
                       } else if (key == "starter_battery_voltage") {
@@ -1204,9 +1512,9 @@ interval:
                       } else if (key == "eisex_output") {
                         id(sw_eisex_mirror).publish_state(on);
                       }
-                      // Unknown keys (fuses, tank3, system) ignored on
-                      // purpose - protocol.md §3's forward-compatibility
-                      // rule; nothing in this release's pages shows them.
+                      // Unknown keys (group 6/system - no page shows it
+                      // yet) ignored on purpose - protocol.md §3's
+                      // forward-compatibility rule.
                     }
                     pos = semi + 1;
                   }
@@ -1417,12 +1725,31 @@ script:
       - script.execute: draw_nav
       - script.execute: draw_home_tiles
 
+  # Electric has 2 sub-pages (pages.md §5's Electric row: 1 Overview,
+  # 2 Fuses) - pages.md §2's "tapping the active icon again cycles to
+  # the next sub-page" pattern, implemented for real for the first time
+  # here (every earlier nav entry only ever had one page). Arriving from
+  # elsewhere shows whatever sub-page was last open (g_electric_subpage
+  # persists across nav taps, not reset to 0 every time) - re-tapping
+  # while ALREADY on Electric is what cycles.
   - id: nav_show_electric
     then:
-      - globals.set: {id: g_current_page, value: "1"}
-      - lvgl.page.show: page_electric
+      - lambda: |-
+          if (id(g_current_page) == 1) {
+            id(g_electric_subpage) = id(g_electric_subpage) == 0 ? 1 : 0;
+          } else {
+            id(g_current_page) = 1;
+          }
+      - if:
+          condition:
+            lambda: 'return id(g_electric_subpage) == 0;'
+          then:
+            - lvgl.page.show: page_electric
+            - script.execute: draw_electric
+          else:
+            - lvgl.page.show: page_electric_fuses
+            - script.execute: draw_fuses
       - script.execute: draw_nav
-      - script.execute: draw_electric
 
   # Room heating (Climate) and water heating (Boiler) are now one page
   # (page_climate widens to hold both, page_boiler removed) - repo
@@ -1437,6 +1764,46 @@ script:
       - lvgl.page.show: page_climate
       - script.execute: draw_nav
 
+  - id: nav_show_levels
+    then:
+      - globals.set: {id: g_current_page, value: "3"}
+      - lvgl.page.show: page_levels
+      - script.execute: draw_nav
+      - script.execute: draw_levels
+      - script.execute: poll_levels
+
+  - id: nav_show_fans
+    then:
+      - globals.set: {id: g_current_page, value: "4"}
+      - lvgl.page.show: page_fans
+      - script.execute: draw_nav
+      - script.execute: draw_fans
+      - script.execute: poll_fans
+
+  # Sensors has 2 sub-pages (pages.md §5's Sensors row: 1 Sensors,
+  # 2 Levelling) - same cycle-on-repeat-tap pattern as Electric above.
+  # Sub-page 1 (page_sensors_overview) is an honest placeholder (pages.md
+  # §7's own open item - no entity list yet), sub-page 2 is the real,
+  # ported Levelling page.
+  - id: nav_show_sensors
+    then:
+      - lambda: |-
+          if (id(g_current_page) == 5) {
+            id(g_sensors_subpage) = id(g_sensors_subpage) == 0 ? 1 : 0;
+          } else {
+            id(g_current_page) = 5;
+          }
+      - if:
+          condition:
+            lambda: 'return id(g_sensors_subpage) == 0;'
+          then:
+            - lvgl.page.show: page_sensors_overview
+          else:
+            - lvgl.page.show: page_sensors_levelling
+            - script.execute: draw_levelling
+            - script.execute: poll_levelling
+      - script.execute: draw_nav
+
   - id: draw_nav
     then:
       - lambda: |-
@@ -1447,6 +1814,17 @@ script:
               lv_color_hex(cur == 1 ? 0x2ECC71 : 0xBDC1C6), 0);
           lv_obj_set_style_text_color(id(lbl_nav_climate),
               lv_color_hex(cur == 2 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_levels),
+              lv_color_hex(cur == 3 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_fans),
+              lv_color_hex(cur == 4 ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_text_color(id(lbl_nav_sensors),
+              lv_color_hex(cur == 5 ? 0x2ECC71 : 0xBDC1C6), 0);
+          // ---- Sub-page indicators (pages.md §2's "1/2" pattern) -----
+          lv_label_set_text(id(lbl_nav_electric_sub),
+              cur == 1 ? (id(g_electric_subpage) == 0 ? "1/2" : "2/2") : "");
+          lv_label_set_text(id(lbl_nav_sensors_sub),
+              cur == 5 ? (id(g_sensors_subpage) == 0 ? "1/2" : "2/2") : "");
 
   # ---- Status bar (top_layer, persists on every page) -------------------
   # The only script this release runs on a timer rather than purely
@@ -2716,6 +3094,523 @@ script:
             lv_label_set_text(id(lbl_truma_status), "");
           }
 
+  # ---- Levels (page_levels) - pages.md §5's "Levels" row, corrected
+  # against what smartebl's protocol/hardware actually expose: see the
+  # sensor: block's own comment (above, where s_tank3_level/s_gas_a/
+  # s_gas_i are declared) for the full reasoning on why this is FRISCH/
+  # GRAU/TANK 3 (smartebl's own link, group 2, live without WiFi/HA) +
+  # GAS A/GAS I (HA, this vehicle's real separate gas monitoring) rather
+  # than the original mockup's Fresh/Waste/Gas A/Gas I/Diesel - Diesel
+  # has no known real entity anywhere in this project, so it isn't built.
+  - id: poll_levels
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gas_1_stand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gas_2_stand
+
+  - id: draw_levels
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+          char buf[32];
+
+          // ---- FRISCH (tank1, link) - same 10%/25% thresholds as
+          // m5dial_fram/page_water.yaml's fresh ring (design_rules.md
+          // §2: must not disagree with the M5Dial about thresholds).
+          float fresh = connected ? id(s_tank1_level).state : 0.0f;
+          uint32_t fresh_col = !connected ? 0x555555 :
+              (fresh < 10.0f ? 0xE74C3C : (fresh < 25.0f ? 0xF39C12 : 0x4A9EFF));
+          lv_bar_set_value(id(bar_levels_fresh), connected ? (int) fresh : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_fresh), lv_color_hex(fresh_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_fresh_cap), lv_color_hex(fresh_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_fresh_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          if (!connected) {
+            lv_label_set_text(id(lbl_levels_fresh_pct), "---%");
+            lv_label_set_text(id(lbl_levels_fresh_l), "--- L");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", fresh);
+            lv_label_set_text(id(lbl_levels_fresh_pct), buf);
+            // 180 L - same vehicle-fixed constant m5dial_fram/
+            // page_water.yaml uses for this same physical tank (read
+            // there via HA, here via the link - same tank either way).
+            snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.80f);
+            lv_label_set_text(id(lbl_levels_fresh_l), buf);
+          }
+
+          // ---- GRAU (tank2, link) - same >=80%/>=95% thresholds as
+          // m5dial_fram/page_water.yaml's grey ring.
+          float grey = connected ? id(s_tank2_level).state : 0.0f;
+          uint32_t grey_col = !connected ? 0x555555 :
+              (grey >= 95.0f ? 0xE74C3C : (grey >= 80.0f ? 0xF39C12 : 0x9AA0A6));
+          lv_bar_set_value(id(bar_levels_grey), connected ? (int) grey : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_grey), lv_color_hex(grey_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_grey_cap), lv_color_hex(grey_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_grey_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          if (!connected) {
+            lv_label_set_text(id(lbl_levels_grey_pct), "---%");
+            lv_label_set_text(id(lbl_levels_grey_l), "--- L");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", grey);
+            lv_label_set_text(id(lbl_levels_grey_pct), buf);
+            snprintf(buf, sizeof(buf), "%.0f L", grey * 0.90f);
+            lv_label_set_text(id(lbl_levels_grey_l), buf);
+          }
+
+          // ---- TANK 3 (link) - real data, unconfirmed physical
+          // identity (see sensor: block's own comment) - neutral color,
+          // no absolute-liter line (capacity unknown), generic "TANK 3"
+          // label rather than guessing what it actually holds.
+          float t3 = connected ? id(s_tank3_level).state : 0.0f;
+          uint32_t t3_col = connected ? 0xBDC1C6 : 0x555555;
+          lv_bar_set_value(id(bar_levels_tank3), connected ? (int) t3 : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_tank3), lv_color_hex(t3_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_tank3_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          if (!connected) {
+            lv_label_set_text(id(lbl_levels_tank3_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", t3);
+            lv_label_set_text(id(lbl_levels_tank3_pct), buf);
+          }
+
+          // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
+          // same 10%/25% thresholds and "in use"/"reserve" accent colors
+          // as m5dial_fram/page_gas.yaml.
+          bool gas_a_ok = api_ok && id(s_gas_a).has_state();
+          bool gas_i_ok = api_ok && id(s_gas_i).has_state();
+          float gas_a = gas_a_ok ? id(s_gas_a).state : 0.0f;
+          float gas_i = gas_i_ok ? id(s_gas_i).state : 0.0f;
+          uint32_t gas_a_col = !gas_a_ok ? 0x555555 :
+              (gas_a < 10.0f ? 0xE74C3C : (gas_a < 25.0f ? 0xF39C12 : 0x4A9EFF));
+          uint32_t gas_i_col = !gas_i_ok ? 0x555555 :
+              (gas_i < 10.0f ? 0xE74C3C : (gas_i < 25.0f ? 0xF39C12 : 0x9AA0A6));
+          lv_bar_set_value(id(bar_levels_gas_a), gas_a_ok ? (int) gas_a : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_gas_a), lv_color_hex(gas_a_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_a_cap), lv_color_hex(gas_a_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_a_pct), lv_color_hex(gas_a_ok ? 0xFFFFFF : 0x555555), 0);
+          lv_bar_set_value(id(bar_levels_gas_i), gas_i_ok ? (int) gas_i : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_gas_i), lv_color_hex(gas_i_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_i_cap), lv_color_hex(gas_i_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_gas_i_pct), lv_color_hex(gas_i_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!gas_a_ok) {
+            lv_label_set_text(id(lbl_levels_gas_a_pct), "---%");
+            lv_label_set_text(id(lbl_levels_gas_a_kg), "--- kg");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", gas_a);
+            lv_label_set_text(id(lbl_levels_gas_a_pct), buf);
+            // 10.5 kg net bottle - same vehicle-fixed constant
+            // m5dial_fram/page_gas.yaml uses for the same physical bottle.
+            snprintf(buf, sizeof(buf), "%.1f kg", gas_a * 0.105f);
+            lv_label_set_text(id(lbl_levels_gas_a_kg), buf);
+          }
+          if (!gas_i_ok) {
+            lv_label_set_text(id(lbl_levels_gas_i_pct), "---%");
+            lv_label_set_text(id(lbl_levels_gas_i_kg), "--- kg");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", gas_i);
+            lv_label_set_text(id(lbl_levels_gas_i_pct), buf);
+            snprintf(buf, sizeof(buf), "%.1f kg", gas_i * 0.105f);
+            lv_label_set_text(id(lbl_levels_gas_i_kg), buf);
+          }
+
+          // ---- Combined status line - page-local precedence only
+          // (pages.md §7's cross-category alarm ranking across the WHOLE
+          // display is still an open item, not solved here): damage
+          // before inconvenience, within-category thresholds straight
+          // from m5dial_fram/page_water.yaml + page_gas.yaml, same
+          // wording those pages use.
+          std::string status;
+          uint32_t status_col = 0x555555;
+          if (!connected && !(gas_a_ok && gas_i_ok)) {
+            status = "KEINE VERBINDUNG";
+          } else if (connected && grey >= 95.0f) {
+            status = "ABWASSER VOLL"; status_col = 0xE74C3C;
+          } else if (connected && fresh < 10.0f) {
+            status = "FRISCHWASSER LEER"; status_col = 0xE74C3C;
+          } else if (gas_a_ok && gas_i_ok && gas_a < 10.0f && gas_i < 10.0f) {
+            status = "GAS LEER"; status_col = 0xE74C3C;
+          } else if (connected && grey >= 80.0f) {
+            status = "ABWASSER VOLL"; status_col = 0xF39C12;
+          } else if (connected && fresh < 25.0f) {
+            status = "FRISCHWASSER KNAPP"; status_col = 0xF39C12;
+          } else if (gas_a_ok && gas_i_ok && gas_a < 25.0f && gas_i < 25.0f) {
+            status = "GAS KNAPP"; status_col = 0xF39C12;
+          } else if (gas_a_ok && gas_a < 10.0f) {
+            status = "GAS A LEER"; status_col = 0x707070;
+          } else if (gas_i_ok && gas_i < 10.0f) {
+            status = "GAS I LEER"; status_col = 0x707070;
+          }
+          lv_label_set_text(id(lbl_levels_status), status.c_str());
+          lv_obj_set_style_text_color(id(lbl_levels_status), lv_color_hex(status_col), 0);
+
+  # ---- Fuses (page_electric_fuses, Electric section's sub-page 2) -
+  # protocol.md group 1, all 16, now real on both ends (see the sensor:
+  # block's own comment). `fuse_fN_ok = voltage > 1.0V` is smartebl's
+  # OWN rule for itself (design_rules.md §2), reused here - but applied
+  # more carefully than a blanket "low voltage = blown fuse" would be:
+  # these ADCs read the LOAD side of each fuse, so a SWITCHED group
+  # (Light/12V/AUX/Pump) reads near 0V any time its own group switch is
+  # simply off, same as a blown fuse would look. Cross-referencing each
+  # switched fuse against its own group's mirror (already on this
+  # display via the link) turns "AUS" (switch off, expected, not a
+  # fault) and "AUSGEFALLEN?" (should be live, isn't - a real fault)
+  # into two different things instead of one ambiguous red dot. F2/F3
+  # (vehicle/D+-controlled) and F10 (fridge D+/programmable) have no
+  # switch mirror on this display to check against - shown read-only,
+  # never alarmed, same "don't claim precision this display doesn't
+  # have" reasoning as the Home page's Fridge tile.
+  - id: draw_fuses
+    mode: restart
+    then:
+      - lambda: |-
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+
+          // kind: 0 = permanent (always expected live), 1 = switched
+          // (expected live only while sw_state is true), 2 = vehicle/
+          // D+-controlled or conditional (no known expectation here).
+          auto set_fuse = [&](lv_obj_t *dot, lv_obj_t *lbl_v, lv_obj_t *lbl_state,
+                               float v, int kind, bool sw_state) {
+            char b[16];
+            if (!connected) {
+              lv_label_set_text(lbl_v, "---V");
+              lv_label_set_text(lbl_state, "---");
+              lv_obj_set_style_text_color(lbl_state, lv_color_hex(0x555555), 0);
+              lv_obj_set_style_bg_color(dot, lv_color_hex(0x555555), 0);
+              return;
+            }
+            snprintf(b, sizeof(b), "%.2fV", v);
+            lv_label_set_text(lbl_v, b);
+            bool live = v > 1.0f;
+            uint32_t col; std::string txt;
+            if (kind == 0) {
+              col = live ? 0x2ECC71 : 0xE74C3C;
+              txt = live ? "OK" : "AUSGEFALLEN";
+            } else if (kind == 1) {
+              if (sw_state && !live) { col = 0xE74C3C; txt = "AUSGEFALLEN?"; }
+              else if (sw_state) { col = 0x2ECC71; txt = "OK"; }
+              else { col = 0x707070; txt = "AUS"; }
+            } else {
+              col = live ? 0x2ECC71 : 0x555555;
+              txt = live ? "OK" : "---";
+            }
+            lv_label_set_text(lbl_state, txt.c_str());
+            lv_obj_set_style_text_color(lbl_state, lv_color_hex(col), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+          };
+
+          set_fuse(id(dot_fuse_f1), id(lbl_fuse_f1_v), id(lbl_fuse_f1_state),
+                    id(s_fuse_f1_voltage).state, 1, id(sw_pump_mirror).state);
+          set_fuse(id(dot_fuse_f2), id(lbl_fuse_f2_v), id(lbl_fuse_f2_state),
+                    id(s_fuse_f2_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f3), id(lbl_fuse_f3_v), id(lbl_fuse_f3_state),
+                    id(s_fuse_f3_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f4), id(lbl_fuse_f4_v), id(lbl_fuse_f4_state),
+                    id(s_fuse_f4_voltage).state, 1, id(sw_light_mirror).state);
+          set_fuse(id(dot_fuse_f5), id(lbl_fuse_f5_v), id(lbl_fuse_f5_state),
+                    id(s_fuse_f5_voltage).state, 1, id(sw_light_mirror).state);
+          set_fuse(id(dot_fuse_f6), id(lbl_fuse_f6_v), id(lbl_fuse_f6_state),
+                    id(s_fuse_f6_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f7), id(lbl_fuse_f7_v), id(lbl_fuse_f7_state),
+                    id(s_fuse_f7_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f8), id(lbl_fuse_f8_v), id(lbl_fuse_f8_state),
+                    id(s_fuse_f8_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f9), id(lbl_fuse_f9_v), id(lbl_fuse_f9_state),
+                    id(s_fuse_f9_voltage).state, 0, true);
+          set_fuse(id(dot_fuse_f10), id(lbl_fuse_f10_v), id(lbl_fuse_f10_state),
+                    id(s_fuse_f10_voltage).state, 2, false);
+          set_fuse(id(dot_fuse_f11), id(lbl_fuse_f11_v), id(lbl_fuse_f11_state),
+                    id(s_fuse_f11_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f12), id(lbl_fuse_f12_v), id(lbl_fuse_f12_state),
+                    id(s_fuse_f12_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f13), id(lbl_fuse_f13_v), id(lbl_fuse_f13_state),
+                    id(s_fuse_f13_voltage).state, 1, id(sw_aux_mirror).state);
+          set_fuse(id(dot_fuse_f14), id(lbl_fuse_f14_v), id(lbl_fuse_f14_state),
+                    id(s_fuse_f14_voltage).state, 1, id(sw_12v_mirror).state);
+          set_fuse(id(dot_fuse_f15), id(lbl_fuse_f15_v), id(lbl_fuse_f15_state),
+                    id(s_fuse_f15_voltage).state, 1, id(sw_12v_mirror).state);
+          set_fuse(id(dot_fuse_f16), id(lbl_fuse_f16_v), id(lbl_fuse_f16_state),
+                    id(s_fuse_f16_voltage).state, 1, id(sw_12v_mirror).state);
+
+          // ---- Footer: first real fault found, permanent fuses first
+          // (a genuinely unexpected 0V there) then switched fuses whose
+          // own group is commanded on but reading dead.
+          const char *fault = nullptr;
+          if (connected) {
+            if (id(s_fuse_f6_voltage).state <= 1.0f) fault = "F6";
+            else if (id(s_fuse_f7_voltage).state <= 1.0f) fault = "F7";
+            else if (id(s_fuse_f8_voltage).state <= 1.0f) fault = "F8";
+            else if (id(s_fuse_f9_voltage).state <= 1.0f) fault = "F9";
+            else if (id(sw_pump_mirror).state && id(s_fuse_f1_voltage).state <= 1.0f) fault = "F1";
+            else if (id(sw_light_mirror).state && id(s_fuse_f4_voltage).state <= 1.0f) fault = "F4";
+            else if (id(sw_light_mirror).state && id(s_fuse_f5_voltage).state <= 1.0f) fault = "F5";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f11_voltage).state <= 1.0f) fault = "F11";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f12_voltage).state <= 1.0f) fault = "F12";
+            else if (id(sw_aux_mirror).state && id(s_fuse_f13_voltage).state <= 1.0f) fault = "F13";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f14_voltage).state <= 1.0f) fault = "F14";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f15_voltage).state <= 1.0f) fault = "F15";
+            else if (id(sw_12v_mirror).state && id(s_fuse_f16_voltage).state <= 1.0f) fault = "F16";
+          }
+          if (!connected) {
+            lv_label_set_text(id(lbl_fuses_status), "KEINE VERBINDUNG");
+            lv_obj_set_style_text_color(id(lbl_fuses_status), lv_color_hex(0x555555), 0);
+          } else if (fault) {
+            char b[32];
+            snprintf(b, sizeof(b), "SICHERUNG %s AUSGEFALLEN", fault);
+            lv_label_set_text(id(lbl_fuses_status), b);
+            lv_obj_set_style_text_color(id(lbl_fuses_status), lv_color_hex(0xE74C3C), 0);
+          } else {
+            lv_label_set_text(id(lbl_fuses_status), "");
+          }
+
+  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
+  # already uses. Touch-adapted the same way Climate/Boiler's +/-
+  # buttons were: no rotary-encoder "arm" step (g_edit_target) - each
+  # column's own +/- buttons write directly, debounced the same way
+  # act_climate_temp_up/down already does.
+  - id: poll_fans
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.fan_speed_control
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.hvac_fan_battery
+
+  # 5%-step, clamped 0-100, matches number.fan_speed_control's own step.
+  - id: act_fans_board_up
+    then:
+      - lambda: |-
+          float v = id(g_fans_board_pending) + 5.0f;
+          if (v > 100.0f) v = 100.0f;
+          id(g_fans_board_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_board_write_debounced
+
+  - id: act_fans_board_down
+    then:
+      - lambda: |-
+          float v = id(g_fans_board_pending) - 5.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_fans_board_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_board_write_debounced
+
+  - id: fans_board_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.fan_speed_control
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_fans_board_pending));"
+
+  - id: fans_board_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: fans_board_write_now
+
+  # 10%-step (matches number.hvac_fan_battery's own `step: 10`), clamped
+  # 0-100. See m5dial_fram/page_fans.yaml's own header for why HVAC
+  # steps 10% at a time while FANBOARD steps 5%.
+  - id: act_fans_hvac_up
+    then:
+      - lambda: |-
+          float v = id(g_fans_hvac_pending) + 10.0f;
+          if (v > 100.0f) v = 100.0f;
+          id(g_fans_hvac_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_hvac_write_debounced
+
+  - id: act_fans_hvac_down
+    then:
+      - lambda: |-
+          float v = id(g_fans_hvac_pending) - 10.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_fans_hvac_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_hvac_write_debounced
+
+  - id: fans_hvac_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.hvac_fan_battery
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_fans_hvac_pending));"
+
+  - id: fans_hvac_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: fans_hvac_write_now
+
+  - id: draw_fans
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          char buf[16];
+
+          bool board_ok = api_ok && id(s_fans_board_speed).has_state();
+          lv_arc_set_value(id(arc_fans_board), board_ok ? (int) id(g_fans_board_pending) : 0);
+          lv_obj_set_style_arc_color(id(arc_fans_board),
+              lv_color_hex(board_ok ? 0x4A9EFF : 0x555555), LV_PART_INDICATOR);
+          if (!board_ok) {
+            lv_label_set_text(id(lbl_fans_board_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", id(g_fans_board_pending));
+            lv_label_set_text(id(lbl_fans_board_pct), buf);
+          }
+          lv_obj_set_style_text_color(id(lbl_fans_board_pct), lv_color_hex(board_ok ? 0xFFFFFF : 0x555555), 0);
+
+          bool hvac_ok = api_ok && id(s_fans_hvac_speed).has_state();
+          lv_arc_set_value(id(arc_fans_hvac), hvac_ok ? (int) id(g_fans_hvac_pending) : 0);
+          lv_obj_set_style_arc_color(id(arc_fans_hvac),
+              lv_color_hex(hvac_ok ? 0x9AA0A6 : 0x555555), LV_PART_INDICATOR);
+          if (!hvac_ok) {
+            lv_label_set_text(id(lbl_fans_hvac_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", id(g_fans_hvac_pending));
+            lv_label_set_text(id(lbl_fans_hvac_pct), buf);
+          }
+          lv_obj_set_style_text_color(id(lbl_fans_hvac_pct), lv_color_hex(hvac_ok ? 0xFFFFFF : 0x555555), 0);
+
+  # ---- Sensors / Levelling (page_sensors_levelling, Sensors section's
+  # sub-page 2) - ported from m5dial_fram/page_levelling.yaml, same real
+  # entities, same bubble-level metaphor and per-corner cm readout (see
+  # that file's own header for the full reasoning, including its own
+  # still-open item: the corner sensors read 0 until an HA-side template
+  # sensor does the real degrees-to-cm math, per that file's OPEN ITEM
+  # note - nothing to change here once that lands, same as there).
+  # Read-only, no button, same as the M5Dial version - and no arc
+  # (design_rules.md §3: a tilt isn't a 0-100% quantity either).
+  - id: poll_levelling
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_pitch
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_roll
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_vl_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_vr_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_hl_cm
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mpu6050_womo_hr_cm
+
+  - id: draw_levelling
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+
+          // ---- Bubble position - R_MAX=85px maps to DEG_MAX=4°, same
+          // as m5dial_fram/page_levelling.yaml (same UNVERIFIED
+          // direction-sign caveat that file's header documents - flip
+          // here too if it reads backwards on the real device).
+          const float R_MAX = 85.0f, DEG_MAX = 4.0f;
+          bool lat_ok = api_ok && id(s_levelling_lat).has_state();
+          bool lon_ok = api_ok && id(s_levelling_lon).has_state();
+          float ox = 0, oy = 0;
+          if (lat_ok) {
+            ox = -(id(s_levelling_lat).state / DEG_MAX) * R_MAX;
+            if (ox > R_MAX) ox = R_MAX;
+            if (ox < -R_MAX) ox = -R_MAX;
+          }
+          if (lon_ok) {
+            oy = (id(s_levelling_lon).state / DEG_MAX) * R_MAX;
+            if (oy > R_MAX) oy = R_MAX;
+            if (oy < -R_MAX) oy = -R_MAX;
+          }
+          // obj_levelling_bubble's parent is obj_levelling_root, a local
+          // 200x200 coordinate container (same "local coordinate origin"
+          // trick page_climate's own obj_truma_room/obj_truma_water use)
+          // centered in the content area rather than the whole screen -
+          // see that container's own widget comment. lv_obj_set_pos is
+          // always parent-relative, so ox/oy=0 has to land on the
+          // container's own center: (200-26)/2 = 87 on both axes.
+          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox + 87, (int) oy + 87);
+
+          bool vl_ok = api_ok && id(s_levelling_vl).has_state();
+          bool vr_ok = api_ok && id(s_levelling_vr).has_state();
+          bool hl_ok = api_ok && id(s_levelling_hl).has_state();
+          bool hr_ok = api_ok && id(s_levelling_hr).has_state();
+
+          // Bubble color follows the worst corner (cm), same as
+          // m5dial_fram - so the bubble and the four numbers never
+          // disagree about how bad it is.
+          uint32_t bubble_col = 0x555555;
+          if (vl_ok && vr_ok && hl_ok && hr_ok) {
+            float v = id(s_levelling_vl).state;
+            float t;
+            t = id(s_levelling_vr).state; if (t > v) v = t;
+            t = id(s_levelling_hl).state; if (t > v) v = t;
+            t = id(s_levelling_hr).state; if (t > v) v = t;
+            if (v < 0.0f) v = 0.0f;
+            bubble_col = v >= 3.0f ? 0xE74C3C : (v >= 1.5f ? 0xF39C12 : 0xFFFFFF);
+          }
+          lv_obj_set_style_bg_color(id(obj_levelling_bubble), lv_color_hex(bubble_col), 0);
+
+          auto set_corner = [&](lv_obj_t *lbl, const char *prefix, bool ok, float raw) {
+            char b[16];
+            if (!ok) {
+              snprintf(b, sizeof(b), "%s --cm", prefix);
+              lv_label_set_text(lbl, b);
+              lv_obj_set_style_text_color(lbl, lv_color_hex(0x555555), 0);
+              return;
+            }
+            float v = raw < 0.0f ? 0.0f : raw;
+            snprintf(b, sizeof(b), "%s %.0fcm", prefix, v);
+            lv_label_set_text(lbl, b);
+            uint32_t col = v >= 3.0f ? 0xE74C3C : (v >= 1.5f ? 0xF39C12 : 0xBDC1C6);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(col), 0);
+          };
+          set_corner(id(lbl_levelling_vl), "VL", vl_ok, vl_ok ? id(s_levelling_vl).state : 0.0f);
+          set_corner(id(lbl_levelling_vr), "VR", vr_ok, vr_ok ? id(s_levelling_vr).state : 0.0f);
+          set_corner(id(lbl_levelling_hl), "HL", hl_ok, hl_ok ? id(s_levelling_hl).state : 0.0f);
+          set_corner(id(lbl_levelling_hr), "HR", hr_ok, hr_ok ? id(s_levelling_hr).state : 0.0f);
+
 # =============================================================================
 # LVGL - Mainscreen, Electric (Victron-style), Climate, Boiler
 # =============================================================================
@@ -2739,6 +3634,33 @@ lvgl:
   touchscreens:
     - touch_main
   rotation: 90
+  # ---- Attempt at design_rules.md §4's "Performance at 800x1280" open
+  # item - UNTESTED on real hardware, next thing to try, not a confirmed
+  # fix. Left unset (ESPHome's own default, 0 -> effectively 100%/one
+  # full-frame LVGL draw buffer) until now, matching the repeated
+  # `E lcd.dsi: can't fetch data from external memory fast enough,
+  # underrun happens` lines a real boot log showed (non-fatal, panel
+  # keeps working, but happening every 30-90s during normal WiFi+HA
+  # operation, not just at boot). ESPHome's own lvgl component (checked
+  # against its source, esphome/components/lvgl/__init__.py) allocates a
+  # SEPARATE staging buffer LVGL draws into per flush, sized as a
+  # fraction of the full frame by this setting - it does NOT change the
+  # size of the DSI peripheral's own continuous hardware framebuffer
+  # (that one stays full-size regardless, since the panel needs
+  # something to scan out of continuously). What this DOES reduce: how
+  # much PSRAM bandwidth LVGL's OWN rendering work competes for against
+  # that continuous DSI DMA read on the same bus, during a redraw - a
+  # smaller draw buffer means more, smaller flushes instead of one huge
+  # one, spreading that contention out rather than spiking it. 25% is
+  # the commonly-recommended starting point for this exact symptom on
+  # ESP32-P4 MIPI-DSI boards; not this file's own finding, and not
+  # confirmed here. If the underrun log lines don't measurably improve
+  # (or if this introduces a visible seam/tear when a page redraws), the
+  # fix is reverting this one line, not the LVGL buffer's rendering
+  # correctness - it's a performance-only knob. See esphome/esphome#16873
+  # (already tracked in design_rules.md) for the wider upstream issue
+  # this doesn't resolve on its own.
+  buffer_size: 25%
   bottom_layer:
     bg_color: 0x000000
     bg_opa: COVER
@@ -2859,15 +3781,17 @@ lvgl:
       # though it's the same intentional nav/content separator that's
       # perfectly at home *behind* the buttons above it. Fix: stop it at
       # the bottom of the last real button instead of the screen edge.
-      # ⚠ Extend `height:` (and move this comment) every time a new nav
-      # entry is added - height = 120 * <number of nav buttons>.
+      # height = 120 * <number of nav buttons> - now 6 (Home/Electric/
+      # Truma/Levels/Fans/Sensors), the whole catalog except the still-
+      # open Light/Features page (pages.md §7 - no floor-plan entity
+      # list yet, so no nav entry for it either).
       - obj:
           id: obj_nav_rule
           align: TOP_LEFT
           x: 129 # = nav_w - 1
           y: ${bar_h}
           width: 1
-          height: 360 # = 120px per nav button * 3 buttons (Home/Electric/Truma)
+          height: 720 # = 120px per nav button * 6 buttons
           bg_color: 0x3C4043
           bg_opa: COVER
           border_width: 0
@@ -2907,10 +3831,23 @@ lvgl:
           border_width: 0
           shadow_width: 0
           widgets:
+            # y:-14/+18 (not plain CENTER) - room for the sub-page
+            # indicator below the section name without either ever
+            # jumping when the indicator appears/disappears
+            # (smartebl_display/docs/design.md's own "text always at a
+            # fixed y, indicator always at a fixed y" rule, reused here).
             - label:
                 id: lbl_nav_electric
                 align: CENTER
+                y: -14
                 text: "ELECTRIC"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+            - label:
+                id: lbl_nav_electric_sub
+                align: CENTER
+                y: 18
+                text: ""
                 text_font: font_ui_16
                 text_color: 0xBDC1C6
           on_click:
@@ -2936,6 +3873,77 @@ lvgl:
                 text_color: 0xBDC1C6
           on_click:
             - script.execute: nav_show_climate
+      - button:
+          id: btn_nav_levels
+          align: TOP_LEFT
+          x: 0
+          y: 424 # = bar_h + 3*120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_levels
+                align: CENTER
+                text: "LEVELS"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_levels
+      - button:
+          id: btn_nav_fans
+          align: TOP_LEFT
+          x: 0
+          y: 544 # = bar_h + 4*120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_fans
+                align: CENTER
+                text: "FANS"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_fans
+      - button:
+          id: btn_nav_sensors
+          align: TOP_LEFT
+          x: 0
+          y: 664 # = bar_h + 5*120
+          width: ${nav_w}
+          height: 120
+          radius: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          shadow_width: 0
+          widgets:
+            - label:
+                id: lbl_nav_sensors
+                align: CENTER
+                y: -14
+                text: "SENSORS"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+            - label:
+                id: lbl_nav_sensors_sub
+                align: CENTER
+                y: 18
+                text: ""
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: nav_show_sensors
 
       # ---- Day/night + brightness popup (pages.md §4) - reachable from
       # every page via btn_daynight_toggle above, same backdrop-plus-
@@ -4656,3 +5664,800 @@ lvgl:
             text_font: font_ui_16
             text: ""
             text_color: 0x555555
+
+    # =========================================================================
+    # Levels (page_levels) - pages.md §5, corrected against what
+    # smartebl's protocol/hardware actually expose - see draw_levels'
+    # own header comment (above, in the script: block) for the full
+    # reasoning on FRISCH/GRAU/TANK 3/GAS A/GAS I replacing the original
+    # mockup's Fresh/Waste/Gas A/Gas I/Diesel.
+    #
+    # 5 columns, each its own local coordinate container (same trick as
+    # page_climate's obj_truma_room/obj_truma_water) at content-area-
+    # centered x's: 5x160px columns + 4x27px gaps = 908px, centered in
+    # the 1150px content area (nav rail ends x130, right edge x1280) ->
+    # 121px side margin -> columns start x251/438/625/812/999. A
+    # vertical LVGL `bar` (width < height) fills bottom-up by construction
+    # (LVGL's own bar widget picks its fill axis from its own aspect
+    # ratio) - the "Victron-style vertical tank column" from
+    # smartebl_display/docs/design.md's original mockup, without hand-
+    # rolling segmented-bar geometry LVGL already gives for free.
+    - id: page_levels
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_levels
+      widgets:
+        # ---- FRISCH (tank1, link) ------------------------------------
+        - obj:
+            id: obj_levels_fresh
+            align: TOP_LEFT
+            x: 251
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_fresh_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "FRISCH"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_fresh
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_fresh_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_fresh_l
+                  align: TOP_MID
+                  y: 420
+                  text: "--- L"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- GRAU (tank2, link) ----------------------------------------
+        - obj:
+            id: obj_levels_grey
+            align: TOP_LEFT
+            x: 438
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_grey_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "GRAU"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_grey
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_grey_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_grey_l
+                  align: TOP_MID
+                  y: 420
+                  text: "--- L"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- TANK 3 (link, unconfirmed physical identity) --------------
+        - obj:
+            id: obj_levels_tank3
+            align: TOP_LEFT
+            x: 625
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text: "TANK 3"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_tank3
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_tank3_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              # No absolute-value line here on purpose - capacity unknown
+              # (see sensor: block's own comment on this tank's identity).
+
+        # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
+        - obj:
+            id: obj_levels_gas_a
+            align: TOP_LEFT
+            x: 812
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_gas_a_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "GAS A"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_gas_a
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_gas_a_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_gas_a_kg
+                  align: TOP_MID
+                  y: 420
+                  text: "--- kg"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        # ---- GAS I (HA, sensor.gas_2_stand) -----------------------------
+        - obj:
+            id: obj_levels_gas_i
+            align: TOP_LEFT
+            x: 999
+            y: 140
+            width: 160
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  id: lbl_levels_gas_i_cap
+                  align: TOP_MID
+                  y: 0
+                  text: "GAS I"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - bar:
+                  id: bar_levels_gas_i
+                  align: TOP_MID
+                  y: 32
+                  width: 64
+                  height: 340
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 6
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 5
+              - label:
+                  id: lbl_levels_gas_i_pct
+                  align: TOP_MID
+                  y: 384
+                  text: "---%"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levels_gas_i_kg
+                  align: TOP_MID
+                  y: 420
+                  text: "--- kg"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+
+        - label:
+            id: lbl_levels_status
+            align: BOTTOM_MID
+            y: -16
+            text: ""
+            text_font: font_ui_16
+            text_color: 0x555555
+
+    # =========================================================================
+    # Electric / Fuses (page_electric_fuses) - Electric section's sub-
+    # page 2 (pages.md §5), reached by re-tapping the ELECTRIC nav
+    # button while already on Electric (nav_show_electric's own subpage
+    # cycle). 16 fuses, 4x4 grid: 4x260px cells + 3x20px gaps = 1100px,
+    # centered in the 1150px content area -> 25px side margin -> columns
+    # x155/435/715/995; 4x150px rows + 3x20px gaps = 660px, centered in
+    # the 736px content height -> 38px top/bottom margin -> rows
+    # y102/272/442/612. Names are smartebl's own real fuse table
+    # (CLAUDE.md), not the old Nextion mockup's generic placeholders -
+    # see draw_fuses' own header for the switched-vs-permanent coloring
+    # logic and s_fuse_fN_voltage's own comment for the group1 wiring.
+    - id: page_electric_fuses
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - obj: &fuse_cell
+            id: obj_fuse_f1
+            align: TOP_LEFT
+            x: 155
+            y: 102
+            width: 260
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            pad_all: 0
+            widgets:
+              - label: &fuse_cap
+                  align: TOP_LEFT
+                  x: 12
+                  y: 10
+                  text: "F1 - WASSERPUMPE"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - obj: &fuse_dot
+                  id: dot_fuse_f1
+                  align: TOP_RIGHT
+                  x: -12
+                  y: 14
+                  width: 16
+                  height: 16
+                  radius: 8
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+              - label: &fuse_v
+                  id: lbl_fuse_f1_v
+                  align: TOP_LEFT
+                  x: 12
+                  y: 44
+                  text: "---V"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label: &fuse_state
+                  id: lbl_fuse_f1_state
+                  align: TOP_LEFT
+                  x: 12
+                  y: 84
+                  text: "---"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f2
+            x: 435
+            widgets:
+              - label: {<<: *fuse_cap, text: "F2 - KONTURLICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f2}
+              - label: {<<: *fuse_v, id: lbl_fuse_f2_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f2_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f3
+            x: 715
+            widgets:
+              - label: {<<: *fuse_cap, text: "F3 - MARKISENLICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f3}
+              - label: {<<: *fuse_v, id: lbl_fuse_f3_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f3_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f4
+            x: 995
+            widgets:
+              - label: {<<: *fuse_cap, text: "F4 - LICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f4}
+              - label: {<<: *fuse_v, id: lbl_fuse_f4_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f4_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f5
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F5 - LICHT"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f5}
+              - label: {<<: *fuse_v, id: lbl_fuse_f5_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f5_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f6
+            x: 435
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F6 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f6}
+              - label: {<<: *fuse_v, id: lbl_fuse_f6_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f6_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f7
+            x: 715
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F7 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f7}
+              - label: {<<: *fuse_v, id: lbl_fuse_f7_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f7_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f8
+            x: 995
+            y: 272
+            widgets:
+              - label: {<<: *fuse_cap, text: "F8 - DAUERPLUS"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f8}
+              - label: {<<: *fuse_v, id: lbl_fuse_f8_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f8_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f9
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F9 - KÜHLSCHRANK"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f9}
+              - label: {<<: *fuse_v, id: lbl_fuse_f9_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f9_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f10
+            x: 435
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F10 - KÜHLSCHRANK D+"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f10}
+              - label: {<<: *fuse_v, id: lbl_fuse_f10_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f10_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f11
+            x: 715
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F11 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f11}
+              - label: {<<: *fuse_v, id: lbl_fuse_f11_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f11_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f12
+            x: 995
+            y: 442
+            widgets:
+              - label: {<<: *fuse_cap, text: "F12 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f12}
+              - label: {<<: *fuse_v, id: lbl_fuse_f12_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f12_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f13
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F13 - AUX"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f13}
+              - label: {<<: *fuse_v, id: lbl_fuse_f13_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f13_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f14
+            x: 435
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F14 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f14}
+              - label: {<<: *fuse_v, id: lbl_fuse_f14_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f14_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f15
+            x: 715
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F15 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f15}
+              - label: {<<: *fuse_v, id: lbl_fuse_f15_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f15_state}
+        - obj:
+            <<: *fuse_cell
+            id: obj_fuse_f16
+            x: 995
+            y: 612
+            widgets:
+              - label: {<<: *fuse_cap, text: "F16 - 12V"}
+              - obj: {<<: *fuse_dot, id: dot_fuse_f16}
+              - label: {<<: *fuse_v, id: lbl_fuse_f16_v}
+              - label: {<<: *fuse_state, id: lbl_fuse_f16_state}
+
+        - label:
+            id: lbl_fuses_status
+            align: BOTTOM_MID
+            y: -12
+            text: ""
+            text_font: font_ui_16
+            text_color: 0x555555
+
+    # =========================================================================
+    # Fans (page_fans) - pages.md §5, same two entities m5dial_fram/
+    # page_fans.yaml uses. Same two-halves-with-a-divider layout as the
+    # Truma page (obj_fans_board/obj_fans_hvac as local coordinate
+    # containers) - simpler content per half than Truma (no target/
+    # heater-button/fan-mode rows, just an arc + big % + one +/- pair).
+    - id: page_fans
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_fans
+      widgets:
+        - obj:
+            id: obj_fans_divider
+            align: TOP_LEFT
+            x: 705
+            y: 90
+            width: 1
+            height: 460
+            bg_color: 0x3C4043
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+            clickable: false
+
+        # ---- Left half: FANBOARD ----------------------------------------
+        - obj:
+            id: obj_fans_board
+            align: TOP_LEFT
+            x: 160
+            y: 90
+            width: 530
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "FANBOARD"
+                  text_color: 0x707070
+              - arc:
+                  id: arc_fans_board
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+              - label:
+                  id: lbl_fans_board_pct
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---%"
+                  text_color: 0x555555
+              - button:
+                  align: TOP_MID
+                  x: -95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_board_down
+              - button:
+                  align: TOP_MID
+                  x: 95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_board_up
+
+        # ---- Right half: HVAC (Sprinter blower motor) --------------------
+        - obj:
+            id: obj_fans_hvac
+            align: TOP_LEFT
+            x: 730
+            y: 90
+            width: 530
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "HVAC"
+                  text_color: 0x707070
+              - arc:
+                  id: arc_fans_hvac
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+              - label:
+                  id: lbl_fans_hvac_pct
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---%"
+                  text_color: 0x555555
+              - button:
+                  align: TOP_MID
+                  x: -95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_hvac_down
+              - button:
+                  align: TOP_MID
+                  x: 95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_hvac_up
+
+    # =========================================================================
+    # Sensors, sub-page 1 (page_sensors_overview) - pages.md §5/§7's own
+    # open item: "which specific door/window/presence entities exist and
+    # how many fit the grid template isn't enumerated yet - needs the
+    # actual HA entity list before that page can be more than a
+    # placeholder." Built as an honest placeholder rather than skipped
+    # outright, so the SENSORS nav entry + its page-indicator exist and
+    # sub-page 2 (Levelling, real) is reachable - filling this in is
+    # "replace this page's content", not "wire up new navigation".
+    - id: page_sensors_overview
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - label:
+            align: CENTER
+            y: -20
+            text: "SENSOREN"
+            text_font: font_ui_24
+            text_color: 0x707070
+        - label:
+            align: CENTER
+            y: 20
+            width: 700
+            text_align: CENTER
+            text: "Inhalt noch offen - Entity-Liste fehlt noch\n(docs/pages.md §7)"
+            text_font: font_ui_16
+            text_color: 0x555555
+
+    # =========================================================================
+    # Sensors, sub-page 2 (page_sensors_levelling) - ported from
+    # m5dial_fram/page_levelling.yaml, see draw_levelling's own header
+    # comment (in the script: block, above) for the full reasoning.
+    # obj_levelling_root is a local 200x200 coordinate container (same
+    # trick as page_climate's obj_truma_room/obj_truma_water) centered
+    # in the content area: x=(130+1280)/2-100=605, y=(64+800)/2-100=332.
+    - id: page_sensors_levelling
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_levelling
+      widgets:
+        - obj:
+            id: obj_levelling_root
+            align: TOP_LEFT
+            x: 605
+            y: 332
+            width: 200
+            height: 200
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              # ---- Static target rings -----------------------------------
+              - obj:
+                  align: CENTER
+                  width: 200
+                  height: 200
+                  radius: 100
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2A2D30
+              - obj:
+                  align: CENTER
+                  width: 140
+                  height: 140
+                  radius: 70
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2A2D30
+              - obj:
+                  align: CENTER
+                  width: 80
+                  height: 80
+                  radius: 40
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x2ECC71
+
+              # ---- The bubble itself ---------------------------------------
+              - obj:
+                  id: obj_levelling_bubble
+                  align: CENTER
+                  width: 26
+                  height: 26
+                  radius: 13
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+
+              # ---- Four corners: cm to add, VL/VR top, HL/HR bottom --------
+              - label:
+                  id: lbl_levelling_vl
+                  align: CENTER
+                  x: -44
+                  y: -54
+                  text: "VL --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_vr
+                  align: CENTER
+                  x: 44
+                  y: -54
+                  text: "VR --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_hl
+                  align: CENTER
+                  x: -44
+                  y: 54
+                  text: "HL --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_levelling_hr
+                  align: CENTER
+                  x: 44
+                  y: 54
+                  text: "HR --cm"
+                  text_font: font_ui_16
+                  text_color: 0x555555

@@ -378,10 +378,12 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       actually runs if this recurs. `psram: speed: 100MHz` is kept as a
       safe value, not because 200MHz was ever confirmed unsafe -
       untested since the real fix landed.
-- [ ] Build out the remaining pages per `docs/pages.md`'s catalog
-      (Levels, Fans, Light/Features, Sensors+Levelling, and the
-      Electric section's fuse-grid sub-page) — this repo's own answer
-      to what `smartebl_display`'s five sections should grow into here
+- [x] **Levels, Fans, Electric's fuse-grid sub-page, and Sensors/
+      Levelling built** - see this file's changelog entry below for the
+      full detail on each; the remaining catalog gap is Light/Features
+      (no floor-plan entity_ids yet, `docs/pages.md` §7) and Sensors
+      sub-page 1's real content (no door/window/presence entity list
+      yet, same section).
 - [x] **Ethernet removed** per repo-owner decision ("brauchen wir
       nicht") - the `ethernet:` block, `network: priority:`, and every
       "active wired fallback" claim in this file are gone; Wi-Fi 6 is
@@ -477,6 +479,98 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       as this repo's own usage - see that repo's changelog. Nothing to
       change here beyond picking up the updated component on the next
       `external_components:` fetch (git `ref: main`, no pin to bump).
+- [x] **Levels, Fans, Electric's fuse-grid sub-page, and Sensors/
+      Levelling built** (`docs/pages.md`'s catalog, minus Light/Features
+      and Sensors sub-page 1's content - both still open, no entity
+      lists yet). Also: the Electric section's "1/2" sub-page indicator
+      (`pages.md` §2) is implemented for real for the first time, and
+      reused for the new Sensors section too.
+    - **Levels** (`page_levels`) - built, but corrected against what
+      `smartebl`'s protocol/hardware actually expose rather than
+      matching `docs/pages.md`'s original Fresh/Waste/Gas A/Gas I/Diesel
+      catalog description verbatim: that hardware has exactly 3 generic
+      tank-sensor inputs (`tank1_level`/`tank2_level`/`tank3_level`), no
+      dual-bottle gas sensor and no diesel tank of its own. FRISCH/GRAU
+      are `tank1`/`tank2` over the link (already wired before this page
+      existed); TANK 3 is `tank3_level`, newly wired (protocol.md called
+      it "planned" - `smartebl` already broadcasts it, this display just
+      hadn't parsed it), physical identity unconfirmed, shown generically
+      rather than guessed. GAS A/GAS I are the same real
+      `sensor.gas_1_stand`/`sensor.gas_2_stand` HA entities
+      `m5dial_fram/page_gas.yaml` already reads for this vehicle's actual
+      (separate) gas monitoring - same precedent as this repo's own
+      Electric page reusing `m5dial_fram`'s real Victron entities.
+      Diesel has no known real entity anywhere in this project (checked
+      `m5dial_fram` too) - not built, `docs/pages.md` corrected to match
+      rather than left describing a column with nothing behind it.
+      Rendered as vertical LVGL `bar` widgets (fills bottom-up at
+      width<height, no hand-rolled segments) - same "Victron-style
+      vertical tank column" idea as the original Nextion mockup, LVGL-
+      native implementation. Thresholds reused byte-for-byte from
+      `m5dial_fram/page_water.yaml`/`page_gas.yaml` (design_rules.md §2).
+    - **Electric fuse grid** (`page_electric_fuses`) - all 16 fuses,
+      protocol group 1, now real end to end (`smartebl` already
+      broadcast it; this display hadn't parsed it until now). Named for
+      their real function (`smartebl`'s own CLAUDE.md hardware table),
+      not the old Nextion mockup's generic placeholders. One real
+      refinement over the naive `fuse_fN_ok = voltage > 1.0V` rule:
+      these ADCs read the LOAD side, so a switched group (Light/12V/
+      AUX/Pump) reads near 0V any time its own group switch is simply
+      off - the same reading a blown fuse would give. Cross-referenced
+      each switched fuse against that group's own switch mirror (already
+      on this display via the link) so "AUS" (switch off, expected) and
+      "AUSGEFALLEN?" (should be live per its own switch, isn't) are two
+      different things instead of one ambiguous red dot. F2/F3 (vehicle/
+      D+-controlled) and F10 (fridge D+/programmable) have no switch
+      mirror here to check against - shown read-only, never alarmed,
+      same "don't claim precision this display doesn't have" reasoning
+      as the Home page's Fridge tile.
+    - **Fans** (`page_fans`) - same two entities `m5dial_fram/
+      page_fans.yaml` uses (FANBOARD, HVAC), touch-adapted the same way
+      Climate/Boiler's +/- buttons already were (no rotary-encoder "arm"
+      step - each half's own +/- buttons write directly, debounced).
+      Two-halves-with-a-divider layout, same as the Truma page, rather
+      than that M5Dial file's concentric double ring (round-panel-
+      specific, design_rules.md §3).
+    - **Sensors / Levelling** (`page_sensors_levelling`) - ported from
+      `m5dial_fram/page_levelling.yaml` verbatim (bubble-in-target-rings
+      metaphor, worst-corner-wins bubble color, same still-open item
+      there: the four corner cm sensors read 0 until an HA-side template
+      sensor does the real degrees-to-cm math). Sensors sub-page 1
+      (`page_sensors_overview`) is an honest placeholder, not a guess at
+      content - `docs/pages.md` §7's own open item (no door/window/
+      presence entity list yet) is unchanged, but the SENSORS nav entry
+      and its own "1/2" indicator exist now, so Levelling is reachable
+      without waiting on page 1.
+    - **`esphome`'s own `merge_warnings` noise, silenced.** The
+      page_electric row-template pattern (`&box_frame`/`&row_main`/etc.,
+      merged into each box via `<<:`) is, by inspection of ESPHome's own
+      `yaml_util.py` merge-key handling (confirmed against ESPHome
+      2026.8.2, matching a real build log) and by re-running `esphome
+      config` on this exact file, working exactly as intended - every
+      box's own `id:`/`text:`/`x:` override DOES win over the anchor's
+      placeholder. The ~19 "Key '...' was dropped while processing a
+      '<<' merge" warnings on every single compile all just point at the
+      anchor's OWN definition line (not the overriding box) because
+      that's where ESPHome's warning renderer sources the reported
+      position from - not a sign anything was ever broken. Silenced via
+      `esphome: { merge_warnings: false }`, the warning's own suggested
+      remedy, rather than left to reappear on every future compile.
+    - **DSI buffer-underrun mitigation attempt, UNTESTED on real
+      hardware.** `E lcd.dsi: can't fetch data from external memory fast
+      enough, underrun happens` (design_rules.md §4's existing tracked
+      item, esphome#16873) is still recurring per a fuller real boot log
+      (roughly every 30-90s during normal operation, non-fatal). Added
+      `lvgl: buffer_size: 25%` - shrinks LVGL's own staging draw buffer
+      (separate from the DSI peripheral's own continuous full-frame
+      hardware buffer, which stays full-size regardless) to reduce how
+      much PSRAM bandwidth LVGL's rendering work competes for against
+      that continuous DMA read. The commonly-recommended starting point
+      for this exact symptom on ESP32-P4 MIPI-DSI boards - not this
+      repo's own finding, and not confirmed to help here; if it doesn't
+      measurably improve the log or introduces a visible redraw seam,
+      reverting is deleting that one line. See design_rules.md §4 for
+      the full write-up.
 
 ## Building & Flashing
 
