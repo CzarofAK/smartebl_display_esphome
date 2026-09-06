@@ -176,9 +176,14 @@ script:
           lv_obj_set_style_text_color(id(lbl_levels_diesel_pct), lv_color_hex(diesel_ok ? 0xFFFFFF : 0x555555), 0);
           if (!diesel_ok) {
             lv_label_set_text(id(lbl_levels_diesel_pct), "---%");
+            lv_label_set_text(id(lbl_levels_diesel_l), "--- L");
           } else {
             snprintf(buf, sizeof(buf), "%.0f%%", diesel);
             lv_label_set_text(id(lbl_levels_diesel_pct), buf);
+            // 90 L - repo-owner-confirmed capacity for this tank, same
+            // "%-of-capacity" shape as Fresh's 180L/Waste's 90L lines.
+            snprintf(buf, sizeof(buf), "%.0f L", diesel * 0.90f);
+            lv_label_set_text(id(lbl_levels_diesel_l), buf);
           }
 
           // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
@@ -306,23 +311,29 @@ lvgl:
                   text: "FRISCH"
                   text_font: font_ui_16
                   text_color: 0x555555
+              # Width 64->130 and border dropped (repo-owner: "vertikal
+              # Trennstriche weg und balken viel breiter") - each bar's
+              # own 1px border used to read as a thin vertical dividing
+              # line between the columns; removing it and filling most
+              # of the 160px column width with the bar itself (130,
+              # 15px margin each side) makes each tank read as one
+              # solid block instead of a narrow bar boxed in lines.
               - bar:
                   id: bar_levels_fresh
                   align: TOP_MID
                   y: 32
-                  width: 64
+                  width: 130
                   height: 340
                   min_value: 0
                   max_value: 100
                   value: 0
                   bg_color: 0x1A1C1E
                   bg_opa: COVER
-                  border_width: 1
-                  border_color: 0x3C4043
-                  radius: 6
+                  border_width: 0
+                  radius: 10
                   indicator:
                     bg_color: 0x555555
-                    radius: 5
+                    radius: 9
               - label:
                   id: lbl_levels_fresh_pct
                   align: TOP_MID
@@ -360,19 +371,18 @@ lvgl:
                   id: bar_levels_waste
                   align: TOP_MID
                   y: 32
-                  width: 64
+                  width: 130
                   height: 340
                   min_value: 0
                   max_value: 100
                   value: 0
                   bg_color: 0x1A1C1E
                   bg_opa: COVER
-                  border_width: 1
-                  border_color: 0x3C4043
-                  radius: 6
+                  border_width: 0
+                  radius: 10
                   indicator:
                     bg_color: 0x555555
-                    radius: 5
+                    radius: 9
               - label:
                   id: lbl_levels_waste_pct
                   align: TOP_MID
@@ -410,19 +420,18 @@ lvgl:
                   id: bar_levels_diesel
                   align: TOP_MID
                   y: 32
-                  width: 64
+                  width: 130
                   height: 340
                   min_value: 0
                   max_value: 100
                   value: 0
                   bg_color: 0x1A1C1E
                   bg_opa: COVER
-                  border_width: 1
-                  border_color: 0x3C4043
-                  radius: 6
+                  border_width: 0
+                  radius: 10
                   indicator:
                     bg_color: 0x555555
-                    radius: 5
+                    radius: 9
               - label:
                   id: lbl_levels_diesel_pct
                   align: TOP_MID
@@ -430,8 +439,16 @@ lvgl:
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
-              # No absolute-value (liter) line - tank capacity not given,
-              # see sensor: block's own comment on this entity.
+              # Absolute-value (liter) line - repo-owner-confirmed tank
+              # capacity: 90 L (draw_levels computes diesel * 0.90f, same
+              # "%-of-capacity" shape as Fresh's 180L/Waste's 90L lines).
+              - label:
+                  id: lbl_levels_diesel_l
+                  align: TOP_MID
+                  y: 420
+                  text: "--- L"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
 
         # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
         - obj:
@@ -455,19 +472,18 @@ lvgl:
                   id: bar_levels_gas_a
                   align: TOP_MID
                   y: 32
-                  width: 64
+                  width: 130
                   height: 340
                   min_value: 0
                   max_value: 100
                   value: 0
                   bg_color: 0x1A1C1E
                   bg_opa: COVER
-                  border_width: 1
-                  border_color: 0x3C4043
-                  radius: 6
+                  border_width: 0
+                  radius: 10
                   indicator:
                     bg_color: 0x555555
-                    radius: 5
+                    radius: 9
               - label:
                   id: lbl_levels_gas_a_pct
                   align: TOP_MID
@@ -505,19 +521,18 @@ lvgl:
                   id: bar_levels_gas_i
                   align: TOP_MID
                   y: 32
-                  width: 64
+                  width: 130
                   height: 340
                   min_value: 0
                   max_value: 100
                   value: 0
                   bg_color: 0x1A1C1E
                   bg_opa: COVER
-                  border_width: 1
-                  border_color: 0x3C4043
-                  radius: 6
+                  border_width: 0
+                  radius: 10
                   indicator:
                     bg_color: 0x555555
-                    radius: 5
+                    radius: 9
               - label:
                   id: lbl_levels_gas_i_pct
                   align: TOP_MID
@@ -533,11 +548,17 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
+        # Bigger, moved up (repo-owner: "das warning Fenster/Text darf
+        # ruhig groesser und weiter oben sein") - was BOTTOM_MID y:-16 at
+        # font_ui_16, easy to miss at the very bottom edge under 5 tall
+        # tank columns; now sits right under the status bar, above the
+        # columns (which start at y:140), at a size that reads as a real
+        # warning line rather than a small footnote.
         - label:
             id: lbl_levels_status
-            align: BOTTOM_MID
-            y: -16
+            align: TOP_MID
+            y: 76
             text: ""
-            text_font: font_ui_16
+            text_font: font_ui_28
             text_color: 0x555555
 

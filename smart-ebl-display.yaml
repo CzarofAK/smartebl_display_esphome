@@ -436,6 +436,35 @@ font:
     id: font_ui_40
     size: 40
     glyphs: *ui_glyphs
+  # ---- Electric 1/2 rescale (repo-owner report, 2026-09-06): "die
+  # Schriften sind unklar geworden mit vergroessern" - the row/box grid
+  # on both Electric sub-pages grew substantially (row heights 130/170
+  # -> 210/290 on Overview; the Fuses grid is a full 4x4 of 260x150
+  # cells) but every label on them kept its ORIGINAL font_ui_16/20/24
+  # bitmap, generated back when the boxes were much smaller - a real
+  # LVGL bitmap font has no continuous "size", so text that used to
+  # look proportionate in a small box just looks thin/indistinct once
+  # the box around it grows this much, not literally blurred by any
+  # runtime scaling (nothing here stretches a bitmap - each font:
+  # entry is its own freshly-rasterized glyph set at its own point
+  # size). Fix: two genuinely larger sizes, not a zoom of the existing
+  # ones, so Electric's title/state/sub-value rows and its hero
+  # main-value row get crisp glyphs sized for the current box
+  # dimensions. font_ui_28 is also reused by page_levels.yaml's own
+  # status line (see that file's own comment - a bigger, moved-up
+  # warning line, unrelated to Electric's own box-rescale reasoning but
+  # no reason to mint a THIRD "one size bigger than 24" font for it);
+  # font_ui_48 stays Electric-only (see that file's row_main template).
+  # Every other page's boxes didn't grow, so they keep the original
+  # 16/20/24/40 set unchanged.
+  - file: "gfonts://Montserrat"
+    id: font_ui_28
+    size: 28
+    glyphs: *ui_glyphs
+  - file: "gfonts://Montserrat"
+    id: font_ui_48
+    size: 48
+    glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night
 # icon) - AUTO only for this release, driven by HA's sun.sun, same

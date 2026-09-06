@@ -2,21 +2,31 @@
 #  smart_ebl_pages/page_fans.yaml -- page: Fans
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
-# docs/pages.md §5: same two entities m5dial_fram/page_fans.yaml already
-# uses (FANBOARD number.fan_speed_control, HVAC number.hvac_fan_battery).
+# Real entities (repo-owner-confirmed, 2026-09-06 - corrects this file's
+# earlier m5dial_fram-borrowed guesses):
+#   - FANBOARD setpoint: number.fan_board_fan_speed (was
+#     number.fan_speed_control)
+#   - FANBOARD per-fan readout: sensor.fan_board_fan_speed_1 .. _4, the
+#     fan board's own four individual fans - read-only, NOT written to;
+#     shown as a small row under the FANBOARD arc/setpoint/+-, same
+#     "assumed 0-100%" shape as everything else on this page unless it
+#     turns out otherwise.
+#   - HVAC (Sprinter OEM blower motor): number.relay_2ch_hvac_hvac_fan_battery
+#     (was number.hvac_fan_battery - same physical relay-2ch-hvac
+#     ESPHome device m5dial_fram/page_fans.yaml already drives, just the
+#     full real entity_id rather than the shorter guess).
 # Touch-adapted the same way Climate/Boiler's +/- buttons are: no rotary-
 # encoder "arm" step, each column's own +/- buttons write directly.
 # =============================================================================
 
 globals:
-  # ---- Fans (page_fans) - HA-fed via number.fan_speed_control/
-  # number.hvac_fan_battery, same entities m5dial_fram/page_fans.yaml
-  # uses. Touch has no rotary encoder to "arm" - each column's own +/-
-  # buttons write directly - so unlike that file's g_edit_target dance,
-  # these two pendings are always live: synced from the real HA value on
-  # every on_value push (see the sensor: block above), stepped by +/-,
-  # and written back debounced, same lag-avoiding shape as
-  # g_climate_temp_pending.
+  # ---- Fans (page_fans) - HA-fed via number.fan_board_fan_speed/
+  # number.relay_2ch_hvac_hvac_fan_battery. Touch has no rotary encoder
+  # to "arm" - each column's own +/- buttons write directly - so unlike
+  # m5dial_fram's g_edit_target dance, these two pendings are always
+  # live: synced from the real HA value on every on_value push (see the
+  # sensor: block above), stepped by +/-, and written back debounced,
+  # same lag-avoiding shape as g_climate_temp_pending.
   - id: g_fans_board_pending
     type: float
     restore_value: false
@@ -27,12 +37,11 @@ globals:
     initial_value: "0"
 
 sensor:
-  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
-  # already uses (FANBOARD + the Sprinter's OEM HVAC blower motor - see
-  # that file's own header for the battery_mode_allowed caveat on HVAC).
+  # ---- Fans (page_fans) - FANBOARD setpoint + the Sprinter's OEM HVAC
+  # blower motor (see this file's own header for both real entity_ids).
   - platform: homeassistant
     id: s_fans_board_speed
-    entity_id: number.fan_speed_control
+    entity_id: number.fan_board_fan_speed
     on_value:
       # Keep g_fans_board_pending in sync with HA's own confirmed value -
       # see the globals: block's own comment for why (no "armed" state to
@@ -41,29 +50,75 @@ sensor:
       - script.execute: draw_fans
   - platform: homeassistant
     id: s_fans_hvac_speed
-    entity_id: number.hvac_fan_battery
+    entity_id: number.relay_2ch_hvac_hvac_fan_battery
     on_value:
       - globals.set: {id: g_fans_hvac_pending, value: !lambda "return x;"}
       - script.execute: draw_fans
 
+  # ---- FANBOARD's own four individual fans - read-only, no setpoint of
+  # their own (number.fan_board_fan_speed above is the ONE setpoint the
+  # fan board itself fans out to all four internally) - shown so the
+  # repo owner can see whether all four are actually spinning together,
+  # not just that the board accepted a setpoint. Assumed 0-100% like
+  # every other level/speed reading on this page unless it turns out
+  # otherwise (flag if so, same "assumed" caveat page_levels' Diesel
+  # entity carries).
+  - platform: homeassistant
+    id: s_fans_board_speed_1
+    entity_id: sensor.fan_board_fan_speed_1
+    on_value:
+      - script.execute: draw_fans
+  - platform: homeassistant
+    id: s_fans_board_speed_2
+    entity_id: sensor.fan_board_fan_speed_2
+    on_value:
+      - script.execute: draw_fans
+  - platform: homeassistant
+    id: s_fans_board_speed_3
+    entity_id: sensor.fan_board_fan_speed_3
+    on_value:
+      - script.execute: draw_fans
+  - platform: homeassistant
+    id: s_fans_board_speed_4
+    entity_id: sensor.fan_board_fan_speed_4
+    on_value:
+      - script.execute: draw_fans
+
 script:
-  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
-  # already uses. Touch-adapted the same way Climate/Boiler's +/-
-  # buttons were: no rotary-encoder "arm" step (g_edit_target) - each
-  # column's own +/- buttons write directly, debounced the same way
-  # act_climate_temp_up/down already does.
+  # ---- Fans (page_fans) - FANBOARD setpoint + its 4 real per-fan
+  # readouts + the Sprinter's OEM HVAC blower motor (see this file's own
+  # header for all real entity_ids). Touch-adapted the same way
+  # Climate/Boiler's +/- buttons were: no rotary-encoder "arm" step
+  # (g_edit_target) - each column's own +/- buttons write directly,
+  # debounced the same way act_climate_temp_up/down already does.
   - id: poll_fans
     then:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.fan_speed_control
+            entity_id: number.fan_board_fan_speed
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.hvac_fan_battery
+            entity_id: number.relay_2ch_hvac_hvac_fan_battery
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.fan_board_fan_speed_1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.fan_board_fan_speed_2
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.fan_board_fan_speed_3
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.fan_board_fan_speed_4
 
-  # 5%-step, clamped 0-100, matches number.fan_speed_control's own step.
+  # 5%-step, clamped 0-100, matches number.fan_board_fan_speed's own step.
   - id: act_fans_board_up
     then:
       - lambda: |-
@@ -87,7 +142,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.fan_speed_control
+            entity_id: number.fan_board_fan_speed
           data_template:
             value: "{{ val }}"
           variables:
@@ -99,9 +154,9 @@ script:
       - delay: 400ms
       - script.execute: fans_board_write_now
 
-  # 10%-step (matches number.hvac_fan_battery's own `step: 10`), clamped
-  # 0-100. See m5dial_fram/page_fans.yaml's own header for why HVAC
-  # steps 10% at a time while FANBOARD steps 5%.
+  # 10%-step (matches number.relay_2ch_hvac_hvac_fan_battery's own
+  # `step: 10`), clamped 0-100. See m5dial_fram/page_fans.yaml's own
+  # header for why HVAC steps 10% at a time while FANBOARD steps 5%.
   - id: act_fans_hvac_up
     then:
       - lambda: |-
@@ -125,7 +180,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.hvac_fan_battery
+            entity_id: number.relay_2ch_hvac_hvac_fan_battery
           data_template:
             value: "{{ val }}"
           variables:
@@ -159,6 +214,31 @@ script:
             lv_label_set_text(id(lbl_fans_board_pct), buf);
           }
           lv_obj_set_style_text_color(id(lbl_fans_board_pct), lv_color_hex(board_ok ? 0xFFFFFF : 0x555555), 0);
+
+          // ---- FANBOARD's own 4 individual fans - read-only readout,
+          // see the sensor: block's own comment on why these exist
+          // alongside the one setpoint above. Takes ok/raw directly
+          // (not the sensor object) - same shape as this file's own
+          // set_tile/set_flow-style helpers elsewhere in this repo.
+          auto set_fan_n = [&](lv_obj_t *lbl, bool ok, float raw) {
+            if (!ok) {
+              lv_label_set_text(lbl, "--%");
+              lv_obj_set_style_text_color(lbl, lv_color_hex(0x555555), 0);
+            } else {
+              char b[8];
+              snprintf(b, sizeof(b), "%.0f%%", raw);
+              lv_label_set_text(lbl, b);
+              lv_obj_set_style_text_color(lbl, lv_color_hex(0xBDC1C6), 0);
+            }
+          };
+          set_fan_n(id(lbl_fans_board_f1), api_ok && id(s_fans_board_speed_1).has_state(),
+              id(s_fans_board_speed_1).state);
+          set_fan_n(id(lbl_fans_board_f2), api_ok && id(s_fans_board_speed_2).has_state(),
+              id(s_fans_board_speed_2).state);
+          set_fan_n(id(lbl_fans_board_f3), api_ok && id(s_fans_board_speed_3).has_state(),
+              id(s_fans_board_speed_3).state);
+          set_fan_n(id(lbl_fans_board_f4), api_ok && id(s_fans_board_speed_4).has_state(),
+              id(s_fans_board_speed_4).state);
 
           bool hvac_ok = api_ok && id(s_fans_hvac_speed).has_state();
           lv_arc_set_value(id(arc_fans_hvac), hvac_ok ? (int) id(g_fans_hvac_pending) : 0);
@@ -283,6 +363,51 @@ lvgl:
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_fans_board_up
+
+              # ---- Per-fan readout row (sensor.fan_board_fan_speed_1..4)
+              # - read-only, see the sensor: block's own comment. Sits
+              # below the +/- buttons (which end at y=360) in the
+              # remaining 100px of this 460px-tall half.
+              - label:
+                  align: TOP_MID
+                  y: 400
+                  width: 500
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "EINZELLÜFTER"
+                  text_color: 0x707070
+              - label:
+                  id: lbl_fans_board_f1
+                  align: TOP_MID
+                  x: -180
+                  y: 430
+                  text_font: font_ui_20
+                  text: "--%"
+                  text_color: 0x555555
+              - label:
+                  id: lbl_fans_board_f2
+                  align: TOP_MID
+                  x: -60
+                  y: 430
+                  text_font: font_ui_20
+                  text: "--%"
+                  text_color: 0x555555
+              - label:
+                  id: lbl_fans_board_f3
+                  align: TOP_MID
+                  x: 60
+                  y: 430
+                  text_font: font_ui_20
+                  text: "--%"
+                  text_color: 0x555555
+              - label:
+                  id: lbl_fans_board_f4
+                  align: TOP_MID
+                  x: 180
+                  y: 430
+                  text_font: font_ui_20
+                  text: "--%"
+                  text_color: 0x555555
 
         # ---- Right half: HVAC (Sprinter blower motor) --------------------
         - obj:
