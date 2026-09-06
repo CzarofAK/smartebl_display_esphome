@@ -294,15 +294,26 @@ lvgl:
         - script.execute: poll_levels
       widgets:
         # ---- FRISCH (tank1, link) ------------------------------------
+        # scrollbar_mode: OFF on every column obj below (repo-owner,
+        # 2026-09-06: "jetzt sind das 'scroll' balken bei jedem tank...
+        # wieso das? geht das nicht ohne?") - an LVGL obj is scrollable
+        # by default and shows a scrollbar the instant its content is
+        # even 1px taller than its own box; these columns' own labels+bar
+        # (32+340+~30+~30=~432 of this 460-tall box) sit right at that
+        # edge, and the visual overflow is exactly why the indicator kept
+        # appearing. It doesn't need to scroll at all - this page's
+        # tank values are fixed layout, not a list - so the indicator is
+        # just switched off outright rather than trimmed to fit exactly.
         - obj:
             id: obj_levels_fresh
             align: TOP_LEFT
             x: 251
             y: 140
             width: 160
-            height: 460
+            height: 600
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   id: lbl_levels_fresh_cap
@@ -318,12 +329,23 @@ lvgl:
               # of the 160px column width with the bar itself (130,
               # 15px margin each side) makes each tank read as one
               # solid block instead of a narrow bar boxed in lines.
+              #
+              # Height 340->480, column 460->600 (repo-owner, same
+              # 2026-09-06 report as this column's own scrollbar-removal
+              # comment above: "die bars dürften dann auch höher
+              # werden") - the column used to end at y:600 on an
+              # 800-tall screen with nothing below it, i.e. ~140px of
+              # genuinely spare vertical room once the scrollbar wasn't
+              # eating into the perceived space any more; that spare
+              # room goes entirely into the bar (pct/L labels below it
+              # keep their own original relative gap, just shifted down
+              # by the same 140px).
               - bar:
                   id: bar_levels_fresh
                   align: TOP_MID
                   y: 32
                   width: 130
-                  height: 340
+                  height: 480
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -337,28 +359,31 @@ lvgl:
               - label:
                   id: lbl_levels_fresh_pct
                   align: TOP_MID
-                  y: 384
+                  y: 524
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levels_fresh_l
                   align: TOP_MID
-                  y: 420
+                  y: 560
                   text: "--- L"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
         # ---- WASTE (tank2, link) ----------------------------------------
+        # scrollbar_mode/height/bar-height/label-y - same fixes and same
+        # reasoning as FRISCH, above.
         - obj:
             id: obj_levels_waste
             align: TOP_LEFT
             x: 438
             y: 140
             width: 160
-            height: 460
+            height: 600
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   id: lbl_levels_waste_cap
@@ -372,7 +397,7 @@ lvgl:
                   align: TOP_MID
                   y: 32
                   width: 130
-                  height: 340
+                  height: 480
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -386,28 +411,31 @@ lvgl:
               - label:
                   id: lbl_levels_waste_pct
                   align: TOP_MID
-                  y: 384
+                  y: 524
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levels_waste_l
                   align: TOP_MID
-                  y: 420
+                  y: 560
                   text: "--- L"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
         # ---- DIESEL (HA, sensor.nw19939_fuel_level) ---------------------
+        # scrollbar_mode/height/bar-height/label-y - same fixes and same
+        # reasoning as FRISCH, above.
         - obj:
             id: obj_levels_diesel
             align: TOP_LEFT
             x: 625
             y: 140
             width: 160
-            height: 460
+            height: 600
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   id: lbl_levels_diesel_cap
@@ -421,7 +449,7 @@ lvgl:
                   align: TOP_MID
                   y: 32
                   width: 130
-                  height: 340
+                  height: 480
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -435,7 +463,7 @@ lvgl:
               - label:
                   id: lbl_levels_diesel_pct
                   align: TOP_MID
-                  y: 384
+                  y: 524
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
@@ -445,21 +473,24 @@ lvgl:
               - label:
                   id: lbl_levels_diesel_l
                   align: TOP_MID
-                  y: 420
+                  y: 560
                   text: "--- L"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
         # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
+        # scrollbar_mode/height/bar-height/label-y - same fixes and same
+        # reasoning as FRISCH, above.
         - obj:
             id: obj_levels_gas_a
             align: TOP_LEFT
             x: 812
             y: 140
             width: 160
-            height: 460
+            height: 600
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   id: lbl_levels_gas_a_cap
@@ -473,7 +504,7 @@ lvgl:
                   align: TOP_MID
                   y: 32
                   width: 130
-                  height: 340
+                  height: 480
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -487,28 +518,31 @@ lvgl:
               - label:
                   id: lbl_levels_gas_a_pct
                   align: TOP_MID
-                  y: 384
+                  y: 524
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levels_gas_a_kg
                   align: TOP_MID
-                  y: 420
+                  y: 560
                   text: "--- kg"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
         # ---- GAS I (HA, sensor.gas_2_stand) -----------------------------
+        # scrollbar_mode/height/bar-height/label-y - same fixes and same
+        # reasoning as FRISCH, above.
         - obj:
             id: obj_levels_gas_i
             align: TOP_LEFT
             x: 999
             y: 140
             width: 160
-            height: 460
+            height: 600
             bg_opa: TRANSP
             border_width: 0
+            scrollbar_mode: OFF
             widgets:
               - label:
                   id: lbl_levels_gas_i_cap
@@ -522,7 +556,7 @@ lvgl:
                   align: TOP_MID
                   y: 32
                   width: 130
-                  height: 340
+                  height: 480
                   min_value: 0
                   max_value: 100
                   value: 0
@@ -536,14 +570,14 @@ lvgl:
               - label:
                   id: lbl_levels_gas_i_pct
                   align: TOP_MID
-                  y: 384
+                  y: 524
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_levels_gas_i_kg
                   align: TOP_MID
-                  y: 420
+                  y: 560
                   text: "--- kg"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
@@ -554,9 +588,22 @@ lvgl:
         # tank columns; now sits right under the status bar, above the
         # columns (which start at y:140), at a size that reads as a real
         # warning line rather than a small footnote.
+        #
+        # x:65 (repo-owner, 2026-09-06: "Warnmeldung horizontal auf der
+        # rechten Anzeigefläche [Displaygrösse - Nav-Bereich] einmitten")
+        # - this label's PARENT is the page itself, which is full-screen
+        # (1280 wide) - the nav rail (0-130) is a top_layer overlay drawn
+        # OVER it, not a sibling that shrinks this page's own content
+        # box - so a plain TOP_MID centers on x:640 (the whole screen's
+        # center), landing 65px left of where the visible content area
+        # (x:130-1280, center x:705) actually centers. TOP_MID's own x
+        # offset shifts the alignment point, so x:65 (=705-640) moves it
+        # the exact difference between those two centers without having
+        # to hand-place it as TOP_LEFT.
         - label:
             id: lbl_levels_status
             align: TOP_MID
+            x: 65
             y: 76
             text: ""
             text_font: font_ui_28
