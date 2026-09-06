@@ -59,20 +59,13 @@ sensor:
   # their own (number.fan_board_fan_speed above is the ONE setpoint the
   # fan board itself fans out to all four internally) - shown so the
   # repo owner can see whether all four are actually spinning together,
-  # not just that the board accepted a setpoint. Assumed 0-100% like
-  # every other level/speed reading on this page unless it turns out
-  # otherwise (flag if so, same "assumed" caveat page_levels' Diesel
-  # entity carries).
+  # not just that the board accepted a setpoint.
   #
-  # OPEN ITEM (repo-owner, 2026-09-06): "beim Fanboard sind die Prozent
-  # RPMs..." - flagged as still unconfirmed, not changed here: if
-  # sensor.fan_board_fan_speed_1..4's real unit_of_measurement in HA is
-  # actually rpm rather than %, set_fan_n (draw_fans, below) is
-  # formatting a raw RPM number with a "%" suffix, which would need its
-  # own fix (drop the %, likely a wider buffer than set_fan_n's current
-  # 8 bytes for a 3-4 digit RPM value) once that's confirmed - same
-  # "flag rather than guess" precedent as this comment's own Diesel
-  # reference.
+  # RPM, not % (repo-owner-confirmed, 2026-09-06: "beim Fanboard sind
+  # die Prozent RPMs" - "indeed. its RPM not %!") - unlike every other
+  # level/speed reading on this page, sensor.fan_board_fan_speed_1..4
+  # are each fan's real spin speed in RPM, not a 0-100% value; set_fan_n
+  # (draw_fans, below) formats/labels them accordingly.
   - platform: homeassistant
     id: s_fans_board_speed_1
     entity_id: sensor.fan_board_fan_speed_1
@@ -230,13 +223,21 @@ script:
           // alongside the one setpoint above. Takes ok/raw directly
           // (not the sensor object) - same shape as this file's own
           // set_tile/set_flow-style helpers elsewhere in this repo.
+          //
+          // RPM, not % (repo-owner-confirmed, 2026-09-06 - see the
+          // sensor: block's own comment): sensor.fan_board_fan_speed_1..
+          // 4 are each fan's real spin speed, unrelated to the 0-100%
+          // setpoint (number.fan_board_fan_speed, lbl_fans_board_pct,
+          // above) they're all fanned out from - "%" was simply the
+          // wrong unit for a raw RPM number. Buffer widened 8->16 for
+          // " RPM" (the old 8 only ever needed to hold "100%").
           auto set_fan_n = [&](lv_obj_t *lbl, bool ok, float raw) {
             if (!ok) {
-              lv_label_set_text(lbl, "--%");
+              lv_label_set_text(lbl, "-- RPM");
               lv_obj_set_style_text_color(lbl, lv_color_hex(0x555555), 0);
             } else {
-              char b[8];
-              snprintf(b, sizeof(b), "%.0f%%", raw);
+              char b[16];
+              snprintf(b, sizeof(b), "%.0f RPM", raw);
               lv_label_set_text(lbl, b);
               lv_obj_set_style_text_color(lbl, lv_color_hex(0xBDC1C6), 0);
             }
@@ -400,7 +401,7 @@ lvgl:
                   x: -180
                   y: 430
                   text_font: font_ui_20
-                  text: "--%"
+                  text: "-- RPM"
                   text_color: 0x555555
               - label:
                   id: lbl_fans_board_f2
@@ -408,7 +409,7 @@ lvgl:
                   x: -60
                   y: 430
                   text_font: font_ui_20
-                  text: "--%"
+                  text: "-- RPM"
                   text_color: 0x555555
               - label:
                   id: lbl_fans_board_f3
@@ -416,7 +417,7 @@ lvgl:
                   x: 60
                   y: 430
                   text_font: font_ui_20
-                  text: "--%"
+                  text: "-- RPM"
                   text_color: 0x555555
               - label:
                   id: lbl_fans_board_f4
@@ -424,7 +425,7 @@ lvgl:
                   x: 180
                   y: 430
                   text_font: font_ui_20
-                  text: "--%"
+                  text: "-- RPM"
                   text_color: 0x555555
 
         # ---- Right half: HVAC (Sprinter blower motor) --------------------
