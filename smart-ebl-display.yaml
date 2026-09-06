@@ -58,16 +58,6 @@ substitutions:
   content_x: "130"  # = nav_w - x where every page's own content starts
   content_y: "64"   # = bar_h - y where every page's own content starts
 
-# Both networks (README.md "Networking") can be up at once - this just
-# decides which one wins the default route when they are, rather than
-# leaving it to chance. Ethernet first: prefer the wired path for
-# OTA/HA traffic when a cable happens to be plugged in, falling back to
-# Wi-Fi 6 (the actual always-on path, per user decision) otherwise.
-network:
-  priority:
-    - ethernet
-    - wifi
-
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
@@ -85,10 +75,13 @@ esphome:
       - script.execute: draw_electric
       - script.execute: draw_climate
       - script.execute: draw_boiler
-      - lambda: |-
-          const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
-          lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+      # apply_daynight itself updates lbl_daynight_toggle's text now (see
+      # that script) - draw_daynight_popup separately primes the popup's
+      # own widgets (mode highlight, slider, % label) so they're never
+      # stale the first time it's opened.
       - script.execute: apply_daynight
+      - script.execute: draw_daynight_popup
+      - globals.set: {id: g_last_touch_ms, value: !lambda "return millis();"}
 
 esp32:
   variant: esp32p4
@@ -183,29 +176,17 @@ packages:
   basics: !include .basics.yaml
 
 # =============================================================================
-# Ethernet (onboard PoE port - optional wired path, see README.md
-# "Networking". NOT the RS232 link to smartebl - see that section too.)
-# =============================================================================
-# IP101GRI PHY over RMII. TXD0/1, RXD0/1, CRS_DV and TX_EN are fixed by
-# ESPHome for every ESP32-P4 board (not board-specific wiring). MDC/
-# MDIO/REF_CLK/power/phy_addr are this board's own wiring choice - all
-# of it, including phy_addr, now confirmed against ESPHome's own board
-# manifest for this exact board (definitions/boards/
-# waveshare_esp32_p4_wifi6_poe_eth), not just a search-indexed page -
-# see docs/hardware.md for the full confidence breakdown.
-
-ethernet:
-  type: IP101
-  mdc_pin: GPIO31
-  mdio_pin: GPIO52
-  phy_addr: 1
-  clk:
-    # The IP101GRI generates 50MHz from its own 25MHz crystal and feeds
-    # it INTO the ESP32-P4 - this is an input, not CLK_OUT.
-    pin: GPIO50
-    mode: CLK_EXT_IN
-  power_pin: GPIO51
-
+# Ethernet - REMOVED per repo-owner decision (2026-09-06): "brauchen wir
+# nicht" - the onboard PoE port was only ever an optional wired fallback
+# (README.md's old "Networking" #2), never required now that Wi-Fi 6 via
+# the ESP32-C6 is the active, always-on path (below). Dropping the
+# `ethernet:` block entirely rather than leaving it configured-but-idle -
+# one less component, one less thing that could fail `esphome config` if
+# this board revision's PHY wiring ever turns out to differ. The pin
+# table in docs/hardware.md is left in place as historical reference (in
+# case a future board wants the wired port back), marked removed there
+# too - see that file and README.md's "Networking" section, both updated
+# to match.
 # =============================================================================
 # Wi-Fi 6 / BLE via the ESP32-C6 co-processor (esp32_hosted)
 # =============================================================================
@@ -310,6 +291,14 @@ touchscreen:
     i2c_id: bus_touch
     address: 0x5D
     display: disp_main
+    # Sleep mode's own activity timer (on_touch_activity/check_sleep_idle
+    # below) - the base `touchscreen:` schema's on_touch fires for every
+    # raw touch point regardless of which LVGL widget (if any) is under
+    # it, which is exactly "was the panel touched at all", not "was a
+    # specific button pressed" - the latter would miss e.g. a touch-and-
+    # drag that never lands on a clickable widget.
+    on_touch:
+      - script.execute: on_touch_activity
 
 # =============================================================================
 # SBB clock widget (Mainscreen) - reused verbatim from m5dial_clock_sbb
@@ -335,6 +324,46 @@ color:
     hex: "000000"
   - id: col_clock_second
     hex: E74C3C
+
+# =============================================================================
+# UI fonts - custom glyph set, NOT ESPHome/LVGL's bare `montserrat_NN`
+# built-ins
+# =============================================================================
+# Real bug fixed (repo-owner report): German umlauts (LÜFTER, etc.) and
+# the Victron-flow arrows (→/↓ on page_electric) rendered as blank boxes
+# ("tofu") on the real device. ESPHome's built-in `montserrat_NN` LVGL
+# fonts only rasterize a plain-ASCII glyph subset - anything outside
+# U+0020-U+007E (that includes ä/ö/ü/ß and any arrow) simply isn't in the
+# generated bitmap font at all, so LVGL falls back to its "missing glyph"
+# placeholder box. Fixed by declaring these as real `font:` entries
+# instead (same Montserrat family/weight, fetched via `gfonts:` at
+# compile time) with an explicit `glyphs:` list covering every character
+# actually used anywhere in this file's labels - plain ASCII, the degree
+# sign, the German umlauts/ß, and the two arrows - one font per size this
+# file uses (16/20/24/40, replacing `montserrat_16/20/24/40` 1:1
+# everywhere below). `glyphs:` is NOT additive on top of ESPHome's
+# default ASCII set - leaving any of those characters out here would
+# silently reintroduce the same tofu-box bug for that character, so this
+# list has to stay a superset of every string literal (and lambda-built
+# string) in this file, not just "whatever's missing today".
+font:
+  - file: "gfonts://Montserrat"
+    id: font_ui_16
+    size: 16
+    glyphs: &ui_glyphs |-
+       !"%()+-./:0123456789<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyzäöüÄÖÜß°→↓↑
+  - file: "gfonts://Montserrat"
+    id: font_ui_20
+    size: 20
+    glyphs: *ui_glyphs
+  - file: "gfonts://Montserrat"
+    id: font_ui_24
+    size: 24
+    glyphs: *ui_glyphs
+  - file: "gfonts://Montserrat"
+    id: font_ui_40
+    size: 40
+    glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night
 # icon) - AUTO only for this release, driven by HA's sun.sun, same
@@ -426,6 +455,65 @@ text_sensor:
     on_value:
       - script.execute: draw_electric
 
+  # ---- Truma climate/boiler current+target temperature - read as TEXT,
+  # not `sensor: platform: homeassistant`, and parsed by hand below.
+  #
+  # Real bug fixed: the Truma's `current_temperature` attribute goes
+  # HA-side `None` while the unit reports nothing usable (seen in the
+  # field as `[W][homeassistant.sensor:014]: 'climate.womolin_
+  # controller_mqtt_truma_water': Can't convert 'None' to number!` on
+  # every single state push while that lasts). That warning is emitted
+  # unconditionally, before any `filters:`/`on_value:` of ours ever
+  # runs - a numeric `homeassistant` sensor has no way to suppress it,
+  # short of not being a numeric sensor. A `text_sensor` reading the same
+  # attribute never tries a float parse itself, so it never warns; the
+  # lambdas below do that parse by hand and simply skip publishing to
+  # the matching `sensor: platform: template` (s_climate_room_temp/
+  # s_climate_target/s_boiler_temp/s_boiler_target above) when the text
+  # is "None"/"unknown"/"unavailable" - same net effect as the old
+  # numeric sensor's own behavior (which also silently kept the last
+  # published value on an unparseable attribute, per ESPHome's own
+  # `homeassistant` sensor source), just without the log spam.
+  - platform: homeassistant
+    id: s_climate_room_temp_raw
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: current_temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_climate_room_temp).publish_state(v);
+
+  - platform: homeassistant
+    id: s_climate_target_raw
+    entity_id: climate.womolin_controller_mqtt_truma_room
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_climate_target).publish_state(v);
+
+  - platform: homeassistant
+    id: s_boiler_temp_raw
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: current_temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_boiler_temp).publish_state(v);
+
+  - platform: homeassistant
+    id: s_boiler_target_raw
+    entity_id: climate.womolin_controller_mqtt_truma_water
+    attribute: temperature
+    on_value:
+      - lambda: |-
+          char *end = nullptr;
+          float v = strtof(x.c_str(), &end);
+          if (end != x.c_str() && *end == '\0') id(s_boiler_target).publish_state(v);
+
 # =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
 # =============================================================================
@@ -467,7 +555,7 @@ globals:
     restore_value: false
     initial_value: "0"
 
-  # ---- Day/night manual override (see apply_daynight/cycle_daynight) --
+  # ---- Day/night manual override (see apply_daynight/act_daynight_set_mode) --
   # restore_value: true, same as m5dial_fram's own g_daynight - a manual
   # DAY/NIGHT pick should survive a reboot, not silently revert to AUTO.
   - id: g_daynight
@@ -475,11 +563,37 @@ globals:
     restore_value: true
     initial_value: "0"
 
+  # ---- Backlight (see apply_backlight) - persisted like g_daynight, even
+  # though nothing drives real PWM from it yet (see that script's own
+  # comment) - no reason to make the user re-pick it every boot once the
+  # pin IS found.
+  - id: g_backlight_pct
+    type: int
+    restore_value: true
+    initial_value: "100"
+
+  # ---- Sleep mode (see check_sleep_idle/enter_sleep/wake_from_sleep) ----
+  - id: g_last_touch_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_sleep_active
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
   # ---- Electric page (page_electric) popup - shore/grid current limit
   # (number.multiplus_strombegrenzung) being locally edited, same
   # debounced-write pattern as m5dial_fram/page_power_2.yaml's own
   # g_power_2_assist_pending.
   - id: g_multiplus_limit_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+
+  # ---- Electric page (page_electric) - Solar Yield popup, same shape as
+  # g_multiplus_limit_pending above.
+  - id: g_mppt_limit_pending
     type: float
     restore_value: false
     initial_value: "0"
@@ -602,6 +716,9 @@ sensor:
     on_value:
       - script.execute: draw_electric
 
+  # ---- Shore - main = input power, sub-left/right = voltage/frequency
+  # (repo-owner spec) - input current (the old sub-value here) dropped,
+  # not shown anywhere on this box any more.
   - platform: homeassistant
     id: s_multiplus_in_w
     entity_id: sensor.multiplus_eingangsleistung_l1
@@ -609,25 +726,74 @@ sensor:
       - script.execute: draw_electric
 
   - platform: homeassistant
-    id: s_multiplus_in_a
-    entity_id: sensor.multiplus_eingangsstromstarke_l1
+    id: s_multiplus_in_v
+    entity_id: sensor.multiplus_eingangsspannung_l1
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
-    id: s_multiplus_wr_w
-    entity_id: sensor.multiplus_0_wr_leistung
+    id: s_multiplus_in_hz
+    entity_id: sensor.multiplus_eingangsfrequenz_l1
+    on_value:
+      - script.execute: draw_electric
+
+  # ---- AC Loads - main = output power, sub-left/right = voltage/
+  # frequency (repo-owner spec) - replaces the old %-of-1600W-nominal
+  # figure (sensor.multiplus_0_wr_leistung) with the per-phase output
+  # power entity directly.
+  - platform: homeassistant
+    id: s_multiplus_out_w
+    entity_id: sensor.multiplus_ausgangsleistung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_out_v
+    entity_id: sensor.multiplus_ausgangsspannung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_out_hz
+    entity_id: sensor.multiplus_ausgangsfrequenz_l1
     on_value:
       - script.execute: draw_electric
 
   # ---- Solar Yield - real MPPT charge controller, confirmed by the
-  # repo owner (a "MPPT 190W" unit, many more entities exist than these
-  # two - zustand/mppt_betriebsmodus/fehlercode/dc_batterie_bus_
-  # stromstarke also exist but aren't wired up yet, not needed for this
-  # box specifically).
+  # repo owner (a "MPPT 190W" unit). Main = PV yield power; sub-left/
+  # right = the MPPT's own DC battery-bus voltage/current (repo-owner
+  # spec) - distinct from the SmartShunt's own DC bus V/A in the Battery
+  # box below (same physical bus, two different monitors' own readings
+  # of it).
   - platform: homeassistant
     id: s_mppt_pv_yield
     entity_id: sensor.mppt_190w_leistung_pv_ertrag
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_batt_v
+    entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_batt_a
+    entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+    on_value:
+      - script.execute: draw_electric
+
+  # ---- Battery - SmartShunt's own remaining-time-to-empty and net
+  # power, alongside the SOC/V/A this box already showed.
+  - platform: homeassistant
+    id: s_battery_remaining_time
+    entity_id: sensor.smartshunt_verbleibende_zeit
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_power
+    entity_id: sensor.smartshunt_leistung
     on_value:
       - script.execute: draw_electric
 
@@ -659,15 +825,39 @@ sensor:
           }
       - script.execute: draw_electric
 
+  # ---- Solar Yield popup - charge-current limit (number.mppt_190w_
+  # stromstarke), same resync-while-closed pattern as s_multiplus_limit
+  # above. ⚠ No documented safe ceiling for this specific MPPT 190W unit
+  # in this session (unlike the Charger popup's 16A, which is this
+  # installation's actual shore-cable rating) - act_mppt_limit_up/down's
+  # 20A clamp below is a conservative guess at "bigger than this panel
+  # could ever actually push", not a confirmed wiring limit. Tighten it
+  # once the charger's own datasheet/real max is known.
+  - platform: homeassistant
+    id: s_mppt_limit
+    entity_id: number.mppt_190w_stromstarke
+    on_value:
+      - lambda: |-
+          if (lv_obj_has_flag(id(obj_solar_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
+            id(g_mppt_limit_pending) = id(s_mppt_limit).state;
+          }
+      - script.execute: draw_electric
+
   # ---- Climate (page_climate) - HA-fed via womolin_controller, not the
   # link. Same entities m5dial_fram/page_climate.yaml already uses.
   # Also feeds the status bar's "inside" temperature (draw_status_bar) -
   # reusing this rather than a second HA entity, since the Truma room
   # sensor already *is* the cabin's inside temperature.
-  - platform: homeassistant
+  #
+  # `platform: template`, published from s_climate_room_temp_raw's
+  # text_sensor below rather than read directly as `platform:
+  # homeassistant` - see that text_sensor's own comment for why (fixes
+  # the 'Can't convert 'None' to number!' warning this attribute used to
+  # spam whenever the Truma reports no current temperature).
+  - platform: template
     id: s_climate_room_temp
-    entity_id: climate.womolin_controller_mqtt_truma_room
-    attribute: current_temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
     on_value:
       - script.execute: draw_climate
       - script.execute: draw_status_bar
@@ -727,32 +917,39 @@ sensor:
     on_value:
       - script.execute: draw_status_bar
 
-  - platform: homeassistant
+  # `platform: template`, published from s_climate_target_raw below - same
+  # "avoid the None-to-number warning" reason as s_climate_room_temp above.
+  # The target temperature is much less likely to ever go None than the
+  # current one (it's a setpoint, not a live reading), but there's no
+  # reason to leave it on the warning-prone path either.
+  - platform: template
     id: s_climate_target
-    entity_id: climate.womolin_controller_mqtt_truma_room
-    attribute: temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
     on_value:
       - lambda: |-
-          id(g_climate_temp_pending) = id(s_climate_target).state;
+          id(g_climate_temp_pending) = x;
           id(g_climate_temp_known) = true;
       - script.execute: draw_climate
 
   # ---- Boiler (page_boiler) - HA-fed via womolin_controller, water-
-  # heating side of the same Truma Combi 4 as Climate.
-  - platform: homeassistant
+  # heating side of the same Truma Combi 4 as Climate. Both template
+  # sensors below, published from the text_sensor:'s raw attribute
+  # readers - see s_climate_room_temp's comment for why.
+  - platform: template
     id: s_boiler_temp
-    entity_id: climate.womolin_controller_mqtt_truma_water
-    attribute: current_temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
     on_value:
       - script.execute: draw_boiler
 
-  - platform: homeassistant
+  - platform: template
     id: s_boiler_target
-    entity_id: climate.womolin_controller_mqtt_truma_water
-    attribute: temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
     on_value:
       - lambda: |-
-          id(g_boiler_temp_pending) = id(s_boiler_target).state;
+          id(g_boiler_temp_pending) = x;
           id(g_boiler_temp_known) = true;
       - script.execute: draw_boiler
 
@@ -761,6 +958,24 @@ binary_sensor:
     id: s_shore_power_connected
     name: "Shore Power Connected (via link)"
     device_class: plug
+    on_state:
+      - script.execute: draw_electric
+
+  # ---- Electric page (page_electric) popups - MPPT on/off and the
+  # `fram_parkmodus` switch, mirrored read-only the same way as the
+  # Truma switches below (see act_mppt_toggle/act_park_toggle for the
+  # write side - homeassistant.service: switch.toggle, not a native
+  # `switch: platform: homeassistant`, to match this file's own existing
+  # convention rather than mixing in a second way to do the same thing).
+  - platform: homeassistant
+    id: s_mppt_on
+    entity_id: switch.mppt_190w
+    on_state:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_fram_parkmodus_on
+    entity_id: switch.fram_parkmodus
     on_state:
       - script.execute: draw_electric
 
@@ -989,6 +1204,13 @@ interval:
       - script.execute: draw_status_bar
       - script.execute: draw_electric
 
+  # Sleep mode - "no touch for 10 minutes" is only ever detectable by
+  # polling (see check_sleep_idle's own comment); 5s is plenty fine-
+  # grained against a 10-minute threshold.
+  - interval: 5s
+    then:
+      - script.execute: check_sleep_idle
+
 # =============================================================================
 # Link writer - composes protocol.md §7 command frames
 # =============================================================================
@@ -1009,13 +1231,13 @@ script:
           snprintf(hex, sizeof(hex), "%02X", chk);
           id(link_uart)->write_str((payload + "*" + std::string(hex) + "\n").c_str());
 
-  # ---- Day/night (see the sbb_clock section above) ---------------------
-  # g_daynight: 0 AUTO (follows s_sun) / 1 DAY / 2 NIGHT, manual override
-  # via lbl_daynight_toggle in the status bar (top_layer) - the popup
-  # pages.md §4 describes isn't built, but a manual override was
-  # explicitly asked for on the first hardware test, so this is a
-  # minimal stand-in for it: no brightness slider (still blocked on the
-  # unconfirmed backlight pin), just the day/night half.
+  # ---- Day/night + brightness popup (see the sbb_clock section above) --
+  # g_daynight: 0 AUTO (follows s_sun, HA's own source - same one
+  # m5dial_fram's clock page reads via is_below_horizon()) / 1 DAY /
+  # 2 NIGHT, manual override. pages.md §4's popup ("a brightness slider +
+  # an AUTO/DAY/NIGHT selector") is now built (obj_daynight_popup_panel,
+  # top_layer) - tapping the status bar's small AUTO/DAY/NIGHT button
+  # opens it instead of cycling in place.
   - id: apply_daynight
     then:
       - lambda: |-
@@ -1029,16 +1251,134 @@ script:
             night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
           }
           id(clock_face).set_night_mode(night);
-
-  - id: cycle_daynight
-    then:
-      - globals.set:
-          id: g_daynight
-          value: !lambda "return (id(g_daynight) + 1) % 3;"
-      - script.execute: apply_daynight
       - lambda: |-
           const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
           lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+
+  - id: act_daynight_set_mode
+    parameters:
+      mode: int
+    then:
+      - globals.set: {id: g_daynight, value: !lambda "return mode;"}
+      - script.execute: apply_daynight
+      - script.execute: draw_daynight_popup
+
+  # ---- Brightness - globals + popup slider only for this release, see
+  # pages.md §4/§7 and docs/hardware.md's own open item: no PWM-capable
+  # backlight GPIO is confirmed on this board yet (the panel came up
+  # over pure DSI init with `enable_pin:` left out entirely, see the
+  # display: block above), so there is no real dimmer to drive. Building
+  # the slider and its backing global now rather than waiting for the
+  # pin - g_backlight_pct survives a reboot (restore_value, same as
+  # g_daynight) and apply_backlight is the ONE place a future
+  # `output:`/`ledc` write belongs once that pin is found; until then it
+  # only updates the popup's own label.
+  - id: apply_backlight
+    then:
+      - lambda: |-
+          char buf[8];
+          snprintf(buf, sizeof(buf), "%d%%", id(g_backlight_pct));
+          lv_label_set_text(id(lbl_backlight_pct), buf);
+          // TODO(docs/hardware.md's backlight-pin open item): once a
+          // PWM-capable GPIO is confirmed for this board's backlight,
+          // drive it here, e.g.:
+          //   id(out_backlight).set_level(id(g_backlight_pct) / 100.0f);
+          // No output component exists yet - there's no GPIO to name one
+          // against - so this is currently UI + persisted state only.
+
+  - id: act_backlight_set
+    parameters:
+      pct: int
+    then:
+      - globals.set: {id: g_backlight_pct, value: !lambda "return pct;"}
+      - script.execute: apply_backlight
+
+  - id: show_daynight_popup
+    then:
+      - script.execute: draw_daynight_popup
+      - lvgl.widget.update: {id: obj_daynight_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_daynight_popup_panel, hidden: false}
+
+  - id: close_daynight_popup
+    then:
+      - lvgl.widget.update: {id: obj_daynight_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_daynight_popup_panel, hidden: true}
+
+  - id: draw_daynight_popup
+    then:
+      - lambda: |-
+          int m = id(g_daynight);
+          auto mode_btn = [&](lv_obj_t *btn, int tag, uint32_t on_bg, uint32_t on_border) {
+            bool active = (m == tag);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(active ? on_bg : 0x202124), 0);
+            lv_obj_set_style_border_color(btn, lv_color_hex(active ? on_border : 0x3C4043), 0);
+          };
+          mode_btn(id(btn_daynight_mode_auto), 0, 0x14324F, 0x4A9EFF);
+          mode_btn(id(btn_daynight_mode_day), 1, 0x4F3814, 0xF39C12);
+          mode_btn(id(btn_daynight_mode_night), 2, 0x1B5E3A, 0x2ECC71);
+      - lvgl.slider.update:
+          id: sld_backlight
+          value: !lambda "return id(g_backlight_pct);"
+      - script.execute: apply_backlight
+
+  # ---- Sleep mode (pages.md's own display-power open item) -------------
+  # Auto: between 22:00 and 08:00, blank after 10 minutes with no touch;
+  # any touch anywhere wakes it (obj_sleep_overlay, top_layer, drawn last
+  # so it's on top of every popup too, catches the waking tap itself so
+  # it never also reaches whatever's underneath). Manual: the small moon
+  # button next to the day/night one blanks immediately, any time, no
+  # need to wait for the window/timer (e.g. before parking up for the
+  # night). Same "blank overlay, not real backlight off" caveat as the
+  # brightness slider above - there's no confirmed backlight GPIO to
+  # power down, so this simulates sleep by covering the UI in solid
+  # black rather than actually cutting the panel's backlight.
+  - id: on_touch_activity
+    then:
+      - globals.set: {id: g_last_touch_ms, value: !lambda "return millis();"}
+      - script.execute: wake_from_sleep
+
+  - id: enter_sleep
+    then:
+      - if:
+          condition:
+            lambda: "return !id(g_sleep_active);"
+          then:
+            - globals.set: {id: g_sleep_active, value: "true"}
+            - lvgl.widget.update: {id: obj_sleep_overlay, hidden: false}
+
+  - id: wake_from_sleep
+    then:
+      - if:
+          condition:
+            lambda: "return id(g_sleep_active);"
+          then:
+            - globals.set: {id: g_sleep_active, value: "false"}
+            - lvgl.widget.update: {id: obj_sleep_overlay, hidden: true}
+
+  - id: toggle_sleep_manual
+    then:
+      - if:
+          condition:
+            lambda: "return id(g_sleep_active);"
+          then:
+            - script.execute: wake_from_sleep
+          else:
+            - script.execute: enter_sleep
+
+  # Runs once a second regardless of touch activity - "no touch for 10
+  # minutes" is defined by the ABSENCE of an on_touch_activity call,
+  # which that script alone can never detect (same reasoning as
+  # draw_status_bar's own link-staleness timer above).
+  - id: check_sleep_idle
+    then:
+      - lambda: |-
+          auto t = id(homeassistant_time).now();
+          if (!t.is_valid()) return;
+          bool in_night_window = t.hour >= 22 || t.hour < 8;
+          bool idle_10min = (millis() - id(g_last_touch_ms)) >= (10UL * 60UL * 1000UL);
+          if (in_night_window && idle_10min) {
+            id(enter_sleep).execute();
+          }
 
   # ---- Nav rail (top_layer, persists on every page) --------------------
   - id: nav_show_home
@@ -1182,25 +1522,43 @@ script:
               (millis() - id(link_last_rx_ms)) < 3000;
           char buf[32];
 
-          // ---- Shore: connected/disconnected from smartebl's own link,
-          // input W/A from the MultiPlus (HA) when actually connected.
+          // ---- Shore - connected/disconnected (small status line) still
+          // comes from smartebl's own link; main/sub values come from
+          // the MultiPlus (HA) any time THEY have state, independent of
+          // link status - the AC meter is real regardless of whether
+          // smartebl's own shore-detection circuit happens to be linked
+          // right now. Main = input power, sub-left/right = input
+          // voltage/frequency (repo-owner spec, replacing the old
+          // W+A sub-line).
           if (!connected) {
-            lv_label_set_text(id(lbl_electric_shore), "---");
-            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x555555), 0);
-            lv_label_set_text(id(lbl_electric_shore_sub), "");
+            lv_label_set_text(id(lbl_electric_shore_status), "---");
+            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0x555555), 0);
           } else if (id(s_shore_power_connected).state) {
-            lv_label_set_text(id(lbl_electric_shore), "CONNECTED");
-            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x2ECC71), 0);
-            if (api_ok && id(s_multiplus_in_w).has_state() && id(s_multiplus_in_a).has_state()) {
-              snprintf(buf, sizeof(buf), "%.0fW  %.1fA", id(s_multiplus_in_w).state, id(s_multiplus_in_a).state);
-              lv_label_set_text(id(lbl_electric_shore_sub), buf);
-            } else {
-              lv_label_set_text(id(lbl_electric_shore_sub), "---W  ---A");
-            }
+            lv_label_set_text(id(lbl_electric_shore_status), "CONNECTED");
+            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0x2ECC71), 0);
           } else {
-            lv_label_set_text(id(lbl_electric_shore), "DISCONNECTED");
-            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0xBDC1C6), 0);
-            lv_label_set_text(id(lbl_electric_shore_sub), "");
+            lv_label_set_text(id(lbl_electric_shore_status), "DISCONNECTED");
+            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!api_ok || !id(s_multiplus_in_w).has_state()) {
+            lv_label_set_text(id(lbl_electric_shore), "--- W");
+            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_multiplus_in_w).state);
+            lv_label_set_text(id(lbl_electric_shore), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0xFFFFFF), 0);
+          }
+          if (!api_ok || !id(s_multiplus_in_v).has_state()) {
+            lv_label_set_text(id(lbl_electric_shore_sub_l), "---V");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fV", id(s_multiplus_in_v).state);
+            lv_label_set_text(id(lbl_electric_shore_sub_l), buf);
+          }
+          if (!api_ok || !id(s_multiplus_in_hz).has_state()) {
+            lv_label_set_text(id(lbl_electric_shore_sub_r), "---Hz");
+          } else {
+            snprintf(buf, sizeof(buf), "%.1fHz", id(s_multiplus_in_hz).state);
+            lv_label_set_text(id(lbl_electric_shore_sub_r), buf);
           }
 
           // ---- Inverter/Charger (now a button - tap opens the mode/
@@ -1233,15 +1591,19 @@ script:
             }
           }
 
-          // ---- AC Loads: MultiPlus WR (inverter) output power, % of
-          // 1600W nominal (Multiplus 12/1600, same caveat
-          // m5dial_fram/page_power_3.yaml's own comment carries: not
-          // exact, thermal derating isn't tracked here).
-          if (!api_ok || !id(s_multiplus_wr_w).has_state()) {
+          // ---- AC Loads - main = output power, sub-left/right = output
+          // voltage/frequency (repo-owner spec, replacing the old %-of-
+          // 1600W-nominal figure - that derived number is gone, this is
+          // the MultiPlus's own real output power now). Coloring keeps
+          // the same 80%/95%-of-1600W-nominal warning thresholds as
+          // before (Multiplus 12/1600, same caveat m5dial_fram/
+          // page_power_3.yaml's own comment carries: not exact, thermal
+          // derating isn't tracked here) - just against the new sensor.
+          if (!api_ok || !id(s_multiplus_out_w).has_state()) {
             lv_label_set_text(id(lbl_electric_ac_loads), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(0x555555), 0);
           } else {
-            float w = id(s_multiplus_wr_w).state;
+            float w = id(s_multiplus_out_w).state;
             snprintf(buf, sizeof(buf), "%.0fW", w);
             lv_label_set_text(id(lbl_electric_ac_loads), buf);
             float p = w / 1600.0f * 100.0f;
@@ -1250,10 +1612,24 @@ script:
             else if (p >= 80.0f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_ac_loads), lv_color_hex(col), 0);
           }
+          if (!api_ok || !id(s_multiplus_out_v).has_state()) {
+            lv_label_set_text(id(lbl_electric_ac_loads_sub_l), "---V");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fV", id(s_multiplus_out_v).state);
+            lv_label_set_text(id(lbl_electric_ac_loads_sub_l), buf);
+          }
+          if (!api_ok || !id(s_multiplus_out_hz).has_state()) {
+            lv_label_set_text(id(lbl_electric_ac_loads_sub_r), "---Hz");
+          } else {
+            snprintf(buf, sizeof(buf), "%.1fHz", id(s_multiplus_out_hz).state);
+            lv_label_set_text(id(lbl_electric_ac_loads_sub_r), buf);
+          }
 
-          // ---- Solar Yield - real MPPT charge controller (see
-          // sensor: block's header comment). Main = PV yield power,
-          // sub = humanized zustand, same shape as the Charger box.
+          // ---- Solar Yield (now a button - tap opens the mode/limit
+          // popup, see show_solar_popup) - real MPPT charge controller.
+          // Main = PV yield power, sub-left/right = the MPPT's own DC
+          // battery-bus voltage/current (repo-owner spec, replacing the
+          // old humanized-zustand sub line).
           if (!api_ok || !id(s_mppt_pv_yield).has_state()) {
             lv_label_set_text(id(lbl_electric_solar), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0x555555), 0);
@@ -1262,13 +1638,49 @@ script:
             lv_label_set_text(id(lbl_electric_solar), buf);
             lv_obj_set_style_text_color(id(lbl_electric_solar), lv_color_hex(0xFFFFFF), 0);
           }
-          if (!api_ok || !id(s_mppt_zustand).has_state()) {
-            lv_label_set_text(id(lbl_electric_solar_sub), "");
+          if (!api_ok || !id(s_mppt_batt_v).has_state()) {
+            lv_label_set_text(id(lbl_electric_solar_sub_l), "---V");
           } else {
-            std::string s = id(s_mppt_zustand).state;
-            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
-            lv_label_set_text(id(lbl_electric_solar_sub), s.c_str());
+            snprintf(buf, sizeof(buf), "%.1fV", id(s_mppt_batt_v).state);
+            lv_label_set_text(id(lbl_electric_solar_sub_l), buf);
           }
+          if (!api_ok || !id(s_mppt_batt_a).has_state()) {
+            lv_label_set_text(id(lbl_electric_solar_sub_r), "---A");
+          } else {
+            snprintf(buf, sizeof(buf), "%+.1fA", id(s_mppt_batt_a).state);
+            lv_label_set_text(id(lbl_electric_solar_sub_r), buf);
+          }
+
+          // ---- Solar Yield popup - ON/OFF (switch.mppt_190w) + charge-
+          // current limit, same shape as the Charger popup's mode/limit
+          // pair below.
+          bool mppt_known = api_ok && id(s_mppt_on).has_state();
+          bool mppt_on = mppt_known && id(s_mppt_on).state;
+          lv_obj_set_style_bg_color(id(btn_mppt_mode_on),
+              lv_color_hex(mppt_on ? 0x1B5E3A : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_mppt_mode_on),
+              lv_color_hex(mppt_on ? 0x2ECC71 : 0x3C4043), 0);
+          lv_obj_set_style_bg_color(id(btn_mppt_mode_off),
+              lv_color_hex(mppt_known && !mppt_on ? 0x4F3814 : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_mppt_mode_off),
+              lv_color_hex(mppt_known && !mppt_on ? 0xF39C12 : 0x3C4043), 0);
+          if (!api_ok || !id(s_mppt_limit).has_state()) {
+            lv_label_set_text(id(lbl_mppt_limit), "LIMIT --A");
+            lv_obj_set_style_text_color(id(lbl_mppt_limit), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_mppt_limit_pending));
+            lv_label_set_text(id(lbl_mppt_limit), buf);
+            lv_obj_set_style_text_color(id(lbl_mppt_limit), lv_color_hex(0xBDC1C6), 0);
+          }
+
+          // ---- Battery popup - switch.fram_parkmodus, simple on/off.
+          bool park_on = api_ok && id(s_fram_parkmodus_on).has_state() && id(s_fram_parkmodus_on).state;
+          lv_label_set_text(id(lbl_park_state), park_on ? "AN" : "AUS");
+          lv_obj_set_style_text_color(id(lbl_park_state), lv_color_hex(park_on ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_bg_color(id(btn_park_toggle),
+              lv_color_hex(park_on ? 0x1B5E3A : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_park_toggle),
+              lv_color_hex(park_on ? 0x2ECC71 : 0x3C4043), 0);
 
           // ---- DC Loads - real GX device aggregate DC consumption
           // figure (see sensor: block's header comment) - not the
@@ -1282,12 +1694,9 @@ script:
             lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0xFFFFFF), 0);
           }
 
-          // ---- Battery (emphasized box) - SmartShunt SOC/V/A, same
-          // thresholds and format as m5dial_fram/page_power_1.yaml's
-          // identical arc/label logic (20%/40% SOC). Starter battery
-          // voltage stays smartebl's own link reading (a separate real
-          // sensor smartebl has, kept as the small third line) - the
-          // SmartShunt only monitors the leisure battery.
+          // ---- Battery (emphasized box) - SmartShunt SOC, same
+          // thresholds as m5dial_fram/page_power_1.yaml's identical
+          // logic (20%/40% SOC).
           if (!api_ok || !id(s_battery_soc).has_state()) {
             lv_label_set_text(id(lbl_electric_batt_main), "---%");
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0x555555), 0);
@@ -1300,14 +1709,75 @@ script:
             else if (soc < 40.0f) col = 0xF39C12;
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(col), 0);
           }
-          if (!api_ok || !id(s_battery_dc_v).has_state() || !id(s_battery_dc_a).has_state()) {
-            lv_label_set_text(id(lbl_electric_batt_mid), "---V  ---A");
-            lv_obj_set_style_text_color(id(lbl_electric_batt_mid), lv_color_hex(0x555555), 0);
-          } else {
-            snprintf(buf, sizeof(buf), "%.1fV  %+.0fA", id(s_battery_dc_v).state, id(s_battery_dc_a).state);
-            lv_label_set_text(id(lbl_electric_batt_mid), buf);
-            lv_obj_set_style_text_color(id(lbl_electric_batt_mid), lv_color_hex(0xBDC1C6), 0);
+
+          // ---- IDLE/CHARGING/DISCHARGING - interpreted from the
+          // SmartShunt's own net DC current (repo-owner spec): positive
+          // charges the battery, negative discharges it, anything
+          // inside the shunt's own noise floor (+-0.5A) counts as IDLE.
+          std::string batt_state = "---";
+          uint32_t batt_state_col = 0x555555;
+          bool discharging = false;
+          if (api_ok && id(s_battery_dc_a).has_state()) {
+            float a = id(s_battery_dc_a).state;
+            if (a > 0.5f) {
+              batt_state = "CHARGING";
+              batt_state_col = 0x2ECC71;
+            } else if (a < -0.5f) {
+              batt_state = "DISCHARGING";
+              batt_state_col = 0xF39C12;
+              discharging = true;
+            } else {
+              batt_state = "IDLE";
+              batt_state_col = 0xBDC1C6;
+            }
           }
+          lv_label_set_text(id(lbl_electric_batt_state), batt_state.c_str());
+          lv_obj_set_style_text_color(id(lbl_electric_batt_state), lv_color_hex(batt_state_col), 0);
+
+          // Remaining time only means anything while discharging -
+          // Victron's own "time to go" sensor is huge/undefined while
+          // charging, so it's blanked rather than showing a
+          // meaningless number the rest of the time.
+          if (discharging && api_ok && id(s_battery_remaining_time).has_state()) {
+            int mins = (int) id(s_battery_remaining_time).state;
+            snprintf(buf, sizeof(buf), "NOCH %dh%02dm", mins / 60, mins % 60);
+            lv_label_set_text(id(lbl_electric_batt_time), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_time), lv_color_hex(0xBDC1C6), 0);
+          } else {
+            lv_label_set_text(id(lbl_electric_batt_time), "");
+          }
+
+          // ---- Bottom row: DC bus V / A / W (repo-owner spec: left /
+          // middle / right, one value each - replaces the old combined
+          // "V  A" mid-line).
+          if (!api_ok || !id(s_battery_dc_v).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_v), "---V");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_v), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.1fV", id(s_battery_dc_v).state);
+            lv_label_set_text(id(lbl_electric_batt_v), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_v), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!api_ok || !id(s_battery_dc_a).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_a), "---A");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_a), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%+.0fA", id(s_battery_dc_a).state);
+            lv_label_set_text(id(lbl_electric_batt_a), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_a), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!api_ok || !id(s_battery_power).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_w), "---W");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_w), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%+.0fW", id(s_battery_power).state);
+            lv_label_set_text(id(lbl_electric_batt_w), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_w), lv_color_hex(0xBDC1C6), 0);
+          }
+
+          // Starter battery voltage stays smartebl's own link reading (a
+          // separate real sensor smartebl has - the SmartShunt only
+          // monitors the leisure battery) at the very bottom of the box.
           if (!connected) {
             lv_label_set_text(id(lbl_electric_batt_sub), "START ---V");
             lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(0x555555), 0);
@@ -1334,7 +1804,11 @@ script:
           mode_btn(id(btn_multiplus_mode_on), "ON", 0x1B5E3A, 0x2ECC71);
           mode_btn(id(btn_multiplus_mode_chg), "CHG", 0x14324F, 0x4A9EFF);
           mode_btn(id(btn_multiplus_mode_inv), "INV", 0x4F3814, 0xF39C12);
-          mode_btn(id(btn_multiplus_mode_off), "OFF", 0x202124, 0x3C4043);
+          // Real bug fixed: this used to pass the SAME colors as the
+          // "inactive" style (0x202124/0x3C4043) for OFF's own "active"
+          // case, so the OFF button never visibly highlighted when it
+          // was in fact the current mode.
+          mode_btn(id(btn_multiplus_mode_off), "OFF", 0x3C4043, 0xBDC1C6);
 
           if (!api_ok || !id(s_multiplus_limit).has_state()) {
             lv_label_set_text(id(lbl_multiplus_limit), "LIMIT --A");
@@ -1364,15 +1838,35 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
+            entity_id: sensor.smartshunt_verbleibende_zeit
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_leistung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
             entity_id: sensor.multiplus_eingangsleistung_l1
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsstromstarke_l1
+            entity_id: sensor.multiplus_eingangsspannung_l1
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_0_wr_leistung
+            entity_id: sensor.multiplus_eingangsfrequenz_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsleistung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsspannung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsfrequenz_l1
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
@@ -1396,7 +1890,27 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
+            entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.mppt_190w_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.mppt_190w
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
             entity_id: sensor.gx_device_dc_verbrauch
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.fram_parkmodus
 
   - id: show_charger_popup
     then:
@@ -1475,6 +1989,86 @@ script:
     then:
       - delay: 400ms
       - script.execute: multiplus_limit_write_now
+
+  # ---- Solar Yield popup (obj_solar_popup_panel) - ON/OFF (switch.
+  # mppt_190w) + charge-current limit (number.mppt_190w_stromstarke),
+  # same backdrop/panel/debounced-write shapes as the Charger popup
+  # above, just with 2 mode buttons instead of 4.
+  - id: show_solar_popup
+    then:
+      - lambda: |-
+          id(g_mppt_limit_pending) = id(s_mppt_limit).has_state()
+              ? id(s_mppt_limit).state : 0.0f;
+      - script.execute: draw_electric
+      - lvgl.widget.update: {id: obj_solar_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_solar_popup_panel, hidden: false}
+
+  - id: close_solar_popup
+    then:
+      - lvgl.widget.update: {id: obj_solar_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_solar_popup_panel, hidden: true}
+
+  - id: act_mppt_toggle
+    then:
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.mppt_190w
+
+  - id: act_mppt_limit_up
+    then:
+      - lambda: |-
+          float v = id(g_mppt_limit_pending) + 1.0f;
+          if (v > 20.0f) v = 20.0f;  // see s_mppt_limit's own comment
+          id(g_mppt_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: mppt_limit_write_debounced
+
+  - id: act_mppt_limit_down
+    then:
+      - lambda: |-
+          float v = id(g_mppt_limit_pending) - 1.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_mppt_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: mppt_limit_write_debounced
+
+  - id: mppt_limit_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.mppt_190w_stromstarke
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_mppt_limit_pending));"
+
+  - id: mppt_limit_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: mppt_limit_write_now
+
+  # ---- Battery popup (obj_battery_popup_panel) - switch.fram_parkmodus
+  # only, a single toggle rather than a mode picker - simple on/off.
+  - id: show_battery_popup
+    then:
+      - script.execute: draw_electric
+      - lvgl.widget.update: {id: obj_battery_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_battery_popup_panel, hidden: false}
+
+  - id: close_battery_popup
+    then:
+      - lvgl.widget.update: {id: obj_battery_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_battery_popup_panel, hidden: true}
+
+  - id: act_park_toggle
+    then:
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.fram_parkmodus
 
   # ---- Climate (page_climate) --------------------------------------------
   # pages.md §5: Truma Combi 4 room-heating side, via the
@@ -1645,12 +2239,15 @@ script:
 
       - lvgl.label.update:
           id: lbl_climate_target
+          # Two lines ("SOLL" / "nn°C", see the widget's own comment) -
+          # both branches below keep that same two-line shape so the
+          # label's height never jumps between states.
           text: !lambda |-
             #ifdef USE_API
-            if (!api_is_connected()) return std::string("SOLL ---°C");
+            if (!api_is_connected()) return std::string("SOLL\n---°C");
             #endif
-            if (!id(g_climate_temp_known)) return std::string("SOLL ---°C");
-            return str_sprintf("SOLL %.0f°C", id(g_climate_temp_pending));
+            if (!id(g_climate_temp_known)) return std::string("SOLL\n---°C");
+            return str_sprintf("SOLL\n%.0f°C", id(g_climate_temp_pending));
           text_color: !lambda |-
             #ifdef USE_API
             if (!api_is_connected()) return lv_color_hex(0x555555);
@@ -1896,14 +2493,19 @@ script:
 
       - lvgl.label.update:
           id: lbl_boiler_target
+          # Same two-line "SOLL" / "nn°C" shape as lbl_climate_target - the
+          # ECO/BOOST tag (this Truma boiler's fixed tiers, see
+          # act_boiler_temp_up/down) gets its own third line rather than
+          # being crammed onto the value line, which doesn't fit "80°C
+          # BOOST" in the 100px gap between the +/- buttons.
           text: !lambda |-
             #ifdef USE_API
-            if (!api_is_connected()) return std::string("SOLL ---°C");
+            if (!api_is_connected()) return std::string("SOLL\n---°C");
             #endif
-            if (!id(g_boiler_temp_known)) return std::string("SOLL ---°C");
+            if (!id(g_boiler_temp_known)) return std::string("SOLL\n---°C");
             float v = id(g_boiler_temp_pending);
-            std::string tag = (v <= 40.0f) ? " ECO" : (v >= 80.0f) ? " BOOST" : "";
-            return str_sprintf("SOLL %.0f°C", v) + tag;
+            std::string tag = (v <= 40.0f) ? "\nECO" : (v >= 80.0f) ? "\nBOOST" : "";
+            return str_sprintf("SOLL\n%.0f°C", v) + tag;
           text_color: !lambda |-
             #ifdef USE_API
             if (!api_is_connected()) return lv_color_hex(0x555555);
@@ -2038,7 +2640,7 @@ lvgl:
           align: TOP_LEFT
           x: 20
           y: 20
-          text_font: montserrat_24
+          text_font: font_ui_24
           text: "--:--:--   --.--.----"
           text_color: 0xBDC1C6
       - label:
@@ -2046,7 +2648,7 @@ lvgl:
           align: TOP_MID
           x: -170
           y: 22
-          text_font: montserrat_16
+          text_font: font_ui_16
           text: "IN ---°C"
           text_color: 0x555555
       - label:
@@ -2054,7 +2656,7 @@ lvgl:
           align: TOP_MID
           x: -30
           y: 22
-          text_font: montserrat_16
+          text_font: font_ui_16
           text: "OUT ---°C"
           text_color: 0x555555
       - button:
@@ -2074,16 +2676,39 @@ lvgl:
                 id: lbl_daynight_toggle
                 align: CENTER
                 text: "AUTO"
-                text_font: montserrat_16
+                text_font: font_ui_16
                 text_color: 0xBDC1C6
           on_click:
-            - script.execute: cycle_daynight
+            # Used to cycle AUTO->DAY->NIGHT in place - now opens the
+            # brightness/day-night popup pages.md §4 always wanted
+            # (see show_daynight_popup/draw_daynight_popup above).
+            - script.execute: show_daynight_popup
+      - button:
+          id: btn_sleep_now
+          align: TOP_RIGHT
+          x: -320
+          y: 14
+          width: 90
+          height: 36
+          radius: 8
+          bg_color: 0x202124
+          border_width: 1
+          border_color: 0x3C4043
+          shadow_width: 0
+          widgets:
+            - label:
+                align: CENTER
+                text: "SLEEP"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+          on_click:
+            - script.execute: toggle_sleep_manual
       - label:
           id: lbl_status_link
           align: TOP_RIGHT
           x: -20
           y: 24
-          text_font: montserrat_16
+          text_font: font_ui_16
           text: "NO LINK"
           text_color: 0x555555
       - obj:
@@ -2099,13 +2724,26 @@ lvgl:
           radius: 0
 
       # ---- Left nav rail (x 0-nav_w, y bar_h-screen_h) ----
+      # Real bug fixed (repo-owner report): this used to run the full
+      # remaining screen height (bar_h..screen_h), which only looks right
+      # once every nav entry in pages.md's catalog exists. With just 3 of
+      # ~8 planned entries built so far, the rail's own buttons stop at
+      # y=424 (3*120 below bar_h) but this divider kept going all the way
+      # to y=800 - a thin grey line hanging in otherwise-empty black
+      # space below the last button (TRUMA), with nothing to visually
+      # anchor it, reads exactly like a stray leftover element even
+      # though it's the same intentional nav/content separator that's
+      # perfectly at home *behind* the buttons above it. Fix: stop it at
+      # the bottom of the last real button instead of the screen edge.
+      # ⚠ Extend `height:` (and move this comment) every time a new nav
+      # entry is added - height = 120 * <number of nav buttons>.
       - obj:
           id: obj_nav_rule
           align: TOP_LEFT
           x: 129 # = nav_w - 1
           y: ${bar_h}
           width: 1
-          height: 736 # = screen_h - bar_h
+          height: 360 # = 120px per nav button * 3 buttons (Home/Electric/Truma)
           bg_color: 0x3C4043
           bg_opa: COVER
           border_width: 0
@@ -2127,7 +2765,7 @@ lvgl:
                 id: lbl_nav_home
                 align: CENTER
                 text: "HOME"
-                text_font: montserrat_16
+                text_font: font_ui_16
                 text_color: 0x2ECC71
           on_click:
             - script.execute: nav_show_home
@@ -2148,7 +2786,7 @@ lvgl:
                 id: lbl_nav_electric
                 align: CENTER
                 text: "ELECTRIC"
-                text_font: montserrat_16
+                text_font: font_ui_16
                 text_color: 0xBDC1C6
           on_click:
             - script.execute: nav_show_electric
@@ -2169,10 +2807,194 @@ lvgl:
                 id: lbl_nav_climate
                 align: CENTER
                 text: "TRUMA"
-                text_font: montserrat_16
+                text_font: font_ui_16
                 text_color: 0xBDC1C6
           on_click:
             - script.execute: nav_show_climate
+
+      # ---- Day/night + brightness popup (pages.md §4) - reachable from
+      # every page via btn_daynight_toggle above, same backdrop-plus-
+      # panel shape as the Electric page's Charger popup.
+      - button:
+          id: obj_daynight_popup_backdrop
+          align: TOP_LEFT
+          x: 0
+          y: 0
+          width: ${screen_w}
+          height: ${screen_h}
+          bg_color: 0x000000
+          bg_opa: 70%
+          border_width: 0
+          radius: 0
+          shadow_width: 0
+          hidden: true
+          on_click:
+            - script.execute: close_daynight_popup
+
+      - obj:
+          id: obj_daynight_popup_panel
+          align: CENTER
+          width: 520
+          height: 360
+          radius: 16
+          bg_color: 0x1A1C1E
+          bg_opa: COVER
+          border_width: 2
+          border_color: 0x4A9EFF
+          hidden: true
+          widgets:
+            - label:
+                align: TOP_MID
+                y: 20
+                text: "DISPLAY"
+                text_font: font_ui_20
+                text_color: 0xBDC1C6
+
+            - label:
+                align: TOP_MID
+                y: 62
+                text: "TAG / NACHT"
+                text_font: font_ui_16
+                text_color: 0x707070
+
+            - button:
+                id: btn_daynight_mode_auto
+                align: TOP_MID
+                x: -165
+                y: 90
+                width: 100
+                height: 56
+                radius: 12
+                bg_color: 0x202124
+                border_width: 1
+                border_color: 0x3C4043
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "AUTO"
+                      text_font: font_ui_16
+                      text_color: 0xBDC1C6
+                on_click:
+                  - script.execute: {id: act_daynight_set_mode, mode: 0}
+
+            - button:
+                id: btn_daynight_mode_day
+                align: TOP_MID
+                x: 0
+                y: 90
+                width: 100
+                height: 56
+                radius: 12
+                bg_color: 0x202124
+                border_width: 1
+                border_color: 0x3C4043
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "DAY"
+                      text_font: font_ui_16
+                      text_color: 0xBDC1C6
+                on_click:
+                  - script.execute: {id: act_daynight_set_mode, mode: 1}
+
+            - button:
+                id: btn_daynight_mode_night
+                align: TOP_MID
+                x: 165
+                y: 90
+                width: 100
+                height: 56
+                radius: 12
+                bg_color: 0x202124
+                border_width: 1
+                border_color: 0x3C4043
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "NIGHT"
+                      text_font: font_ui_16
+                      text_color: 0xBDC1C6
+                on_click:
+                  - script.execute: {id: act_daynight_set_mode, mode: 2}
+
+            - label:
+                align: TOP_MID
+                y: 172
+                text: "HINTERGRUNDBELEUCHTUNG"
+                text_font: font_ui_16
+                text_color: 0x707070
+
+            # No PWM-capable backlight GPIO confirmed yet (see
+            # apply_backlight's own comment) - the slider still works
+            # and persists (g_backlight_pct), it just has nothing real
+            # to dim until that pin is found.
+            - slider:
+                id: sld_backlight
+                align: TOP_MID
+                y: 210
+                width: 420
+                height: 24
+                min_value: 10
+                max_value: 100
+                value: 100
+                bg_color: 0x202124
+                indicator:
+                  bg_color: 0x4A9EFF
+                knob:
+                  bg_color: 0xBDC1C6
+                on_value:
+                  - script.execute:
+                      id: act_backlight_set
+                      pct: !lambda "return (int) x;"
+
+            - label:
+                id: lbl_backlight_pct
+                align: TOP_MID
+                y: 246
+                text: "100%"
+                text_font: font_ui_16
+                text_color: 0xBDC1C6
+
+            - button:
+                id: btn_daynight_popup_close
+                align: BOTTOM_MID
+                y: -20
+                width: 200
+                height: 56
+                radius: 12
+                bg_color: 0x202124
+                border_width: 1
+                border_color: 0x3C4043
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "SCHLIESSEN"
+                      text_font: font_ui_16
+                      text_color: 0xBDC1C6
+                on_click:
+                  - script.execute: close_daynight_popup
+
+      # ---- Sleep overlay (pages.md's display-power open item) - LAST in
+      # this widget list on purpose: LVGL draws top_layer widgets in list
+      # order, so this has to come after the popup above (and everything
+      # else here) to actually sit on top of it and catch the waking tap
+      # itself, rather than the tap falling through to the popup or
+      # whatever page is underneath.
+      - button:
+          id: obj_sleep_overlay
+          align: TOP_LEFT
+          x: 0
+          y: 0
+          width: ${screen_w}
+          height: ${screen_h}
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          radius: 0
+          shadow_width: 0
+          hidden: true
+          on_click:
+            - script.execute: wake_from_sleep
 
   pages:
     # =========================================================================
@@ -2219,16 +3041,22 @@ lvgl:
             # show_date: false (the default) - repo owner doesn't want
             # the date/day shown, and one less text draw per frame is a
             # small mercy for the same PSRAM-canvas cost noted below.
-            # render_interval default is 100ms; halved here because
-            # `transparent: true` forces a full-canvas redraw every
-            # frame (README: "transparent: true still does a full
-            # redraw every frame, since a plain rect can't erase to
-            # transparent") - combined with this canvas already having
-            # to live in PSRAM (see the boot-log warning noted in
-            # README's roadmap), redrawing that often was a real risk,
-            # not a style choice. Revisit if the second hand looks
-            # choppy on the real device - that's the direct trade-off.
-            render_interval: 200ms
+            #
+            # render_interval was halved to 200ms here as a mitigation
+            # for `transparent: true` forcing a full-canvas-plus-60-ticks
+            # redraw every single frame - real bug, root-caused and
+            # fixed upstream in m5dial_clock_sbb (see that repo's
+            # README "Fixed" section and this repo's own roadmap): with
+            # `show_face: true` (set above), the component no longer
+            # needs that full redraw except on the first frame/a
+            # night_mode flip, exactly like the non-transparent case
+            # already didn't. Left at the component's own 100ms default
+            # now that the actual cost the 200ms was working around is
+            # gone - the choppy/"hopping" second hand this was meant to
+            # avoid was actually caused BY that cost (a full 60-tick
+            # PSRAM repaint taking longer than the render interval,
+            # which then shows up as the hand jumping to catch up),
+            # not helped by widening the interval further.
 
         # ---- Left half: one tile per switch (pages.md §6) ---------------
         # Fridge is reserved regardless of outcome (pages.md §6: "user is
@@ -2255,14 +3083,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "POWER (12V)"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_12v
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_12v_mirror
@@ -2288,14 +3116,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "AUX"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_aux
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_aux_mirror
@@ -2321,14 +3149,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "LIGHT"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_light
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_light_mirror
@@ -2354,14 +3182,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "PUMP"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_pump
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_pump_mirror
@@ -2387,14 +3215,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "ICEEX"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_eisex
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
             on_click:
               - switch.toggle: sw_eisex_mirror
@@ -2422,14 +3250,14 @@ lvgl:
                   align: TOP_MID
                   y: 14
                   text: "FRIDGE"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_tile_fridge
                   align: CENTER
                   y: 8
                   text: "---"
-                  text_font: montserrat_24
+                  text_font: font_ui_24
                   text_color: 0x555555
 
     # =========================================================================
@@ -2441,20 +3269,23 @@ lvgl:
       on_load:
         - script.execute: poll_electric
       widgets:
-        # ---- Row 1 (y=252): Shore -> Inverter/Charger -> AC Loads -------
+        # ---- Row 1 (y=162, h=210): Shore -> Inverter/Charger -> AC Loads
         # Horizontally centered as a block between the nav rail (ends
         # x130) and the right edge (x1280): 3x300 + 2x40 gap = 980px,
         # centered in the 1150px content area -> starts x215. Row 2
         # below centers its own, differently-sized block the same way.
-        # Vertically, the two-row block (row1 130 + 60 gap + row2 170)
-        # is centered in the content height (736) -> row1 starts y252.
+        # Vertically, the two-row block (row1 210 + 40 gap + row2 290 =
+        # 540) is centered in the content height (736) -> 98px margin
+        # top and bottom, row1 starts y162 (item 9: both rows taller
+        # than before and the margins now match, top and bottom - this
+        # page used to leave most of the content area empty).
         - obj:
             id: obj_electric_shore
             align: TOP_LEFT
             x: 215
-            y: 252
+            y: 162
             width: 300
-            height: 130
+            height: 210
             radius: 12
             bg_color: 0x202124
             bg_opa: COVER
@@ -2465,39 +3296,62 @@ lvgl:
                   align: TOP_MID
                   y: 10
                   text: "SHORE"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
+              # Connected/disconnected - smartebl's own link reading
+              # (see draw_electric) - kept as its own line now that the
+              # main value below is the MultiPlus's real input power,
+              # not this status text like it used to be.
               - label:
-                  id: lbl_electric_shore
-                  align: CENTER
-                  y: -4
+                  id: lbl_electric_shore_status
+                  align: TOP_MID
+                  y: 34
                   text: "---"
-                  text_font: montserrat_20
+                  text_font: font_ui_16
                   text_color: 0x555555
               - label:
-                  id: lbl_electric_shore_sub
-                  align: BOTTOM_MID
-                  y: -10
-                  text: ""
-                  text_font: montserrat_16
+                  id: lbl_electric_shore
+                  align: TOP_MID
+                  y: 74
+                  text: "--- W"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_shore_sub_l
+                  align: BOTTOM_LEFT
+                  x: 14
+                  y: -14
+                  text: "---V"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+              - label:
+                  id: lbl_electric_shore_sub_r
+                  align: BOTTOM_RIGHT
+                  x: -14
+                  y: -14
+                  text: "---Hz"
+                  text_font: font_ui_16
                   text_color: 0xBDC1C6
         - label:
             align: TOP_LEFT
             x: 525
-            y: 300
-            text_font: montserrat_24
+            y: 255
+            text_font: font_ui_24
             text: "→"
             text_color: 0x707070
 
         # Inverter/Charger is now a BUTTON - tap opens the mode/shore-
-        # limit popup at the bottom of this page's widget list.
+        # limit popup at the bottom of this page's widget list. Already
+        # "almost perfect" per repo-owner feedback - only the popup
+        # itself changed (mode button order, limit centering), not this
+        # box's own content.
         - button:
             id: btn_electric_charger
             align: TOP_LEFT
             x: 555
-            y: 252
+            y: 162
             width: 300
-            height: 130
+            height: 210
             radius: 12
             bg_color: 0x202124
             border_width: 1
@@ -2508,38 +3362,38 @@ lvgl:
                   align: TOP_MID
                   y: 10
                   text: "INVERTER / CHARGER"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_charger
-                  align: CENTER
-                  y: -4
+                  align: TOP_MID
+                  y: 74
                   text: "---"
-                  text_font: montserrat_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
                   id: lbl_electric_charger_sub
                   align: BOTTOM_MID
-                  y: -10
+                  y: -14
                   text: "---"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x555555
             on_click:
               - script.execute: show_charger_popup
         - label:
             align: TOP_LEFT
             x: 865
-            y: 300
-            text_font: montserrat_24
+            y: 255
+            text_font: font_ui_24
             text: "→"
             text_color: 0x707070
         - obj:
             id: obj_electric_ac_loads
             align: TOP_LEFT
             x: 895
-            y: 252
+            y: 162
             width: 300
-            height: 130
+            height: 210
             radius: 12
             bg_color: 0x202124
             bg_opa: COVER
@@ -2548,121 +3402,200 @@ lvgl:
             widgets:
               - label:
                   align: TOP_MID
-                  y: 12
+                  y: 10
                   text: "AC LOADS"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_ac_loads
-                  align: CENTER
-                  y: 8
+                  align: TOP_MID
+                  y: 74
                   text: "--- W"
-                  text_font: montserrat_20
+                  text_font: font_ui_24
                   text_color: 0x555555
+              - label:
+                  id: lbl_electric_ac_loads_sub_l
+                  align: BOTTOM_LEFT
+                  x: 14
+                  y: -14
+                  text: "---V"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+              - label:
+                  id: lbl_electric_ac_loads_sub_r
+                  align: BOTTOM_RIGHT
+                  x: -14
+                  y: -14
+                  text: "---Hz"
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
 
         - label:
             align: TOP_LEFT
             x: 695
-            y: 400
-            text_font: montserrat_24
+            y: 380
+            text_font: font_ui_24
             text: "↓"
             text_color: 0x707070
 
-        # ---- Row 2 (battery-centered y=442): Solar -> Battery (emphasized) -> DC Loads
-        - obj:
-            id: obj_electric_solar
+        # ---- Row 2 (y=412, h=290): Solar -> Battery (emphasized) -> DC Loads
+        # Solar Yield is now a BUTTON too - tap opens its own ON/OFF +
+        # charge-limit popup (show_solar_popup), same shape as the
+        # Charger box above.
+        - button:
+            id: btn_electric_solar
             align: TOP_LEFT
             x: 235
-            y: 462
+            y: 412
             width: 260
-            height: 130
+            height: 290
             radius: 12
             bg_color: 0x202124
-            bg_opa: COVER
             border_width: 1
             border_color: 0x3C4043
+            shadow_width: 0
             widgets:
               - label:
                   align: TOP_MID
                   y: 12
                   text: "SOLAR YIELD"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_solar
-                  align: CENTER
-                  y: -4
+                  align: TOP_MID
+                  y: 74
                   text: "--- W"
-                  text_font: montserrat_20
+                  text_font: font_ui_24
                   text_color: 0x555555
               - label:
-                  id: lbl_electric_solar_sub
-                  align: BOTTOM_MID
-                  y: -10
-                  text: ""
-                  text_font: montserrat_16
+                  id: lbl_electric_solar_sub_l
+                  align: BOTTOM_LEFT
+                  x: 14
+                  y: -14
+                  text: "---V"
+                  text_font: font_ui_16
                   text_color: 0x707070
+              - label:
+                  id: lbl_electric_solar_sub_r
+                  align: BOTTOM_RIGHT
+                  x: -14
+                  y: -14
+                  text: "---A"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+            on_click:
+              - script.execute: show_solar_popup
         - label:
             align: TOP_LEFT
             x: 505
-            y: 512
-            text_font: montserrat_24
+            y: 545
+            text_font: font_ui_24
             text: "→"
             text_color: 0x707070
-        - obj:
-            id: obj_electric_battery
+
+        # Battery - now a BUTTON (opens the park-mode popup below, see
+        # show_battery_popup). Taller (170 -> 290) to fit the new state/
+        # remaining-time line and the 3-across V/A/W row without the
+        # overlap the repo owner reported (the old mid line and the
+        # starter-voltage line used to sit right on top of each other).
+        - button:
+            id: btn_electric_battery
             align: TOP_LEFT
             x: 535
-            y: 442
+            y: 412
             width: 340
-            height: 170
+            height: 290
             radius: 16
             bg_color: 0x14324F
-            bg_opa: COVER
             border_width: 2
             border_color: 0x4A9EFF
+            shadow_width: 0
             widgets:
               - label:
                   align: TOP_MID
                   y: 12
                   text: "BATTERY"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0xBDC1C6
               - label:
                   id: lbl_electric_batt_main
                   align: TOP_MID
                   y: 34
                   text: "---%"
-                  text_font: montserrat_40
+                  text_font: font_ui_40
+                  text_color: 0x555555
+              # State (IDLE/CHARGING/DISCHARGING) + remaining time -
+              # between the main SOC and the bottom V/A/W row.
+              - label:
+                  id: lbl_electric_batt_state
+                  align: TOP_MID
+                  y: 104
+                  text: "---"
+                  text_font: font_ui_16
                   text_color: 0x555555
               - label:
-                  id: lbl_electric_batt_mid
+                  id: lbl_electric_batt_time
                   align: TOP_MID
-                  y: 100
-                  text: "---V  ---A"
-                  text_font: montserrat_16
+                  y: 126
+                  text: ""
+                  text_font: font_ui_16
+                  text_color: 0xBDC1C6
+              # DC bus V / A / W, left / middle / right.
+              - label:
+                  id: lbl_electric_batt_v
+                  align: TOP_LEFT
+                  x: 14
+                  y: 196
+                  width: 100
+                  text_align: CENTER
+                  text: "---V"
+                  text_font: font_ui_16
                   text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_a
+                  align: TOP_MID
+                  y: 196
+                  width: 100
+                  text_align: CENTER
+                  text: "---A"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_w
+                  align: TOP_RIGHT
+                  x: -14
+                  y: 196
+                  width: 100
+                  text_align: CENTER
+                  text: "---W"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              # Starter battery voltage - smartebl's own link reading
+              # (see draw_electric), always at the very bottom.
               - label:
                   id: lbl_electric_batt_sub
                   align: BOTTOM_MID
-                  y: -10
+                  y: -14
                   text: "START ---V"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x555555
+            on_click:
+              - script.execute: show_battery_popup
         - label:
             align: TOP_LEFT
             x: 885
-            y: 512
-            text_font: montserrat_24
+            y: 545
+            text_font: font_ui_24
             text: "→"
             text_color: 0x707070
         - obj:
             id: obj_electric_dc_loads
             align: TOP_LEFT
             x: 915
-            y: 462
+            y: 412
             width: 260
-            height: 130
+            height: 290
             radius: 12
             bg_color: 0x202124
             bg_opa: COVER
@@ -2673,14 +3606,14 @@ lvgl:
                   align: TOP_MID
                   y: 12
                   text: "DC LOADS"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
               - label:
                   id: lbl_electric_dc_loads
-                  align: CENTER
-                  y: 8
+                  align: TOP_MID
+                  y: 74
                   text: "--- W"
-                  text_font: montserrat_20
+                  text_font: font_ui_24
                   text_color: 0x555555
 
         # ---- Charger/Inverter popup: mode (select.multiplus) + shore
@@ -2722,18 +3655,21 @@ lvgl:
                   align: TOP_MID
                   y: 20
                   text: "INVERTER / CHARGER"
-                  text_font: montserrat_20
+                  text_font: font_ui_20
                   text_color: 0xBDC1C6
 
               - label:
                   align: TOP_MID
                   y: 60
                   text: "MODUS"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
 
+              # Left-to-right order per repo-owner spec: OFF, CHARGER,
+              # INVERTER, ON (used to be ON/CHG/INV/OFF) - only the x
+              # positions moved, ids/on_click options unchanged.
               - button:
-                  id: btn_multiplus_mode_on
+                  id: btn_multiplus_mode_off
                   align: TOP_MID
                   x: -225
                   y: 90
@@ -2746,11 +3682,11 @@ lvgl:
                   widgets:
                     - label:
                         align: CENTER
-                        text: "ON"
-                        text_font: montserrat_20
+                        text: "OFF"
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
-                    - script.execute: {id: act_multiplus_set_mode, option: "on"}
+                    - script.execute: {id: act_multiplus_set_mode, option: "off"}
 
               - button:
                   id: btn_multiplus_mode_chg
@@ -2767,7 +3703,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "CHG"
-                        text_font: montserrat_20
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: {id: act_multiplus_set_mode, option: "charger_only"}
@@ -2787,13 +3723,13 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "INV"
-                        text_font: montserrat_20
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: {id: act_multiplus_set_mode, option: "inverter_only"}
 
               - button:
-                  id: btn_multiplus_mode_off
+                  id: btn_multiplus_mode_on
                   align: TOP_MID
                   x: 225
                   y: 90
@@ -2806,17 +3742,17 @@ lvgl:
                   widgets:
                     - label:
                         align: CENTER
-                        text: "OFF"
-                        text_font: montserrat_20
+                        text: "ON"
+                        text_font: font_ui_20
                         text_color: 0xBDC1C6
                   on_click:
-                    - script.execute: {id: act_multiplus_set_mode, option: "off"}
+                    - script.execute: {id: act_multiplus_set_mode, option: "on"}
 
               - label:
                   align: TOP_MID
                   y: 190
                   text: "LANDSTROM-LIMIT"
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text_color: 0x707070
 
               - button:
@@ -2834,17 +3770,23 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "-"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_multiplus_limit_down
 
+              # Real bug fixed: no `text_align:` meant LVGL left-aligned
+              # this text inside its own 200px box, so it visibly drifted
+              # off-center as the digit count changed ("LIMIT 4A" vs
+              # "LIMIT 16A") instead of staying centered between the -/+
+              # buttons either way.
               - label:
                   id: lbl_multiplus_limit
                   align: TOP_MID
                   y: 236
-                  width: 200
-                  text_font: montserrat_24
+                  width: 190
+                  text_align: CENTER
+                  text_font: font_ui_24
                   text: "LIMIT --A"
                   text_color: 0x555555
 
@@ -2863,7 +3805,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "+"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_multiplus_limit_up
@@ -2882,10 +3824,254 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "SCHLIESSEN"
-                        text_font: montserrat_16
+                        text_font: font_ui_16
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: close_charger_popup
+
+        # ---- Solar Yield popup: ON/OFF (switch.mppt_190w) + charge-
+        # current limit (number.mppt_190w_stromstarke) - same backdrop/
+        # panel shape as the Charger popup above, 2 mode buttons instead
+        # of 4.
+        - button:
+            id: obj_solar_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_solar_popup
+
+        - obj:
+            id: obj_solar_popup_panel
+            align: CENTER
+            width: 640
+            height: 420
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "SOLAR YIELD"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "MODUS"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_mppt_mode_off
+                  align: TOP_MID
+                  x: -75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "OFF"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_toggle
+
+              - button:
+                  id: btn_mppt_mode_on
+                  align: TOP_MID
+                  x: 75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ON"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_toggle
+
+              - label:
+                  align: TOP_MID
+                  y: 190
+                  text: "LADESTROM-LIMIT"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_mppt_limit_down
+                  align: TOP_MID
+                  x: -140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_limit_down
+
+              - label:
+                  id: lbl_mppt_limit
+                  align: TOP_MID
+                  y: 236
+                  width: 190
+                  text_align: CENTER
+                  text_font: font_ui_24
+                  text: "LIMIT --A"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_mppt_limit_up
+                  align: TOP_MID
+                  x: 140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_limit_up
+
+              - button:
+                  id: btn_solar_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_solar_popup
+
+        # ---- Battery popup: switch.fram_parkmodus, a single toggle.
+        - button:
+            id: obj_battery_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_battery_popup
+
+        - obj:
+            id: obj_battery_popup_panel
+            align: CENTER
+            width: 520
+            height: 300
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "BATTERY"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "PARKMODUS"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_park_toggle
+                  align: TOP_MID
+                  y: 96
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_park_state
+                        align: CENTER
+                        text: "---"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_park_toggle
+
+              - button:
+                  id: btn_battery_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_battery_popup
 
     # =========================================================================
     # Truma (page_climate) - pages.md §5, ONE page for both sides of the
@@ -2932,8 +4118,8 @@ lvgl:
               - label:
                   align: TOP_MID
                   y: 0
-                  text_font: montserrat_20
-                  text: "HEIZUNG (RAUM)"
+                  text_font: font_ui_20
+                  text: "HEIZUNG"
                   text_color: 0x707070
 
               - arc:
@@ -2959,17 +4145,29 @@ lvgl:
                   id: lbl_climate_temp
                   align: TOP_MID
                   y: 120
-                  text_font: montserrat_40
+                  text_font: font_ui_40
                   text: "---°C"
                   text_color: 0x555555
 
+              # "SOLL" / "nn°C" stacked, centered in the gap BETWEEN the
+              # +/- buttons below (not a separate line above them, like
+              # this used to be) - x:0 sits exactly midway between
+              # btn_climate_temp_down's x:-95 and btn_climate_temp_up's
+              # x:95, width:100 keeps it clear of both (each button is
+              # 80px wide, so the gap between their inner edges is
+              # 2*95-80=110px). Two lines via "\n" in one label rather
+              # than two separate ones - simpler to keep centered as one
+              # unit, and there's only ever one color/visibility state to
+              # update (see draw_climate below).
               - label:
                   id: lbl_climate_target
                   align: TOP_MID
-                  y: 262
-                  width: 260
-                  text_font: montserrat_20
-                  text: "SOLL ---°C"
+                  x: 0
+                  y: 316
+                  width: 100
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "SOLL\n---°C"
                   text_color: 0x555555
 
               - button:
@@ -2987,7 +4185,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "-"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_climate_temp_down
@@ -3007,7 +4205,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "+"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_climate_temp_up
@@ -3027,7 +4225,7 @@ lvgl:
                         id: lbl_climate_heater
                         align: CENTER
                         text: "HEIZ ---"
-                        text_font: montserrat_20
+                        text_font: font_ui_20
                         text_color: 0x555555
                   on_click:
                     - script.execute: act_climate_heater
@@ -3036,7 +4234,7 @@ lvgl:
                   id: lbl_climate_active
                   align: TOP_MID
                   y: 462
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text: "AKTIV ---"
                   text_color: 0x555555
 
@@ -3060,7 +4258,7 @@ lvgl:
                     - label:
                         id: lbl_climate_fan_mode
                         align: CENTER
-                        text_font: montserrat_16
+                        text_font: font_ui_16
                         text: "LÜFTER ---"
                         text_color: 0x555555
                   on_click:
@@ -3080,8 +4278,8 @@ lvgl:
               - label:
                   align: TOP_MID
                   y: 0
-                  text_font: montserrat_20
-                  text: "BOILER (WASSER)"
+                  text_font: font_ui_20
+                  text: "BOILER"
                   text_color: 0x707070
 
               - arc:
@@ -3107,17 +4305,21 @@ lvgl:
                   id: lbl_boiler_temp
                   align: TOP_MID
                   y: 120
-                  text_font: montserrat_40
+                  text_font: font_ui_40
                   text: "---°C"
                   text_color: 0x555555
 
+              # "SOLL" / "nn°C" stacked, centered between the +/- buttons -
+              # same layout as lbl_climate_target above, mirrored.
               - label:
                   id: lbl_boiler_target
                   align: TOP_MID
-                  y: 262
-                  width: 260
-                  text_font: montserrat_20
-                  text: "SOLL ---°C"
+                  x: 0
+                  y: 316
+                  width: 100
+                  text_align: CENTER
+                  text_font: font_ui_16
+                  text: "SOLL\n---°C"
                   text_color: 0x555555
 
               - button:
@@ -3135,7 +4337,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "-"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_boiler_temp_down
@@ -3155,7 +4357,7 @@ lvgl:
                     - label:
                         align: CENTER
                         text: "+"
-                        text_font: montserrat_24
+                        text_font: font_ui_24
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_boiler_temp_up
@@ -3175,7 +4377,7 @@ lvgl:
                         id: lbl_boiler_heater
                         align: CENTER
                         text: "BOILER ---"
-                        text_font: montserrat_20
+                        text_font: font_ui_20
                         text_color: 0x555555
                   on_click:
                     - script.execute: act_boiler_heater
@@ -3184,7 +4386,7 @@ lvgl:
                   id: lbl_boiler_active
                   align: TOP_MID
                   y: 462
-                  text_font: montserrat_16
+                  text_font: font_ui_16
                   text: "AKTIV ---"
                   text_color: 0x555555
 
@@ -3196,6 +4398,6 @@ lvgl:
             align: BOTTOM_MID
             y: -12
             width: 1000
-            text_font: montserrat_16
+            text_font: font_ui_16
             text: ""
             text_color: 0x555555

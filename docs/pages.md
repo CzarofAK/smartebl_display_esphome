@@ -74,23 +74,36 @@ a deliberate user call, not an oversight.
 
 ### Brightness / Day-Night icon
 
-Tap opens a popup: a brightness slider + an AUTO/DAY/NIGHT selector.
+**Implemented** (2026-09-06): tap opens a popup (`obj_daynight_popup_panel`,
+top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
 
 - **Day/Night color scheme** (dark-on-black ↔ light, the same swap the
   `sbb_clock` widget already does via `set_night_mode()`) is software-only
-  and can ship regardless of hardware status. Automatic default: base it
-  on `sun.sun` elevation from Home Assistant, the same source
-  `m5dial_fram`'s clock page uses (`id(my_sun).is_below_horizon()`) —
-  there's no confirmed ambient-light sensor on this board. The popup's
-  AUTO/DAY/NIGHT selector overrides this per user choice.
-- **Brightness slider is blocked on a hardware unknown**: `docs/hardware.md`
-  currently leaves `reset_pin`/`enable_pin` unconfigured on this board —
-  the backlight is "either always-on or controlled some other way", no
-  PWM-capable GPIO confirmed. The slider UI can be built now, but it has
-  nothing to drive until that pin is found and wired (see §7's open item —
-  the user-supplied Waveshare wiki page for this exact panel is the next
-  place to check once this session's network block on `waveshare.com`
-  doesn't apply).
+  and ships regardless of hardware status. Automatic default: `sun.sun`
+  from Home Assistant (`s_sun`), the same source `m5dial_fram`'s clock
+  page uses — there's no confirmed ambient-light sensor on this board.
+  The popup's AUTO/DAY/NIGHT selector (`act_daynight_set_mode`) overrides
+  this per user choice, persisted (`g_daynight`, `restore_value: true`).
+- **Brightness slider is built, but still has nothing real to drive**:
+  `docs/hardware.md` still leaves `reset_pin`/`enable_pin` unconfigured on
+  this board — no PWM-capable backlight GPIO confirmed yet. The slider
+  and its backing global (`g_backlight_pct`, persisted) are in place;
+  `apply_backlight` is the one place a real `output:`/`ledc` write
+  belongs once that pin is found (see §7's open item — the user-supplied
+  Waveshare wiki page for this exact panel is the next place to check
+  once this session's network block on `waveshare.com` doesn't apply).
+
+### Sleep mode
+
+**Implemented** (2026-09-06), per repo-owner request: between 22:00 and
+08:00, the screen blanks after 10 minutes with no touch anywhere on the
+panel (`check_sleep_idle`, driven by `touchscreen: on_touch:`'s activity
+timer) — any touch wakes it immediately. A small manual SLEEP button next
+to the day/night one (`toggle_sleep_manual`) blanks on demand at any time,
+not just inside the window. Simulated with a full-screen black overlay
+(`obj_sleep_overlay`, top_layer, drawn last so it also catches the waking
+tap itself) rather than a real backlight-off, for the same unconfirmed-pin
+reason as the brightness slider above.
 
 ## 5. Page catalog
 
@@ -103,10 +116,12 @@ listed in the nav rail's intended top-to-bottom order.
 | 0 | Home | — | Clock (`sbb_clock`, right half) + 5 switch tiles + Fridge tile + Alarmo tile (§6) | link (switches) + HA (clock temp) |
 | 1 | Electric | 1: Overview, 2: Fuses | Victron-style power flow (Shore→Inverter→AC Loads / Solar→Battery→DC Loads) per `smartebl_display/docs/design.md`'s existing mockup — reuse directly, don't redesign; page 2: 16-fuse grid, `fuse_fN_ok = voltage > 1.0 V` per `design_rules.md` §2 | link (`docs/protocol.md` groups 1, 3) |
 | — | *implemented, page 1* | — | **Superseded finding, corrected:** this repo initially assumed the vehicle had no Victron gear behind `smartebl`, so AC Loads/Solar Yield/DC Loads rendered permanently invalid. The repo owner confirmed a real SmartShunt (battery monitor) and MultiPlus (inverter/charger), integrated into HA via the exact same entities `m5dial_fram`'s `page_power_1/2/3.yaml` already use — now wired: **Battery** box shows SmartShunt SOC%/voltage/current (same 20%/40% thresholds as `page_power_1`); **Inverter/Charger** box (now a button) shows the MultiPlus's real mode (`select.multiplus` — ON/CHG/INV/OFF) and state (`sensor.multiplus_zustand`), tapping it opens a popup to set the mode directly and adjust the shore/grid current limit (`number.multiplus_strombegrenzung`, clamped 0-16A per `page_power_2`'s own real-wiring-ceiling note); **AC Loads** shows the MultiPlus's WR output power (`sensor.multiplus_0_wr_leistung`) as a % of the installed model's 1600W nominal rating, same caveat as `page_power_3`'s identical calculation (not exact, thermal derating untracked). **Solar Yield and DC Loads also confirmed real and wired**: an MPPT 190W solar charge controller (`sensor.mppt_190w_leistung_pv_ertrag` for the yield figure, `sensor.mppt_190w_zustand` for its status line — same "main value + humanized state" shape as the Charger box) and the GX device's own aggregate DC-consumption sensor (`sensor.gx_device_dc_verbrauch`) — not the SmartShunt's net current shown in the Battery box, a genuinely separate figure. Shore connected/disconnected stays `smartebl`'s own link reading (`shore_power_connected`) — that detection is real and cheap regardless. Page 2 (fuse grid) is not built yet. Page also recentered (both horizontally and vertically within the content area) per repo-owner feedback that it wasn't. | — |
+| — | *reworked, page 1 (2026-09-06)* | — | Per repo-owner spec: boxes grew (row heights 130/170px → 210/290px, matched top/bottom margins - the page used to leave most of its content area empty). **Shore**'s main value is now the MultiPlus's real input power (`sensor.multiplus_eingangsleistung_l1`), sub-left/right voltage/frequency (`_eingangsspannung_l1`/`_eingangsfrequenz_l1`) - replaces the old combined W+A sub-line; connected/disconnected (still `shore_power_connected`, smartebl's own link) is now its own status line above the main value instead of replacing it. **AC Loads** mirrors that shape with output power/voltage/frequency (`sensor.multiplus_ausgangsleistung_l1`/`_ausgangsspannung_l1`/`_ausgangsfrequenz_l1`) - replaces the old %-of-1600W-nominal figure (`sensor.multiplus_0_wr_leistung`), though the same 80%/95% warning coloring carries over against the new sensor. **Solar Yield** is now a button, opening its own popup (same shape as the Charger one) for ON/OFF (`switch.mppt_190w`) and charge-current limit (`number.mppt_190w_stromstarke`, no confirmed real ceiling yet - see the popup's own comment); sub-left/right are now the MPPT's own DC battery-bus voltage/current (`sensor.mppt_190w_dc_batterie_bus_spannung`/`_stromstarke`), replacing the humanized-zustand sub line. **Battery** gained an IDLE/CHARGING/DISCHARGING line (interpreted from the SmartShunt's net current, `sensor.smartshunt_dc_bus_stromstarke`, ±0.5A treated as idle) and a remaining-time line (`sensor.smartshunt_verbleibende_zeit`, shown only while discharging) between the SOC and a proper 3-across V/A/W bottom row (`smartshunt_dc_bus_spannung`/`_stromstarke`/`sensor.smartshunt_leistung`) - fixes a real overlap bug between the old combined mid-line and the starter-voltage line at the bottom; also gained its own popup for `switch.fram_parkmodus`. Starter battery voltage is unchanged (still `smartebl`'s own link reading, at the very bottom). **DC Loads**' main value is still a placeholder - repo owner: "tbd", no entity picked yet. Also fixed on the Charger popup: mode buttons were left-to-right ON/CHG/INV/OFF, now OFF/CHARGER/INVERTER/ON per repo-owner spec; the LIMIT label drifted off-center as its digit count changed for want of `text_align: CENTER`, now fixed; the OFF button's own "active" highlight used to be styled identically to "inactive". **Open question, not yet answered:** Victron's own GUIv2 Inverter/Charger detail screen has a vertical bar this page has no equivalent for - repo owner asked what it represents; best unconfirmed guess is the AC input current as a % of the configured input current limit (`sensor.multiplus_eingangsstromstarke_l1` vs. `number.multiplus_strombegrenzung`, the same limit already wired into this popup) - needs checking against a real GX Touch/VRM before building anything against it. | — |
 | 2 | Levels | — | Fresh / Waste / Gas A / Gas I / Diesel as vertical tank columns, per `smartebl_display/docs/design.md`'s existing Levels mockup. Gas combined-supply logic reused verbatim from `m5dial_fram/design_rules.md` §6 (`GAS LEER` only when **both** < 10%). Tank alarms surface in the status bar (§4), not a page footer — a deviation from `m5dial_fram`'s per-page-footer convention, deliberate per §1 above | link (group 2) |
 | 3 | Climate | — | Truma Combi 4 room-heating side: current/target temp, on/off, via the `womolin_controller` MQTT integration — same entities `m5dial_fram/page_climate.yaml` already uses | HA |
 | 4 | Boiler | — | Truma Combi 4 water-heating side: 3 fixed tiers (ECO/mid/BOOST), same `womolin_controller` integration as Climate | HA |
 | — | *implemented, merged* | — | **Per repo-owner request, Climate and Boiler share ONE page and ONE nav entry ("TRUMA")** — left half Heizung (room), right half Boiler (water), not two separate sections as originally cataloged above. Each half now has an arc (room temp as % of 5-30°C, water temp as % of 40-80°C — same "arc is always a % of a sensible range" rule as `m5dial_fram/design_rules.md` §8, since there's no natural 0-100% for a temperature otherwise) plus the touch-adapted +/- buttons (no arm/disarm step — there's no rotary encoder here to contend with page navigation over). Fan level, room-heating side only: turned out to be `climate.womolin_controller_mqtt_truma_room`'s own `fan_mode` attribute (a standard HA climate-domain concept, not a separate `select.*` entity as first assumed) — confirmed real values `off`/`low`/`medium`/`high`, read AND written now (`climate.set_fan_mode`) via a tap-to-cycle button, same single-button-cycle shape as the Electric page's `select.multiplus` MODE button used before it grew into a 4-button popup. A shared status/error footer (Truma CP Plus connectivity, error code, operating status) spans the bottom of the page once, not duplicated per half. | — |
+| — | *renamed/relaid-out (2026-09-06)* | — | Per repo-owner spec: on-screen headings shortened from "HEIZUNG (RAUM)"/"BOILER (WASSER)" to just "HEIZUNG"/"BOILER". The "SOLL nn°C" target line moved from a single line above the +/- buttons to two lines ("SOLL" / "nn°C", plus a third "ECO"/"BOOST" line on the Boiler side only) centered in the gap BETWEEN the +/- buttons instead. | — |
 | 5 | Fans | — | Fan board speed + Sprinter HVAC fan, same two entities as `m5dial_fram/page_fans.yaml` | HA |
 | 6 | Light/Features | — | Floor-plan view (§8) — room lights, lock/unlock, step, awning, iPixel LEDs | HA |
 | 7 | Sensors | 1: Sensors, 2: Levelling | Page 1: door/window/presence contacts, grid layout per `smartebl_display/docs/design.md`'s "Status Grid Overview" template; page 2: spirit level + per-corner cm-to-add, same 4 entities `m5dial_fram/page_levelling.yaml` reads | HA |

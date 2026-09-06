@@ -9,6 +9,16 @@ source directly from this session. Every row below says exactly how it
 was sourced and how confident that makes it — **check the "Confidence"
 column before trusting a pin number enough to wire it.**
 
+## Ethernet — REMOVED from `smart-ebl-display.yaml` (2026-09-06)
+
+Per repo-owner decision: "brauchen wir nicht" - the onboard PoE port was
+only ever an optional wired fallback (README.md's old "Networking" #2),
+never required now that Wi-Fi 6 via the ESP32-C6 is the active,
+always-on path. The `ethernet:` block is gone from the YAML; the two
+pin tables below are kept purely as historical reference (in case a
+future board revision wants the wired port back) - don't treat their
+presence here as meaning the feature is still configured.
+
 ## Confirmed — cross-checked against ESPHome's own source
 
 ESPHome's `ethernet` component hard-codes a fixed set of RMII pins for
