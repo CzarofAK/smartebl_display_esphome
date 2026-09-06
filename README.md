@@ -17,10 +17,12 @@ the main unit exposes works even if Wi-Fi/Home Assistant are down.
 
 Separately, the display itself connects to **Home Assistant over Wi-Fi 6**
 (via the board's onboard ESP32-C6 co-processor) for the usual HA integration,
-OTA updates, and remote logging. The board's onboard Ethernet (PoE) port is
-a third, independent, optional wired path — see "Networking" for how these
-three things relate, since two of them use "ETH"/RJ45 in their name for
-unrelated reasons and are easy to conflate.
+OTA updates, and remote logging — the only network path this display uses.
+The board also has an onboard Ethernet (PoE) port, but it's not configured
+here (removed 2026-09-06, not needed now that Wi-Fi 6 is the always-on
+path) — see "Networking" for the full picture, since it and the RS232 link
+both use "ETH"/RJ45-shaped things for unrelated reasons and are easy to
+conflate.
 
 ## Relationship to the other Smart EBL repositories
 
@@ -49,7 +51,7 @@ references, never edit them.
 | PSRAM | 32 MB, in-package, hex mode |
 | Flash | 32 MB NOR |
 | Programming | USB-C, wired to UART0 (likely through an onboard USB-to-serial bridge, not the P4's native USB-Serial-JTAG — see `docs/hardware.md`) |
-| Network | Wi‑Fi 6 via the onboard ESP32-C6 co-processor (`esp32_hosted`) — **active**, this display's connection to Home Assistant. Onboard Ethernet PHY (IP101GRI, RMII) with PoE — configured, optional wired path, unrelated to either Wi-Fi or the RS232 link to `smartebl`. See "Networking" below. |
+| Network | Wi‑Fi 6 via the onboard ESP32-C6 co-processor (`esp32_hosted`) — **active**, the only network path this display uses. The board also has an onboard Ethernet PHY (IP101GRI, RMII) with PoE, but it's **not configured** in `smart-ebl-display.yaml` — removed per repo-owner decision, not needed now that Wi-Fi 6 is the always-on path. See "Networking" below. |
 
 Everything above is sourced from one of: ESPHome's own `mipi_dsi`/
 `ethernet`/`esp32_hosted` component source, ESPHome's own board manifest
@@ -66,16 +68,18 @@ board's own schematic, and which are plain placeholders you choose
 yourself (the RS232 link UART pins). **Read that file's confidence
 column before flashing.**
 
-### Networking — three independent things, none of them each other
+### Networking — two independent things, not each other
 
-Easy to conflate since two of them involve the letters "ETH" and an RJ45
-connector for unrelated reasons. Spelled out once, here, rather than
-relying on context every time it comes up elsewhere in this repo:
+Easy to conflate since both involve an RJ45 connector for unrelated
+reasons (a third, the onboard Ethernet PHY, used to be part of this list
+too — removed 2026-09-06, see below). Spelled out once, here, rather
+than relying on context every time it comes up elsewhere in this repo:
 
 1. **Wi-Fi 6, via the onboard ESP32-C6 co-processor (`esp32_hosted`) —
-   ACTIVE, per user decision.** This is how the display talks to Home
-   Assistant (entities, OTA, logging) — configured in `.basics.yaml`
-   (from `basic.yaml.example`) exactly like Wi-Fi on the user's other,
+   ACTIVE, per user decision, and the ONLY network path this display
+   uses.** This is how the display talks to Home Assistant (entities,
+   OTA, logging) — configured in `.basics.yaml` (from
+   `basic.yaml.example`) exactly like Wi-Fi on the user's other,
    classic-ESP32 Smart EBL/FRAM devices, just riding over the C6's SDIO
    link instead of a native radio, since the P4 itself has none.
    ESPHome's own board manifest for this board ships this SDIO link and
@@ -88,34 +92,29 @@ relying on context every time it comes up elsewhere in this repo:
    keeping firmware current avoids that is untested here — worth
    checking that issue if you see similar symptoms.
 
-2. **The onboard Ethernet PHY (IP101GRI, RMII) with PoE** — the
-   ESP32-P4-WIFI6-POE-ETH board's *own* wired LAN port, configured (see
-   `docs/hardware.md`) but **optional and not required** now that Wi-Fi
-   is the active path — plug a cable in if you want a wired fallback,
-   leave it unplugged otherwise. Has nothing to do with either Wi-Fi or
-   item 3 below, despite sharing an RJ45 shape and the word "Ethernet."
-   ESPHome's board manifest configures both this and item 1
-   simultaneously without conflict; `smart-ebl-display.yaml`'s
-   `network: priority: [ethernet, wifi]` makes it deterministic —
-   wired wins the default route when a cable happens to be plugged in,
-   Wi-Fi otherwise.
+2. **The RS232 link to `smartebl` (`link_uart`, `docs/protocol.md`) —
+   NOT Ethernet, NOT a LAN protocol, despite using an RJ45 connector.**
+   `smartebl`'s own hardware carries RS232 + LIN + 12V over that
+   connector (see `smartebl`'s `CLAUDE.md`), and this display reaches it
+   through a **separate, custom RS232-to-3.3V-TTL interface board**. See
+   "The RS232 link" below for the full picture; this item exists here
+   mainly so nobody reads "RJ45" anywhere in this repo and assumes it's
+   real Ethernet.
 
-3. **The RS232 link to `smartebl` (`link_uart`, `docs/protocol.md`) —
-   NOT Ethernet, NOT a LAN protocol, despite also using an RJ45
-   connector.** `smartebl`'s own hardware carries RS232 + LIN + 12V
-   over that connector (see `smartebl`'s `CLAUDE.md`), and this display
-   reaches it through a **separate, custom RS232-to-3.3V-TTL interface
-   board** — not the onboard Ethernet PHY from item 2, which is a
-   different physical port entirely. See "The RS232 link" below for the
-   full picture; this item exists here mainly so nobody reads "RJ45" or
-   "ETH" anywhere in this repo and assumes it's real Ethernet.
+**The onboard Ethernet PHY (IP101GRI, RMII) with PoE** — the
+ESP32-P4-WIFI6-POE-ETH board's own wired LAN port — is **REMOVED from
+this config** (was item 2 in this list until 2026-09-06): per
+repo-owner decision ("brauchen wir nicht"), it was only ever an
+optional wired fallback and Wi-Fi 6 above is the always-on path this
+display actually needs. `docs/hardware.md` keeps its pin table as
+historical reference, marked removed there too.
 
 ## Architecture
 
 ```
 ┌─────────────────────────┐  RS232 + 12V (RJ45 connector, custom
 │   Smart EBL main unit   │  RS232-to-TTL interface board -
-│  (smartebl, ESP32-WROVER)│  NOT Ethernet, see "Networking" #3)
+│  (smartebl, ESP32-WROVER)│  NOT Ethernet, see "Networking" above)
 │  all sensors + switches │◄───────────────────────────────────┐
 └─────────────────────────┘                                    │
                                                                  ▼
@@ -123,11 +122,10 @@ relying on context every time it comes up elsewhere in this repo:
 │              Smart EBL Display (this repo, ESP32-P4)               │
 │  UART link (docs/protocol.md)  →  local mirrored sensors/switches  │
 │  LVGL touch UI (docs/design_rules.md)                              │
-└─────────────┬───────────────────────────────────────┬─────────────┘
-              │ Wi-Fi 6 (esp32_hosted) - ACTIVE        │ Ethernet PHY
-              ▼                                        │ (PoE) -
-      Home Assistant / OTA / logging                   ▼ optional,
-                                              wired fallback if plugged in
+└─────────────────────────────┬───────────────────────────────────────┘
+                               │ Wi-Fi 6 (esp32_hosted) - ACTIVE, only
+                               ▼ network path
+                     Home Assistant / OTA / logging
 ```
 
 ## The RS232 link — controlling everything `smartebl` controls, without a network hop
@@ -384,6 +382,101 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       (Levels, Fans, Light/Features, Sensors+Levelling, and the
       Electric section's fuse-grid sub-page) — this repo's own answer
       to what `smartebl_display`'s five sections should grow into here
+- [x] **Ethernet removed** per repo-owner decision ("brauchen wir
+      nicht") - the `ethernet:` block, `network: priority:`, and every
+      "active wired fallback" claim in this file are gone; Wi-Fi 6 is
+      now the only network path. `docs/hardware.md` keeps the PHY pin
+      table as historical reference, marked removed there too.
+- [x] **Real bug fixed: `[W][homeassistant.sensor:014]: 'climate...
+      truma_water': Can't convert 'None' to number!` warning spam.**
+      The Truma's `current_temperature`/`temperature` climate attributes
+      go HA-side `None` while the unit reports nothing usable, and a
+      numeric `sensor: platform: homeassistant` has no way to suppress
+      the warning it logs when that happens - fixed by reading the
+      attribute as a `text_sensor` instead (never tries a float parse
+      itself) and parsing it by hand into a `sensor: platform: template`
+      of the same id, skipping the publish (same as the old numeric
+      sensor's own silent-keep-last-value behavior) when it's
+      "None"/"unknown"/"unavailable". Applied to all four climate-
+      attribute readers (room/water × current/target) for the same
+      reason, not just the one that was actually seen warning.
+- [x] **Day/night is popup-based now** (`pages.md` §4's own long-
+      standing open item) - tapping the status bar's AUTO/DAY/NIGHT
+      button opens a popup with the AUTO/DAY/NIGHT picker AND a
+      brightness slider (`g_backlight_pct`, persisted). AUTO still
+      follows `sun.sun` exactly like before. The slider has nothing real
+      to dim yet - still blocked on the unconfirmed backlight PWM pin
+      (`docs/hardware.md`) - `apply_backlight` is the one place a real
+      `output:` write belongs once that pin is found.
+- [x] **Sleep mode added.** Auto: between 22:00 and 08:00, the screen
+      blanks after 10 minutes with no touch (`check_sleep_idle`,
+      `touchscreen: on_touch:`); any touch wakes it immediately. Manual:
+      a small SLEEP button next to the day/night one blanks on demand,
+      any time. Simulated with a full-screen black overlay, not a real
+      backlight-off, for the same unconfirmed-pin reason as the
+      brightness slider above.
+- [x] **Real bug fixed: the nav rail's own divider line ran the full
+      screen height** even though only 3 of ~8 planned nav entries
+      exist yet, leaving a stray-looking grey line hanging below the
+      last button (TRUMA) in otherwise-empty space. Now stops at the
+      bottom of the last real button; extend it when the next nav entry
+      is added (comment left in place at the widget itself).
+- [x] **Real bug fixed: German umlauts and the Victron-flow arrows
+      (→/↓) rendered as blank boxes.** ESPHome/LVGL's built-in
+      `montserrat_NN` fonts only rasterize plain ASCII - declared real
+      `font:` entries instead (`font_ui_16/20/24/40`, Montserrat via
+      `gfonts:`) with an explicit glyph list covering everything this
+      file's labels actually use, umlauts/ß/arrows included, and swapped
+      every `text_font: montserrat_NN` reference to the matching one.
+- [x] **Truma page: naming and layout cleanup.** "HEIZUNG (RAUM)" /
+      "BOILER (WASSER)" shortened to just "HEIZUNG" / "BOILER" per
+      repo-owner spec. The "SOLL nn°C" target line moved from a single
+      line above the +/- buttons to two lines ("SOLL" / "nn°C",
+      "ECO"/"BOOST" gets its own third line on the Boiler side) centered
+      in the gap BETWEEN them instead.
+- [x] **Electric page: taller boxes, real spacing, several new real
+      values.** Both rows grew (130px/170px → 210px/290px) with matched
+      top/bottom margins - this page used to leave most of its content
+      area empty. New per repo-owner spec: Shore's main value is now the
+      MultiPlus's real input power (sub-left/right voltage/frequency,
+      replacing the old W+A sub-line); AC Loads mirrors that shape with
+      output power/voltage/frequency (replacing the old %-of-1600W-
+      nominal figure); Solar Yield is now a button opening its own
+      ON/OFF (`switch.mppt_190w`) + charge-limit
+      (`number.mppt_190w_stromstarke`) popup, sub-left/right now the
+      MPPT's own DC battery-bus voltage/current; Battery gained an
+      IDLE/CHARGING/DISCHARGING state line (interpreted from the
+      SmartShunt's net current) and a remaining-time line between the
+      SOC and a proper 3-across V/A/W bottom row (fixing a real overlap
+      bug between the old mid-line and the starter-voltage line), plus
+      its own popup for `switch.fram_parkmodus`. Also fixed: the
+      Charger popup's mode buttons were left-to-right ON/CHG/INV/OFF,
+      now OFF/CHARGER/INVERTER/ON; its own OFF button's "active"
+      highlight used to be styled identically to "inactive" (never
+      visibly highlighted); and the LIMIT label drifted off-center as
+      its digit count changed for want of `text_align: CENTER` - all
+      three fixed. DC Loads' main value is still a placeholder
+      (repo owner: "tbd", no entity picked yet).
+- [ ] **Victron GUIv2's Inverter/Charger detail screen has a vertical
+      bar this page doesn't have an equivalent for yet** - repo owner
+      asked what it represents. Best guess from this session (NOT
+      confirmed against Victron's own source or a live GX device): the
+      AC input current as a percentage of the configured input current
+      limit, i.e. `sensor.multiplus_eingangsstromstarke_l1` relative to
+      `number.multiplus_strombegrenzung` (already wired into this page's
+      Charger popup). Confirm on a real GX Touch/VRM before wiring an
+      indicator to it - this is a guess, not a verified finding.
+- [ ] **Clock jitter root-caused, fixed upstream in `m5dial_clock_sbb`,
+      not in this repo.** The second hand's uneven "hopping" motion
+      traced to `transparent: true` (needed so the clock's square canvas
+      corners show the page's black background through) forcing a full
+      60-tick redraw on an ARGB8888 PSRAM-backed canvas every single
+      `render_interval`, exactly the risk that component's own docs
+      already flagged. Fixed there: a full redraw is now only needed
+      once (plus after a night-mode flip) when `show_face: true`, same
+      as this repo's own usage - see that repo's changelog. Nothing to
+      change here beyond picking up the updated component on the next
+      `external_components:` fetch (git `ref: main`, no pin to bump).
 
 ## Building & Flashing
 
@@ -414,7 +507,8 @@ esphome compile smart-ebl-display.yaml
 # Flash via USB-C (UART0-based flashing port - see docs/hardware.md)
 esphome upload smart-ebl-display.yaml
 
-# Flash OTA afterwards, over Wi-Fi (or the wired Ethernet port, if plugged in)
+# Flash OTA afterwards, over Wi-Fi (the only network path - Ethernet is
+# not configured, see "Networking" above)
 esphome upload smart-ebl-display.yaml --device smart-ebl-display.local
 ```
 
