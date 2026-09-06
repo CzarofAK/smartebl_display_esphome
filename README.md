@@ -571,6 +571,31 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       measurably improve the log or introduces a visible redraw seam,
       reverting is deleting that one line. See design_rules.md §4 for
       the full write-up.
+- [x] **Levels page reverted to the original catalog, per repo-owner
+      correction.** The previous round's TANK 3/no-Diesel substitution
+      (above) was a wrong call, not a hardware limitation that forced
+      it - the repo owner wanted Fresh/Waste/Gas A/Gas I/Diesel exactly
+      as `docs/pages.md` always specified, sourcing what `smartebl`
+      itself can't (Gas A/I, Diesel) from HA, the same pattern the
+      Electric page already established for its own Victron entities.
+      Diesel is `sensor.nw19939_fuel_level` (repo-owner-supplied, real -
+      the earlier "no known entity anywhere in this project" finding was
+      about `m5dial_fram`, not the actual vehicle) - ASSUMED already a
+      0-100% reading like the other four; flag if that's wrong.
+      `tank3_level` stays wired (real, unused) rather than removed -
+      same "reserved" status `tank1`/`tank2` had before this page
+      existed. Gas A = außen (outside, "in use")/Gas I = innen (inside,
+      "reserve"), confirmed by the repo owner - matches the existing
+      `sensor.gas_1_stand`/`sensor.gas_2_stand` mapping already in place.
+- [x] **`lvgl: buffer_size: 25%` REVERTED** - the repo owner reported
+      visible flicker on real hardware on the same flash this landed on
+      (alongside `page_levels`). Consistent with a smaller LVGL draw
+      buffer meaning more, smaller flushes, one of which landing mid-
+      scan against the DSI peripheral's own continuous full-frame
+      scanout would read as exactly that - a faint tear. Back to
+      ESPHome's own default; the underlying `underrun` log line is still
+      open and unresolved upstream (esphome#16873) - see design_rules.md
+      §4.
 
 ## Building & Flashing
 

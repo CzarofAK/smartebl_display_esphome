@@ -743,10 +743,11 @@ sensor:
   # below. WHICH physical tank tank3 is remains unconfirmed - smartebl's
   # CLAUDE.md documents exactly 3 generic tank-sensor inputs, compatible
   # with any of fresh/grey/LPG per that hardware's own datasheet, with no
-  # fixed assignment. Labeled generically ("TANK 3") on page_levels
-  # rather than guessing "Diesel"/"Gas" - see that page's own comment for
-  # why this replaces docs/pages.md's original Gas A/Gas I/Diesel columns
-  # (pages.md corrected to match, see that file for the full reasoning).
+  # fixed assignment. NOT shown on page_levels (repo-owner: keep that
+  # page's original 5-column Fresh/Waste/Gas A/Gas I/Diesel catalog as
+  # specified) - kept wired, same "reserved for later" status tank1/
+  # tank2 themselves had before page_levels existed, in case a use for
+  # it turns up.
   - platform: template
     id: s_tank1_level
     name: "Freshwater Level (via link)"
@@ -768,8 +769,6 @@ sensor:
     name: "Tank 3 Level (via link)"
     unit_of_measurement: "%"
     accuracy_decimals: 0
-    on_value:
-      - script.execute: draw_levels
 
   # ---- Fuses (page_electric_fuses, docs/pages.md §5's Electric "page 2"
   # sub-page). All 16, protocol.md group 1 - smartebl already broadcasts
@@ -895,16 +894,21 @@ sensor:
     on_value:
       - script.execute: draw_fuses
 
-  # ---- Levels page (page_levels) - Gas A/Gas I. NOT smartebl/the link -
-  # smartebl's hardware only has 3 generic tank-sensor inputs (CLAUDE.md),
-  # already spoken for by tank1/tank2/tank3 above, with no dual-bottle
-  # gas sensing of its own. Same real HA entities m5dial_fram's
+  # ---- Levels page (page_levels) - Gas A (outside bottle, "in use")/
+  # Gas I (inside bottle, "reserve") + Diesel (repo-owner-confirmed real
+  # entities, not the link - smartebl's hardware has only 3 generic
+  # tank-sensor inputs (CLAUDE.md), already spoken for by tank1/tank2/
+  # tank3 above, no dual-bottle gas sensing or fuel-tank input of its
+  # own). Gas A/Gas I are the same real HA entities m5dial_fram/
   # page_gas.yaml already reads for these two physical bottles (this
   # vehicle's actual gas monitoring is external to smartebl) - same
   # precedent as page_electric reusing m5dial_fram's real Victron
-  # entities. Diesel (docs/pages.md's original mockup's "FRAM-Diesel"
-  # column) has no known real entity ANYWHERE in this project (checked
-  # m5dial_fram too) - not built, see page_levels's own comment.
+  # entities; "A"/"I" = außen (outside)/innen (inside), confirmed by the
+  # repo owner. Diesel is `sensor.nw19939_fuel_level` (repo-owner-
+  # supplied, an OBD/vehicle-telematics entity by the naming) -
+  # ASSUMED already a 0-100% reading like the other four levels here;
+  # flag if that's wrong (a raw liter value, say) so the bar/thresholds
+  # can be fixed to match.
   - platform: homeassistant
     id: s_gas_a
     entity_id: sensor.gas_1_stand
@@ -914,6 +918,12 @@ sensor:
   - platform: homeassistant
     id: s_gas_i
     entity_id: sensor.gas_2_stand
+    on_value:
+      - script.execute: draw_levels
+
+  - platform: homeassistant
+    id: s_diesel_level
+    entity_id: sensor.nw19939_fuel_level
     on_value:
       - script.execute: draw_levels
 
@@ -3094,14 +3104,13 @@ script:
             lv_label_set_text(id(lbl_truma_status), "");
           }
 
-  # ---- Levels (page_levels) - pages.md §5's "Levels" row, corrected
-  # against what smartebl's protocol/hardware actually expose: see the
-  # sensor: block's own comment (above, where s_tank3_level/s_gas_a/
-  # s_gas_i are declared) for the full reasoning on why this is FRISCH/
-  # GRAU/TANK 3 (smartebl's own link, group 2, live without WiFi/HA) +
-  # GAS A/GAS I (HA, this vehicle's real separate gas monitoring) rather
-  # than the original mockup's Fresh/Waste/Gas A/Gas I/Diesel - Diesel
-  # has no known real entity anywhere in this project, so it isn't built.
+  # ---- Levels (page_levels) - pages.md §5's original "Levels" row,
+  # exactly: Fresh (`tank1_level`, link) / Waste (`tank2_level`, link) /
+  # Gas A, außen/"in use" (HA `sensor.gas_1_stand`) / Gas I, innen/
+  # "reserve" (HA `sensor.gas_2_stand`) / Diesel (HA
+  # `sensor.nw19939_fuel_level`, repo-owner-supplied) - see the sensor:
+  # block's own comment (above, where s_gas_a/s_gas_i/s_diesel_level are
+  # declared) for the entity-level detail.
   - id: poll_levels
     then:
       - homeassistant.service:
@@ -3112,6 +3121,10 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: sensor.gas_2_stand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.nw19939_fuel_level
 
   - id: draw_levels
     mode: restart
@@ -3149,39 +3162,44 @@ script:
             lv_label_set_text(id(lbl_levels_fresh_l), buf);
           }
 
-          // ---- GRAU (tank2, link) - same >=80%/>=95% thresholds as
+          // ---- WASTE (tank2, link) - same >=80%/>=95% thresholds as
           // m5dial_fram/page_water.yaml's grey ring.
-          float grey = connected ? id(s_tank2_level).state : 0.0f;
-          uint32_t grey_col = !connected ? 0x555555 :
-              (grey >= 95.0f ? 0xE74C3C : (grey >= 80.0f ? 0xF39C12 : 0x9AA0A6));
-          lv_bar_set_value(id(bar_levels_grey), connected ? (int) grey : 0, LV_ANIM_OFF);
-          lv_obj_set_style_bg_color(id(bar_levels_grey), lv_color_hex(grey_col), LV_PART_INDICATOR);
-          lv_obj_set_style_text_color(id(lbl_levels_grey_cap), lv_color_hex(grey_col), 0);
-          lv_obj_set_style_text_color(id(lbl_levels_grey_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
+          float waste = connected ? id(s_tank2_level).state : 0.0f;
+          uint32_t waste_col = !connected ? 0x555555 :
+              (waste >= 95.0f ? 0xE74C3C : (waste >= 80.0f ? 0xF39C12 : 0x9AA0A6));
+          lv_bar_set_value(id(bar_levels_waste), connected ? (int) waste : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_waste), lv_color_hex(waste_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_waste_cap), lv_color_hex(waste_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_waste_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
           if (!connected) {
-            lv_label_set_text(id(lbl_levels_grey_pct), "---%");
-            lv_label_set_text(id(lbl_levels_grey_l), "--- L");
+            lv_label_set_text(id(lbl_levels_waste_pct), "---%");
+            lv_label_set_text(id(lbl_levels_waste_l), "--- L");
           } else {
-            snprintf(buf, sizeof(buf), "%.0f%%", grey);
-            lv_label_set_text(id(lbl_levels_grey_pct), buf);
-            snprintf(buf, sizeof(buf), "%.0f L", grey * 0.90f);
-            lv_label_set_text(id(lbl_levels_grey_l), buf);
+            snprintf(buf, sizeof(buf), "%.0f%%", waste);
+            lv_label_set_text(id(lbl_levels_waste_pct), buf);
+            snprintf(buf, sizeof(buf), "%.0f L", waste * 0.90f);
+            lv_label_set_text(id(lbl_levels_waste_l), buf);
           }
 
-          // ---- TANK 3 (link) - real data, unconfirmed physical
-          // identity (see sensor: block's own comment) - neutral color,
-          // no absolute-liter line (capacity unknown), generic "TANK 3"
-          // label rather than guessing what it actually holds.
-          float t3 = connected ? id(s_tank3_level).state : 0.0f;
-          uint32_t t3_col = connected ? 0xBDC1C6 : 0x555555;
-          lv_bar_set_value(id(bar_levels_tank3), connected ? (int) t3 : 0, LV_ANIM_OFF);
-          lv_obj_set_style_bg_color(id(bar_levels_tank3), lv_color_hex(t3_col), LV_PART_INDICATOR);
-          lv_obj_set_style_text_color(id(lbl_levels_tank3_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
-          if (!connected) {
-            lv_label_set_text(id(lbl_levels_tank3_pct), "---%");
+          // ---- DIESEL (HA, sensor.nw19939_fuel_level) - ASSUMED
+          // already a 0-100% reading like the other four (see sensor:
+          // block's own comment - flag if that's wrong). Thresholds are
+          // a generic low-fuel-warning guess (10%/25%, same shape as
+          // Fresh's), not a value the repo owner gave - easy to retune
+          // once confirmed against how this vehicle's own gauge reads.
+          bool diesel_ok = api_ok && id(s_diesel_level).has_state();
+          float diesel = diesel_ok ? id(s_diesel_level).state : 0.0f;
+          uint32_t diesel_col = !diesel_ok ? 0x555555 :
+              (diesel < 10.0f ? 0xE74C3C : (diesel < 25.0f ? 0xF39C12 : 0xBDC1C6));
+          lv_bar_set_value(id(bar_levels_diesel), diesel_ok ? (int) diesel : 0, LV_ANIM_OFF);
+          lv_obj_set_style_bg_color(id(bar_levels_diesel), lv_color_hex(diesel_col), LV_PART_INDICATOR);
+          lv_obj_set_style_text_color(id(lbl_levels_diesel_cap), lv_color_hex(diesel_col), 0);
+          lv_obj_set_style_text_color(id(lbl_levels_diesel_pct), lv_color_hex(diesel_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!diesel_ok) {
+            lv_label_set_text(id(lbl_levels_diesel_pct), "---%");
           } else {
-            snprintf(buf, sizeof(buf), "%.0f%%", t3);
-            lv_label_set_text(id(lbl_levels_tank3_pct), buf);
+            snprintf(buf, sizeof(buf), "%.0f%%", diesel);
+            lv_label_set_text(id(lbl_levels_diesel_pct), buf);
           }
 
           // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
@@ -3229,23 +3247,29 @@ script:
           // display is still an open item, not solved here): damage
           // before inconvenience, within-category thresholds straight
           // from m5dial_fram/page_water.yaml + page_gas.yaml, same
-          // wording those pages use.
+          // wording those pages use. Diesel slotted in with fuel
+          // (running dry) treated as an inconvenience, same tier as
+          // fresh water, not a damage-tier item.
           std::string status;
           uint32_t status_col = 0x555555;
-          if (!connected && !(gas_a_ok && gas_i_ok)) {
+          if (!connected && !(gas_a_ok && gas_i_ok) && !diesel_ok) {
             status = "KEINE VERBINDUNG";
-          } else if (connected && grey >= 95.0f) {
+          } else if (connected && waste >= 95.0f) {
             status = "ABWASSER VOLL"; status_col = 0xE74C3C;
           } else if (connected && fresh < 10.0f) {
             status = "FRISCHWASSER LEER"; status_col = 0xE74C3C;
           } else if (gas_a_ok && gas_i_ok && gas_a < 10.0f && gas_i < 10.0f) {
             status = "GAS LEER"; status_col = 0xE74C3C;
-          } else if (connected && grey >= 80.0f) {
+          } else if (diesel_ok && diesel < 10.0f) {
+            status = "DIESEL LEER"; status_col = 0xE74C3C;
+          } else if (connected && waste >= 80.0f) {
             status = "ABWASSER VOLL"; status_col = 0xF39C12;
           } else if (connected && fresh < 25.0f) {
             status = "FRISCHWASSER KNAPP"; status_col = 0xF39C12;
           } else if (gas_a_ok && gas_i_ok && gas_a < 25.0f && gas_i < 25.0f) {
             status = "GAS KNAPP"; status_col = 0xF39C12;
+          } else if (diesel_ok && diesel < 25.0f) {
+            status = "DIESEL KNAPP"; status_col = 0xF39C12;
           } else if (gas_a_ok && gas_a < 10.0f) {
             status = "GAS A LEER"; status_col = 0x707070;
           } else if (gas_i_ok && gas_i < 10.0f) {
@@ -3634,33 +3658,19 @@ lvgl:
   touchscreens:
     - touch_main
   rotation: 90
-  # ---- Attempt at design_rules.md §4's "Performance at 800x1280" open
-  # item - UNTESTED on real hardware, next thing to try, not a confirmed
-  # fix. Left unset (ESPHome's own default, 0 -> effectively 100%/one
-  # full-frame LVGL draw buffer) until now, matching the repeated
-  # `E lcd.dsi: can't fetch data from external memory fast enough,
-  # underrun happens` lines a real boot log showed (non-fatal, panel
-  # keeps working, but happening every 30-90s during normal WiFi+HA
-  # operation, not just at boot). ESPHome's own lvgl component (checked
-  # against its source, esphome/components/lvgl/__init__.py) allocates a
-  # SEPARATE staging buffer LVGL draws into per flush, sized as a
-  # fraction of the full frame by this setting - it does NOT change the
-  # size of the DSI peripheral's own continuous hardware framebuffer
-  # (that one stays full-size regardless, since the panel needs
-  # something to scan out of continuously). What this DOES reduce: how
-  # much PSRAM bandwidth LVGL's OWN rendering work competes for against
-  # that continuous DSI DMA read on the same bus, during a redraw - a
-  # smaller draw buffer means more, smaller flushes instead of one huge
-  # one, spreading that contention out rather than spiking it. 25% is
-  # the commonly-recommended starting point for this exact symptom on
-  # ESP32-P4 MIPI-DSI boards; not this file's own finding, and not
-  # confirmed here. If the underrun log lines don't measurably improve
-  # (or if this introduces a visible seam/tear when a page redraws), the
-  # fix is reverting this one line, not the LVGL buffer's rendering
-  # correctness - it's a performance-only knob. See esphome/esphome#16873
-  # (already tracked in design_rules.md) for the wider upstream issue
-  # this doesn't resolve on its own.
-  buffer_size: 25%
+  # ---- buffer_size: 25% experiment (design_rules.md §4's DSI-underrun
+  # item) REVERTED - repo-owner reported visible flicker on real
+  # hardware right after this landed, on the same flash as page_levels.
+  # A smaller LVGL draw buffer means the screen is assembled from
+  # several smaller flushes instead of one, and if the mipi_dsi driver's
+  # flush doesn't stay tightly synced with the DSI peripheral's own
+  # continuous full-frame scanout, a flush landing mid-scan reads
+  # exactly like this - a faint tear/flicker, easy to half-notice and
+  # hard to pin down, which matches what was reported. Back to ESPHome's
+  # own default (unset -> full-frame buffer) rather than guessing at a
+  # different fraction blind; the underrun log line itself is still
+  # open (esphome#16873, unresolved upstream) but a confirmed new visual
+  # artifact is worse than an already-tracked non-fatal log line.
   bottom_layer:
     bg_color: 0x000000
     bg_opa: COVER
@@ -5666,11 +5676,11 @@ lvgl:
             text_color: 0x555555
 
     # =========================================================================
-    # Levels (page_levels) - pages.md §5, corrected against what
-    # smartebl's protocol/hardware actually expose - see draw_levels'
-    # own header comment (above, in the script: block) for the full
-    # reasoning on FRISCH/GRAU/TANK 3/GAS A/GAS I replacing the original
-    # mockup's Fresh/Waste/Gas A/Gas I/Diesel.
+    # Levels (page_levels) - pages.md §5's original catalog, as specified:
+    # Fresh/Waste (link) + Gas A/Gas I/Diesel (HA) - see poll_levels'/
+    # draw_levels' own header comment (above, in the script: block) and
+    # the sensor: block's own comment for exactly which entity backs
+    # each column.
     #
     # 5 columns, each its own local coordinate container (same trick as
     # page_climate's obj_truma_room/obj_truma_water) at content-area-
@@ -5738,9 +5748,9 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
-        # ---- GRAU (tank2, link) ----------------------------------------
+        # ---- WASTE (tank2, link) ----------------------------------------
         - obj:
-            id: obj_levels_grey
+            id: obj_levels_waste
             align: TOP_LEFT
             x: 438
             y: 140
@@ -5750,14 +5760,14 @@ lvgl:
             border_width: 0
             widgets:
               - label:
-                  id: lbl_levels_grey_cap
+                  id: lbl_levels_waste_cap
                   align: TOP_MID
                   y: 0
-                  text: "GRAU"
+                  text: "WASTE"
                   text_font: font_ui_16
                   text_color: 0x555555
               - bar:
-                  id: bar_levels_grey
+                  id: bar_levels_waste
                   align: TOP_MID
                   y: 32
                   width: 64
@@ -5774,23 +5784,23 @@ lvgl:
                     bg_color: 0x555555
                     radius: 5
               - label:
-                  id: lbl_levels_grey_pct
+                  id: lbl_levels_waste_pct
                   align: TOP_MID
                   y: 384
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
               - label:
-                  id: lbl_levels_grey_l
+                  id: lbl_levels_waste_l
                   align: TOP_MID
                   y: 420
                   text: "--- L"
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
-        # ---- TANK 3 (link, unconfirmed physical identity) --------------
+        # ---- DIESEL (HA, sensor.nw19939_fuel_level) ---------------------
         - obj:
-            id: obj_levels_tank3
+            id: obj_levels_diesel
             align: TOP_LEFT
             x: 625
             y: 140
@@ -5800,13 +5810,14 @@ lvgl:
             border_width: 0
             widgets:
               - label:
+                  id: lbl_levels_diesel_cap
                   align: TOP_MID
                   y: 0
-                  text: "TANK 3"
+                  text: "DIESEL"
                   text_font: font_ui_16
                   text_color: 0x555555
               - bar:
-                  id: bar_levels_tank3
+                  id: bar_levels_diesel
                   align: TOP_MID
                   y: 32
                   width: 64
@@ -5823,14 +5834,14 @@ lvgl:
                     bg_color: 0x555555
                     radius: 5
               - label:
-                  id: lbl_levels_tank3_pct
+                  id: lbl_levels_diesel_pct
                   align: TOP_MID
                   y: 384
                   text: "---%"
                   text_font: font_ui_24
                   text_color: 0x555555
-              # No absolute-value line here on purpose - capacity unknown
-              # (see sensor: block's own comment on this tank's identity).
+              # No absolute-value (liter) line - tank capacity not given,
+              # see sensor: block's own comment on this entity.
 
         # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
         - obj:
