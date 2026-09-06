@@ -1,0 +1,385 @@
+# =============================================================================
+#  smart_ebl_pages/page_home.yaml -- page: Home (Mainscreen)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §6: SBB clock (right half) + 5 switch tiles in a 2x3
+# grid (Fridge/Alarmo slots reserved, not wired yet - see that section's
+# own table). The 5 switches here mirror smartebl's own relay groups
+# over the RS232 link (docs/protocol.md groups 2/4), not Home Assistant -
+# same reason page_electric's link-fed values don't need an api_ok guard
+# either.
+# =============================================================================
+
+switch:
+  # Optimistic local mirrors of smartebl's switches - reflect the
+  # tile's ON/OFF state only, no turn_on_action/turn_off_action.
+  #
+  # BUG FIXED (found on real hardware, see the commit this comment
+  # landed in): these used to have turn_on_action/turn_off_action
+  # calling send_link_command directly. ESPHome's switch component
+  # unconditionally calls write_state() - which runs those actions -
+  # in two situations this repo never wants to send a command for:
+  #   1. At boot, to enact the (restored/default) initial state -
+  #      this alone sent "everything OFF" to smartebl on every single
+  #      display reboot, regardless of smartebl's actual state.
+  #   2. Every time the link reader below reflects an incoming
+  #      telemetry frame via turn_on()/turn_off() - since that ALSO
+  #      unconditionally re-ran the action, every ~800ms telemetry
+  #      cycle re-sent the same command back to smartebl, which would
+  #      re-pulse the physical bistable relay coil over and over for
+  #      as long as the link stayed up, not just on an actual change.
+  # Fix: these switches now hold state only (publish_state() from the
+  # reader, not turn_on()/turn_off()) and the tiles below call
+  # send_link_command explicitly from on_click - the only place a
+  # command is actually supposed to originate from.
+  - platform: template
+    id: sw_pump_mirror
+    name: "Water Pump (via link)"
+    icon: mdi:water-pump
+    optimistic: true
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_light_mirror
+    name: "Light Group (via link)"
+    icon: mdi:lightbulb-group
+    optimistic: true
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_12v_mirror
+    name: "12V Group (via link)"
+    icon: mdi:power-socket-eu
+    optimistic: true
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_aux_mirror
+    name: "AUX Group (via link)"
+    icon: mdi:power
+    optimistic: true
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+  - platform: template
+    id: sw_eisex_mirror
+    name: "EisEx Heater (via link)"
+    icon: mdi:heating-coil
+    optimistic: true
+    on_turn_on:
+      - script.execute: draw_home_tiles
+    on_turn_off:
+      - script.execute: draw_home_tiles
+
+script:
+  # ---- Mainscreen (page_home) tiles -------------------------------------
+  # design_rules.md §2's one-script-per-related-values pattern: all five
+  # switch tiles are redrawn together rather than five separate lambdas
+  # racing each other.
+  - id: draw_home_tiles
+    mode: restart
+    then:
+      - lambda: |-
+          auto set_tile = [](lv_obj_t *lbl, bool on) {
+            lv_label_set_text(lbl, on ? "ON" : "OFF");
+            lv_obj_set_style_text_color(lbl,
+                lv_color_hex(on ? 0x2ECC71 : 0xBDC1C6), 0);
+          };
+          set_tile(id(lbl_tile_12v), id(sw_12v_mirror).state);
+          set_tile(id(lbl_tile_aux), id(sw_aux_mirror).state);
+          set_tile(id(lbl_tile_light), id(sw_light_mirror).state);
+          set_tile(id(lbl_tile_pump), id(sw_pump_mirror).state);
+          set_tile(id(lbl_tile_eisex), id(sw_eisex_mirror).state);
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Mainscreen (page_home) - pages.md §5/§6
+    # =========================================================================
+    - id: page_home
+      # bg_color/bg_opa here, not just lvgl: bottom_layer: above - an
+      # LVGL page has its own background that sits on top of
+      # bottom_layer, and was NOT black by default on the real device
+      # (reported by the repo owner) despite bottom_layer being black.
+      # Every page below repeats this explicitly for the same reason.
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        # ---- Right half: SBB clock --------------------------------------
+        - sbb_clock:
+            id: clock_face
+            time_id: homeassistant_time
+            # 450 -> 320 (2026-09-06, round 3, confirmed on real
+            # hardware): even after corner_color (below) dropped this
+            # canvas from ARGB8888 to plain RGB565 (810112 -> 405120
+            # bytes), the boot log still showed it landing in PSRAM
+            # (`alloc_canvas_buf()`'s own warning). The static linker
+            # report this file's comments used to cite (~432KB free
+            # internal RAM) is a compile-time bss/data budget, not the
+            # ACTUAL free heap left over at runtime once Wi-Fi/esp_hosted/
+            # LVGL's own (much larger) display buffer have all already
+            # claimed their share by the time this widget's setup() runs
+            # - that real number is smaller and wasn't knowable without
+            # flashing real hardware. 320x320 (204800 bytes, exactly half
+            # of the previous size) leaves enough headroom below whatever
+            # that real ceiling turns out to be. No more "took a long
+            # time" warnings for sbb_clock on the real device at this
+            # size - see m5dial_clock_sbb's README for the full writeup.
+            width: 320
+            height: 320
+            align: TOP_LEFT
+            x: 815 # keeps the same center point as the old 450x450 at (750,200)
+            y: 265
+            # Round, not square (bug reported on real hardware): a
+            # canvas is inherently rectangular, so without something
+            # making the corners disappear it rendered as a plain filled
+            # square. show_face draws the actual round dial; corner_color
+            # (below) makes the square's own corners disappear into the
+            # page's real background - together they're what makes it
+            # read as a circle rather than a block.
+            show_face: true
+            # `corner_color`, not `transparent: true` (real bug fixed,
+            # round 2 - see m5dial_clock_sbb's README "Fixed" section for
+            # the full writeup): this page's background is always the
+            # same fixed solid color, so true alpha transparency was
+            # never actually needed for the square canvas's corners to
+            # disappear into it - only matching that fixed color opaquely
+            # was, which needs a plain RGB565 canvas instead of ARGB8888.
+            corner_color: col_page_bg
+            # Real SBB clock look (design_rules.md §6's documented
+            # exception, m5dial_fram's clock page uses the same
+            # colors): WHITE face, BLACK hands by day - background/
+            # foreground here are the DAY baseline; set_night_mode()
+            # (apply_daynight, below) swaps them at runtime for BLACK
+            # face for BLACK, WHITE hands at night. Previously had
+            # these backwards (white ink on a black square, no face) -
+            # that's the other half of the original bug report.
+            # corner_color above is DELIBERATELY not swapped by
+            # night_mode - the page behind the clock stays the same
+            # black regardless of day/night, so the corners have to
+            # match that fixed color either way, not invert with the
+            # face.
+            background: col_clock_ink   # white face by day
+            foreground: col_clock_bg    # black hands/ticks/text by day
+            second_hand_color: col_clock_second
+            # show_date: false (the default) - repo owner doesn't want
+            # the date/day shown.
+            #
+            # render_interval left at the component's own 100ms default -
+            # the whole point of the corner_color fix above is that this
+            # canvas no longer has an unusual per-frame cost to work
+            # around.
+
+        # ---- Left half: one tile per switch (pages.md §6) ---------------
+        # Fridge is reserved regardless of outcome (pages.md §6: "user is
+        # still checking whether this vehicle wires the fridge to its own
+        # controllable line ... render the tile in the invalid-value
+        # style permanently rather than removing it, so the layout
+        # doesn't shift later"). Alarmo is NOT included - pages.md §6
+        # itself marks its entity_id as still TBD, and there's nothing
+        # real to wire a PIN popup to yet.
+        - button:
+            id: btn_tile_12v
+            align: TOP_LEFT
+            x: 215 # bottom-left, per repo owner's requested order
+            y: 527
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "POWER (12V)"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_12v
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_12v_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_12v"
+                  value: !lambda 'return id(sw_12v_mirror).state ? "1" : "0";'
+
+        - button:
+            id: btn_tile_aux
+            align: TOP_LEFT
+            x: 215 # middle-left
+            y: 357
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "AUX"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_aux
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_aux_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_aux"
+                  value: !lambda 'return id(sw_aux_mirror).state ? "1" : "0";'
+
+        - button:
+            id: btn_tile_light
+            align: TOP_LEFT
+            x: 215 # top-left
+            y: 187
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "LIGHT"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_light
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_light_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_light"
+                  value: !lambda 'return id(sw_light_mirror).state ? "1" : "0";'
+
+        - button:
+            id: btn_tile_pump
+            align: TOP_LEFT
+            x: 455 # bottom-right
+            y: 527
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "PUMP"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_pump
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_pump_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "switch_pump"
+                  value: !lambda 'return id(sw_pump_mirror).state ? "1" : "0";'
+
+        - button:
+            id: btn_tile_eisex
+            align: TOP_LEFT
+            x: 455 # top-right
+            y: 187
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "ICEEX"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_eisex
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+            on_click:
+              - switch.toggle: sw_eisex_mirror
+              - script.execute:
+                  id: send_link_command
+                  key: "eisex_output"
+                  value: !lambda 'return id(sw_eisex_mirror).state ? "1" : "0";'
+
+        # Reserved slot - permanently invalid style, no on_click. See
+        # header comment above.
+        - button:
+            id: btn_tile_fridge
+            align: TOP_LEFT
+            x: 455 # middle-right
+            y: 357
+            width: 210
+            height: 150
+            radius: 12
+            bg_color: 0x202124
+            border_width: 1
+            border_color: 0x3C4043
+            shadow_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 14
+                  text: "FRIDGE"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - label:
+                  id: lbl_tile_fridge
+                  align: CENTER
+                  y: 8
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+

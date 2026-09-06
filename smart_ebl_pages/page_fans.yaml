@@ -1,0 +1,365 @@
+# =============================================================================
+#  smart_ebl_pages/page_fans.yaml -- page: Fans
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5: same two entities m5dial_fram/page_fans.yaml already
+# uses (FANBOARD number.fan_speed_control, HVAC number.hvac_fan_battery).
+# Touch-adapted the same way Climate/Boiler's +/- buttons are: no rotary-
+# encoder "arm" step, each column's own +/- buttons write directly.
+# =============================================================================
+
+globals:
+  # ---- Fans (page_fans) - HA-fed via number.fan_speed_control/
+  # number.hvac_fan_battery, same entities m5dial_fram/page_fans.yaml
+  # uses. Touch has no rotary encoder to "arm" - each column's own +/-
+  # buttons write directly - so unlike that file's g_edit_target dance,
+  # these two pendings are always live: synced from the real HA value on
+  # every on_value push (see the sensor: block above), stepped by +/-,
+  # and written back debounced, same lag-avoiding shape as
+  # g_climate_temp_pending.
+  - id: g_fans_board_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+  - id: g_fans_hvac_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+
+sensor:
+  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
+  # already uses (FANBOARD + the Sprinter's OEM HVAC blower motor - see
+  # that file's own header for the battery_mode_allowed caveat on HVAC).
+  - platform: homeassistant
+    id: s_fans_board_speed
+    entity_id: number.fan_speed_control
+    on_value:
+      # Keep g_fans_board_pending in sync with HA's own confirmed value -
+      # see the globals: block's own comment for why (no "armed" state to
+      # gate this on, unlike m5dial_fram's rotary-encoder version).
+      - globals.set: {id: g_fans_board_pending, value: !lambda "return x;"}
+      - script.execute: draw_fans
+  - platform: homeassistant
+    id: s_fans_hvac_speed
+    entity_id: number.hvac_fan_battery
+    on_value:
+      - globals.set: {id: g_fans_hvac_pending, value: !lambda "return x;"}
+      - script.execute: draw_fans
+
+script:
+  # ---- Fans (page_fans) - same two entities m5dial_fram/page_fans.yaml
+  # already uses. Touch-adapted the same way Climate/Boiler's +/-
+  # buttons were: no rotary-encoder "arm" step (g_edit_target) - each
+  # column's own +/- buttons write directly, debounced the same way
+  # act_climate_temp_up/down already does.
+  - id: poll_fans
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.fan_speed_control
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.hvac_fan_battery
+
+  # 5%-step, clamped 0-100, matches number.fan_speed_control's own step.
+  - id: act_fans_board_up
+    then:
+      - lambda: |-
+          float v = id(g_fans_board_pending) + 5.0f;
+          if (v > 100.0f) v = 100.0f;
+          id(g_fans_board_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_board_write_debounced
+
+  - id: act_fans_board_down
+    then:
+      - lambda: |-
+          float v = id(g_fans_board_pending) - 5.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_fans_board_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_board_write_debounced
+
+  - id: fans_board_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.fan_speed_control
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_fans_board_pending));"
+
+  - id: fans_board_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: fans_board_write_now
+
+  # 10%-step (matches number.hvac_fan_battery's own `step: 10`), clamped
+  # 0-100. See m5dial_fram/page_fans.yaml's own header for why HVAC
+  # steps 10% at a time while FANBOARD steps 5%.
+  - id: act_fans_hvac_up
+    then:
+      - lambda: |-
+          float v = id(g_fans_hvac_pending) + 10.0f;
+          if (v > 100.0f) v = 100.0f;
+          id(g_fans_hvac_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_hvac_write_debounced
+
+  - id: act_fans_hvac_down
+    then:
+      - lambda: |-
+          float v = id(g_fans_hvac_pending) - 10.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_fans_hvac_pending) = v;
+      - script.execute: draw_fans
+      - script.execute: fans_hvac_write_debounced
+
+  - id: fans_hvac_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.hvac_fan_battery
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_fans_hvac_pending));"
+
+  - id: fans_hvac_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: fans_hvac_write_now
+
+  - id: draw_fans
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          char buf[16];
+
+          bool board_ok = api_ok && id(s_fans_board_speed).has_state();
+          lv_arc_set_value(id(arc_fans_board), board_ok ? (int) id(g_fans_board_pending) : 0);
+          lv_obj_set_style_arc_color(id(arc_fans_board),
+              lv_color_hex(board_ok ? 0x4A9EFF : 0x555555), LV_PART_INDICATOR);
+          if (!board_ok) {
+            lv_label_set_text(id(lbl_fans_board_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", id(g_fans_board_pending));
+            lv_label_set_text(id(lbl_fans_board_pct), buf);
+          }
+          lv_obj_set_style_text_color(id(lbl_fans_board_pct), lv_color_hex(board_ok ? 0xFFFFFF : 0x555555), 0);
+
+          bool hvac_ok = api_ok && id(s_fans_hvac_speed).has_state();
+          lv_arc_set_value(id(arc_fans_hvac), hvac_ok ? (int) id(g_fans_hvac_pending) : 0);
+          lv_obj_set_style_arc_color(id(arc_fans_hvac),
+              lv_color_hex(hvac_ok ? 0x9AA0A6 : 0x555555), LV_PART_INDICATOR);
+          if (!hvac_ok) {
+            lv_label_set_text(id(lbl_fans_hvac_pct), "---%");
+          } else {
+            snprintf(buf, sizeof(buf), "%.0f%%", id(g_fans_hvac_pending));
+            lv_label_set_text(id(lbl_fans_hvac_pct), buf);
+          }
+          lv_obj_set_style_text_color(id(lbl_fans_hvac_pct), lv_color_hex(hvac_ok ? 0xFFFFFF : 0x555555), 0);
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_fans
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Fans (page_fans) - pages.md §5, same two entities m5dial_fram/
+    # page_fans.yaml uses. Same two-halves-with-a-divider layout as the
+    # Truma page (obj_fans_board/obj_fans_hvac as local coordinate
+    # containers) - simpler content per half than Truma (no target/
+    # heater-button/fan-mode rows, just an arc + big % + one +/- pair).
+    - id: page_fans
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_fans
+      widgets:
+        - obj:
+            id: obj_fans_divider
+            align: TOP_LEFT
+            x: 705
+            y: 90
+            width: 1
+            height: 460
+            bg_color: 0x3C4043
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+            clickable: false
+
+        # ---- Left half: FANBOARD ----------------------------------------
+        - obj:
+            id: obj_fans_board
+            align: TOP_LEFT
+            x: 160
+            y: 90
+            width: 530
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "FANBOARD"
+                  text_color: 0x707070
+              - arc:
+                  id: arc_fans_board
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+              - label:
+                  id: lbl_fans_board_pct
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---%"
+                  text_color: 0x555555
+              - button:
+                  align: TOP_MID
+                  x: -95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_board_down
+              - button:
+                  align: TOP_MID
+                  x: 95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_board_up
+
+        # ---- Right half: HVAC (Sprinter blower motor) --------------------
+        - obj:
+            id: obj_fans_hvac
+            align: TOP_LEFT
+            x: 730
+            y: 90
+            width: 530
+            height: 460
+            bg_opa: TRANSP
+            border_width: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 0
+                  text_font: font_ui_20
+                  text: "HVAC"
+                  text_color: 0x707070
+              - arc:
+                  id: arc_fans_hvac
+                  align: TOP_MID
+                  y: 50
+                  width: 200
+                  height: 200
+                  start_angle: 135
+                  end_angle: 45
+                  min_value: 0
+                  max_value: 100
+                  adjustable: false
+                  arc_width: 10
+                  arc_color: 0x1A1C1E
+                  indicator:
+                    arc_width: 10
+                    arc_color: 0x555555
+                  knob:
+                    bg_opa: TRANSP
+              - label:
+                  id: lbl_fans_hvac_pct
+                  align: TOP_MID
+                  y: 120
+                  text_font: font_ui_40
+                  text: "---%"
+                  text_color: 0x555555
+              - button:
+                  align: TOP_MID
+                  x: -95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_hvac_down
+              - button:
+                  align: TOP_MID
+                  x: 95
+                  y: 300
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_fans_hvac_up
+
