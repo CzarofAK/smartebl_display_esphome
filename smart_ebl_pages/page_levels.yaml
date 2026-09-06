@@ -313,7 +313,7 @@ lvgl:
             height: 600
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   id: lbl_levels_fresh_cap
@@ -383,7 +383,7 @@ lvgl:
             height: 600
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   id: lbl_levels_waste_cap
@@ -435,7 +435,7 @@ lvgl:
             height: 600
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   id: lbl_levels_diesel_cap
@@ -490,7 +490,7 @@ lvgl:
             height: 600
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   id: lbl_levels_gas_a_cap
@@ -542,7 +542,7 @@ lvgl:
             height: 600
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   id: lbl_levels_gas_i_cap

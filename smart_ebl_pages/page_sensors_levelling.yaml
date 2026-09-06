@@ -255,7 +255,7 @@ lvgl:
             height: 400
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               # ---- Static target rings (all x2 from the original
               # 200/140/80 set, see this file's header) -----------------
@@ -354,7 +354,7 @@ lvgl:
             height: 500
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   align: TOP_MID

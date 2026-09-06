@@ -313,7 +313,7 @@ lvgl:
             height: 460
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   align: TOP_MID
@@ -441,7 +441,7 @@ lvgl:
             height: 460
             bg_opa: TRANSP
             border_width: 0
-            scrollbar_mode: OFF
+            scrollbar_mode: "OFF"
             widgets:
               - label:
                   align: TOP_MID
