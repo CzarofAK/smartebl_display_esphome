@@ -1,0 +1,1590 @@
+# =============================================================================
+#  smart_ebl_pages/page_electric_widget.yaml -- page: Electric, sub-page 1
+#  (Overview) - WIDGET variant, built on the power_flow_box external
+#  component (https://github.com/CzarofAK/power_flow_widget)
+# =============================================================================
+#  Two interchangeable implementations of the SAME page now exist:
+#
+#    - page_electric.yaml         "legacy" - hand-rolled LVGL obj/label/bar
+#                                  widgets, one YAML anchor + merge-key
+#                                  template (`&box_frame`/`&row_main`/etc.)
+#                                  reused six times. Zero external
+#                                  dependencies, fully self-contained.
+#    - page_electric_widget.yaml  this file - the same six boxes built from
+#                                  the `power_flow_box` external component
+#                                  (declarative config instead of merge-key
+#                                  YAML, typed C++ setters instead of raw
+#                                  lv_label_set_text() calls). Pulls in
+#                                  power_flow_widget via `external_components:`.
+#
+#  They are ALTERNATIVES, not layers - include exactly one, never both
+#  (both declare the same ids: `page_electric`, `draw_electric`, every
+#  sensor id, etc. - loading both would collide). Swap by changing ONE
+#  line in smart-ebl-display.yaml's `packages:` list:
+#
+#    p1: !include smart_ebl_pages/page_electric.yaml          # legacy
+#    p1: !include smart_ebl_pages/page_electric_widget.yaml   # widget
+#
+#  Same real entity_ids, same script/page ids, same on_boot/on_load
+#  contract either way - nothing else in this repo needs to change to
+#  switch. See power_flow_widget's own README for the widget's config
+#  schema (ICD) and C++ API reference.
+#
+#  ---- Status: v0.1, NOT yet compiled against real hardware -----------------
+#  Written in a session with no ESPHome toolchain available to verify
+#  against (same caveat power_flow_widget's own README carries). Treat
+#  this file the same way: run `esphome config`/`compile` against it
+#  before relying on it, and expect small fixes.
+#
+#  ---- What power_flow_box v0.1 does NOT cover yet, and how this file
+#  works around it (both gaps found by actually doing this port - see
+#  power_flow_widget's own issue tracker for follow-up):
+#
+#    1. on_click on the box itself. power_flow_box registers as an
+#       `obj`-kind widget, and this repo already has a confirmed, on-
+#       the-record finding that on_click "only reliably registers on a
+#       button widget" (see page_electric.yaml's own Charger-popup
+#       comment, and the page_home tile-button bug it references) - so
+#       this file does NOT rely on `power_flow_box: ... on_click:`.
+#       Instead, the three tappable boxes (Charger/Solar/Battery) each
+#       get an invisible `button:` overlay, same size/position, placed
+#       AFTER the box in the widgets: list (top z-order = receives the
+#       tap) with `bg_opa: TRANSP` so it's visually invisible.
+#    2. Charger's vertical (RIGHT_MID) load bar and Battery's extra
+#       rows (remaining-time line, 3-column V/A/W row, starter-voltage
+#       footer) - power_flow_box v0.1 only has ONE optional bar slot
+#       (horizontal, y:100 - modelled on Battery's own SOC bar) and ONE
+#       optional 2-column sub-row (y:210) - it doesn't have a matching
+#       slot for a RIGHT_MID vertical bar or a 3rd bottom column. Both
+#       are added as plain sibling widgets in a transparent overlay
+#       `obj:` positioned exactly over the box (same x/y/width/height),
+#       using the EXACT SAME relative coordinates/ids page_electric.yaml
+#       already uses for them - not a redesign, just layered on top of
+#       the generic box instead of built into one custom per-box layout.
+# =============================================================================
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/CzarofAK/power_flow_widget
+      ref: main
+    refresh: 1d
+    components: [power_flow_box]
+
+# Marker key - without it ESPHome never loads power_flow_box's Python
+# side, so `power_flow_box:` widgets below fail to validate.
+power_flow_box:
+
+# Victron/Venus-OS-tinted panel chrome, same values page_electric.yaml
+# uses as raw hex (Phase 1, 2026-09-07) - power_flow_box's schema wants
+# `color:` id references (cv.use_id(ColorStruct)), not literal hex, same
+# pattern sbb_clock uses for foreground/background - so these are
+# declared here rather than inlined.
+color:
+  - id: col_electric_panel_bg
+    hex: "142230"
+  - id: col_electric_panel_border
+    hex: "27588A"
+  - id: col_electric_title
+    hex: "707070"
+
+# =============================================================================
+# Data sources - byte-for-byte identical to page_electric.yaml. Nothing
+# about WHERE these values come from changes between the two variants;
+# only how the six boxes render them differs.
+# =============================================================================
+
+text_sensor:
+  - platform: homeassistant
+    id: s_multiplus_state
+    entity_id: sensor.multiplus_zustand
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_mode
+    entity_id: select.multiplus
+    filters:
+      - lambda: |-
+          std::string s = x;
+          if (s == "on") return std::string("ON");
+          if (s == "charger_only") return std::string("CHG");
+          if (s == "inverter_only") return std::string("INV");
+          return std::string("OFF");
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_zustand
+    entity_id: sensor.mppt_190w_zustand
+    on_value:
+      - script.execute: draw_electric
+
+globals:
+  - id: g_multiplus_limit_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+
+  - id: g_mppt_limit_pending
+    type: float
+    restore_value: false
+    initial_value: "0"
+
+sensor:
+  - platform: template
+    id: s_leisure_battery_voltage
+    name: "Leisure Battery Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: template
+    id: s_starter_battery_voltage
+    name: "Starter Battery Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: template
+    id: s_ac_charger_voltage
+    name: "AC Charger Voltage (via link)"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_soc
+    entity_id: sensor.smartshunt_ladestand
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_dc_v
+    entity_id: sensor.smartshunt_dc_bus_spannung
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_dc_a
+    entity_id: sensor.smartshunt_dc_bus_stromstarke
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_in_w
+    entity_id: sensor.multiplus_eingangsleistung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_in_v
+    entity_id: sensor.multiplus_eingangsspannung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_in_hz
+    entity_id: sensor.multiplus_eingangsfrequenz_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_out_w
+    entity_id: sensor.multiplus_ausgangsleistung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_out_v
+    entity_id: sensor.multiplus_ausgangsspannung_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_out_hz
+    entity_id: sensor.multiplus_ausgangsfrequenz_l1
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_pv_yield
+    entity_id: sensor.mppt_190w_leistung_pv_ertrag
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_batt_v
+    entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_batt_a
+    entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_remaining_time
+    entity_id: sensor.smartshunt_verbleibende_zeit
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_battery_power
+    entity_id: sensor.smartshunt_leistung
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_dc_loads
+    entity_id: sensor.gx_device_dc_verbrauch
+    on_value:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_multiplus_limit
+    entity_id: number.multiplus_strombegrenzung
+    on_value:
+      - lambda: |-
+          if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
+            id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
+          }
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_limit
+    entity_id: number.mppt_190w_stromstarke
+    on_value:
+      - lambda: |-
+          if (lv_obj_has_flag(id(obj_solar_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
+            id(g_mppt_limit_pending) = id(s_mppt_limit).state;
+          }
+      - script.execute: draw_electric
+
+binary_sensor:
+  - platform: template
+    id: s_shore_power_connected
+    name: "Shore Power Connected (via link)"
+    device_class: plug
+    on_state:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_mppt_on
+    entity_id: switch.mppt_190w
+    on_state:
+      - script.execute: draw_electric
+
+  - platform: homeassistant
+    id: s_fram_parkmodus_on
+    entity_id: switch.fram_parkmodus
+    on_state:
+      - script.execute: draw_electric
+
+script:
+  # ---- Electric / Victron-style overview (page_electric) - WIDGET variant.
+  # Same data, same thresholds/colors as page_electric.yaml's draw_electric
+  # - only HOW each value reaches the screen changed: a box's own typed
+  # setter (id(box_x).set_main(text, color)) instead of raw
+  # lv_label_set_text()/lv_obj_set_style_text_color() against individual
+  # label ids. Popup-related code (mode buttons, MPPT/park toggle styling)
+  # is untouched - popups are independent floating objects in both
+  # variants, not part of the box template either way.
+  - id: draw_electric
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          bool connected = id(link_last_rx_ms) != 0 &&
+              (millis() - id(link_last_rx_ms)) < 3000;
+          char buf[32];
+          // uint8_t constructor args truncate a uint32_t to its low byte -
+          // shifting by 16/8/0 without an explicit mask still lands the
+          // right R/G/B byte in each argument. Same trick power_flow_widget's
+          // own examples/page_example.yaml uses.
+          auto col = [](uint32_t hex) { return Color(hex >> 16, hex >> 8, hex); };
+
+          // ---- Shore - main = input power, sub-left/right = input
+          // voltage/frequency. No state-line write (row_state stays
+          // blank) - same as page_electric.yaml, see that file's own
+          // comment on why the CONNECTED/DISCONNECTED line was removed.
+          if (!api_ok || !id(s_multiplus_in_w).has_state()) {
+            id(box_shore).set_main("--- W", col(0x555555));
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_multiplus_in_w).state);
+            id(box_shore).set_main(buf, col(0xFFFFFF));
+          }
+          {
+            char vbuf[16], hzbuf[16];
+            if (!api_ok || !id(s_multiplus_in_v).has_state()) snprintf(vbuf, sizeof(vbuf), "---V");
+            else snprintf(vbuf, sizeof(vbuf), "%.0fV", id(s_multiplus_in_v).state);
+            if (!api_ok || !id(s_multiplus_in_hz).has_state()) snprintf(hzbuf, sizeof(hzbuf), "---Hz");
+            else snprintf(hzbuf, sizeof(hzbuf), "%.1fHz", id(s_multiplus_in_hz).state);
+            id(box_shore).set_sub(vbuf, hzbuf, col(0xBDC1C6));
+          }
+
+          // ---- Inverter/Charger (tap target: btn_electric_charger_tap,
+          // see widgets: below) - mode + state, same colors/humanizing as
+          // page_electric.yaml.
+          if (!api_ok || !id(s_multiplus_mode).has_state()) {
+            id(box_charger).set_main("---", col(0x555555));
+          } else {
+            std::string m = id(s_multiplus_mode).state;
+            uint32_t c = 0xBDC1C6;
+            if (m == "ON") c = 0x2ECC71;
+            else if (m == "CHG") c = 0x4A9EFF;
+            else if (m == "INV") c = 0xF39C12;
+            id(box_charger).set_main(m, col(c));
+          }
+          if (!api_ok || !id(s_multiplus_state).has_state()) {
+            id(box_charger).set_state("---", col(0x555555));
+          } else {
+            std::string s = id(s_multiplus_state).state;
+            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
+            id(box_charger).set_state(s,
+                col(id(s_multiplus_state).state == "fault" ? 0xE74C3C : 0x707070));
+          }
+
+          // ---- Inverter load bar - NOT a power_flow_box slot (that box's
+          // only bar is the horizontal one at y:100, modelled on Battery's
+          // SOC bar - see this file's own header). Plain sibling `bar:`
+          // widget, id unchanged from page_electric.yaml.
+          {
+            float load_pct = 0.0f;
+            if (api_ok && id(s_multiplus_out_w).has_state()) {
+              load_pct = id(s_multiplus_out_w).state / 1600.0f * 100.0f;
+              if (load_pct < 0.0f) load_pct = 0.0f;
+              if (load_pct > 100.0f) load_pct = 100.0f;
+            }
+            lv_bar_set_value(id(bar_electric_charger_load), (int) load_pct, LV_ANIM_OFF);
+          }
+
+          // ---- AC Loads - main = output power, sub-left/right = output
+          // voltage/frequency. No state line (row_state stays blank).
+          if (!api_ok || !id(s_multiplus_out_w).has_state()) {
+            id(box_ac_loads).set_main("--- W", col(0x555555));
+          } else {
+            float w = id(s_multiplus_out_w).state;
+            snprintf(buf, sizeof(buf), "%.0fW", w);
+            float p = w / 1600.0f * 100.0f;
+            uint32_t c = 0xFFFFFF;
+            if (p >= 95.0f) c = 0xE74C3C;
+            else if (p >= 80.0f) c = 0xF39C12;
+            id(box_ac_loads).set_main(buf, col(c));
+          }
+          {
+            char vbuf[16], hzbuf[16];
+            if (!api_ok || !id(s_multiplus_out_v).has_state()) snprintf(vbuf, sizeof(vbuf), "---V");
+            else snprintf(vbuf, sizeof(vbuf), "%.0fV", id(s_multiplus_out_v).state);
+            if (!api_ok || !id(s_multiplus_out_hz).has_state()) snprintf(hzbuf, sizeof(hzbuf), "---Hz");
+            else snprintf(hzbuf, sizeof(hzbuf), "%.1fHz", id(s_multiplus_out_hz).state);
+            id(box_ac_loads).set_sub(vbuf, hzbuf, col(0xBDC1C6));
+          }
+
+          // ---- Solar Yield (tap target: btn_electric_solar_tap) - main =
+          // PV yield power, state = humanized zustand, sub-left/right =
+          // MPPT's own DC bus V/A.
+          if (!api_ok || !id(s_mppt_pv_yield).has_state()) {
+            id(box_solar).set_main("--- W", col(0x555555));
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_mppt_pv_yield).state);
+            id(box_solar).set_main(buf, col(0xFFFFFF));
+          }
+          if (!api_ok || !id(s_mppt_zustand).has_state()) {
+            id(box_solar).set_state("---", col(0x555555));
+          } else {
+            std::string s = id(s_mppt_zustand).state;
+            for (auto &c : s) { if (c == '_') c = ' '; else c = ::toupper(c); }
+            id(box_solar).set_state(s, col(0x555555));
+          }
+          {
+            char vbuf[16], abuf[16];
+            if (!api_ok || !id(s_mppt_batt_v).has_state()) snprintf(vbuf, sizeof(vbuf), "---V");
+            else snprintf(vbuf, sizeof(vbuf), "%.1fV", id(s_mppt_batt_v).state);
+            if (!api_ok || !id(s_mppt_batt_a).has_state()) snprintf(abuf, sizeof(abuf), "---A");
+            else snprintf(abuf, sizeof(abuf), "%+.1fA", id(s_mppt_batt_a).state);
+            id(box_solar).set_sub(vbuf, abuf, col(0xBDC1C6));
+          }
+
+          // ---- Solar Yield popup - unchanged from page_electric.yaml.
+          bool mppt_known = api_ok && id(s_mppt_on).has_state();
+          bool mppt_on = mppt_known && id(s_mppt_on).state;
+          lv_obj_set_style_bg_color(id(btn_mppt_mode_on),
+              lv_color_hex(mppt_on ? 0x1B5E3A : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_mppt_mode_on),
+              lv_color_hex(mppt_on ? 0x2ECC71 : 0x3C4043), 0);
+          lv_obj_set_style_bg_color(id(btn_mppt_mode_off),
+              lv_color_hex(mppt_known && !mppt_on ? 0x4F3814 : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_mppt_mode_off),
+              lv_color_hex(mppt_known && !mppt_on ? 0xF39C12 : 0x3C4043), 0);
+          if (!api_ok || !id(s_mppt_limit).has_state()) {
+            lv_label_set_text(id(lbl_mppt_limit), "LIMIT --A");
+            lv_obj_set_style_text_color(id(lbl_mppt_limit), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_mppt_limit_pending));
+            lv_label_set_text(id(lbl_mppt_limit), buf);
+            lv_obj_set_style_text_color(id(lbl_mppt_limit), lv_color_hex(0xBDC1C6), 0);
+          }
+
+          // ---- Battery popup - unchanged from page_electric.yaml.
+          bool park_on = api_ok && id(s_fram_parkmodus_on).has_state() && id(s_fram_parkmodus_on).state;
+          lv_label_set_text(id(lbl_park_state), park_on ? "AN" : "AUS");
+          lv_obj_set_style_text_color(id(lbl_park_state), lv_color_hex(park_on ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_bg_color(id(btn_park_toggle),
+              lv_color_hex(park_on ? 0x1B5E3A : 0x202124), 0);
+          lv_obj_set_style_border_color(id(btn_park_toggle),
+              lv_color_hex(park_on ? 0x2ECC71 : 0x3C4043), 0);
+
+          // ---- DC Loads - main only, no state line.
+          if (!api_ok || !id(s_dc_loads).has_state()) {
+            id(box_dc_loads).set_main("--- W", col(0x555555));
+          } else {
+            snprintf(buf, sizeof(buf), "%.0fW", id(s_dc_loads).state);
+            id(box_dc_loads).set_main(buf, col(0xFFFFFF));
+          }
+          id(box_dc_loads).set_sub("---", "---", col(0xBDC1C6));
+
+          // ---- Battery (tap target: btn_electric_battery_tap) - SOC main
+          // value + bar (both power_flow_box slots), same 20%/40%
+          // thresholds as page_electric.yaml, bar and number always agree
+          // because they're set from the same branch.
+          if (!api_ok || !id(s_battery_soc).has_state()) {
+            id(box_battery).set_main("---%", col(0x555555));
+            id(box_battery).set_bar(0, col(0x555555));
+          } else {
+            float soc = id(s_battery_soc).state;
+            snprintf(buf, sizeof(buf), "%.0f%%", soc);
+            uint32_t num_c = 0xFFFFFF;
+            uint32_t bar_c = 0x2ECC71;
+            if (soc < 20.0f) { num_c = 0xE74C3C; bar_c = 0xE74C3C; }
+            else if (soc < 40.0f) { num_c = 0xF39C12; bar_c = 0xF39C12; }
+            id(box_battery).set_main(buf, col(num_c));
+            id(box_battery).set_bar((int) soc, col(bar_c));
+          }
+
+          // ---- IDLE/CHARGING/DISCHARGING - identical logic to
+          // page_electric.yaml; batt_state_col also feeds the reversible
+          // Charger<->Battery arrow below, same as there.
+          std::string batt_state = "---";
+          uint32_t batt_state_col = 0x555555;
+          bool discharging = false;
+          if (api_ok && id(s_battery_dc_a).has_state()) {
+            float a = id(s_battery_dc_a).state;
+            if (a > 0.5f) {
+              batt_state = "CHARGING";
+              batt_state_col = 0x2ECC71;
+            } else if (a < -0.5f) {
+              batt_state = "DISCHARGING";
+              batt_state_col = 0xF39C12;
+              discharging = true;
+            } else {
+              batt_state = "IDLE";
+              batt_state_col = 0xBDC1C6;
+            }
+          }
+          id(box_battery).set_state(batt_state, col(batt_state_col));
+
+          // ---- Battery's extra rows - NOT power_flow_box slots (see this
+          // file's own header §2). Plain labels in the box_battery_extra
+          // overlay (widgets: below), ids unchanged from page_electric.yaml.
+          if (discharging && api_ok && id(s_battery_remaining_time).has_state()) {
+            int mins = (int) id(s_battery_remaining_time).state;
+            snprintf(buf, sizeof(buf), "NOCH %dh%02dm", mins / 60, mins % 60);
+            lv_label_set_text(id(lbl_electric_batt_time), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_time), lv_color_hex(0xBDC1C6), 0);
+          } else {
+            lv_label_set_text(id(lbl_electric_batt_time), "");
+          }
+          if (!api_ok || !id(s_battery_dc_v).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_v), "---V");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_v), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%.1fV", id(s_battery_dc_v).state);
+            lv_label_set_text(id(lbl_electric_batt_v), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_v), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!api_ok || !id(s_battery_dc_a).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_a), "---A");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_a), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%+.0fA", id(s_battery_dc_a).state);
+            lv_label_set_text(id(lbl_electric_batt_a), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_a), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!api_ok || !id(s_battery_power).has_state()) {
+            lv_label_set_text(id(lbl_electric_batt_w), "---W");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_w), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "%+.0fW", id(s_battery_power).state);
+            lv_label_set_text(id(lbl_electric_batt_w), buf);
+            lv_obj_set_style_text_color(id(lbl_electric_batt_w), lv_color_hex(0xBDC1C6), 0);
+          }
+          if (!connected) {
+            lv_label_set_text(id(lbl_electric_batt_sub), "START ---V");
+            lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(0x555555), 0);
+          } else {
+            float start_v = id(s_starter_battery_voltage).state;
+            snprintf(buf, sizeof(buf), "START %.2fV", start_v);
+            lv_label_set_text(id(lbl_electric_batt_sub), buf);
+            uint32_t c = 0xBDC1C6;
+            if (start_v < 12.0f) c = 0xE74C3C;
+            else if (start_v < 12.4f) c = 0xF39C12;
+            lv_obj_set_style_text_color(id(lbl_electric_batt_sub), lv_color_hex(c), 0);
+          }
+
+          // ---- Flow-direction arrows - plain labels, identical to
+          // page_electric.yaml (not a power_flow_box concern at all - see
+          // power_flow_widget's README "Links need no component of their
+          // own").
+          auto set_flow = [&](lv_obj_t *arrow, bool has_state, float watts) {
+            bool active = has_state && watts > 5.0f;
+            lv_label_set_text(arrow, active ? "→" : "-");
+            lv_obj_set_style_text_color(arrow, lv_color_hex(active ? 0x4A9EFF : 0x707070), 0);
+          };
+          set_flow(id(arrow_shore_charger), api_ok && id(s_multiplus_in_w).has_state(),
+              api_ok && id(s_multiplus_in_w).has_state() ? id(s_multiplus_in_w).state : 0.0f);
+          set_flow(id(arrow_charger_acloads), api_ok && id(s_multiplus_out_w).has_state(),
+              api_ok && id(s_multiplus_out_w).has_state() ? id(s_multiplus_out_w).state : 0.0f);
+          set_flow(id(arrow_solar_battery), api_ok && id(s_mppt_pv_yield).has_state(),
+              api_ok && id(s_mppt_pv_yield).has_state() ? id(s_mppt_pv_yield).state : 0.0f);
+          set_flow(id(arrow_battery_dcloads), api_ok && id(s_dc_loads).has_state(),
+              api_ok && id(s_dc_loads).has_state() ? id(s_dc_loads).state : 0.0f);
+          if (batt_state == "CHARGING") {
+            lv_label_set_text(id(arrow_row_down), "↓");
+          } else if (batt_state == "DISCHARGING") {
+            lv_label_set_text(id(arrow_row_down), "↑");
+          } else {
+            lv_label_set_text(id(arrow_row_down), "-");
+          }
+          lv_obj_set_style_text_color(id(arrow_row_down), lv_color_hex(batt_state_col), 0);
+
+          // ---- Charger/Inverter popup - unchanged from page_electric.yaml.
+          std::string cur_mode = api_ok && id(s_multiplus_mode).has_state() ? id(s_multiplus_mode).state : "";
+          auto mode_btn = [&](lv_obj_t *btn, const char *tag, uint32_t on_bg, uint32_t on_border) {
+            bool active = (cur_mode == tag);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(active ? on_bg : 0x202124), 0);
+            lv_obj_set_style_border_color(btn, lv_color_hex(active ? on_border : 0x3C4043), 0);
+          };
+          mode_btn(id(btn_multiplus_mode_on), "ON", 0x1B5E3A, 0x2ECC71);
+          mode_btn(id(btn_multiplus_mode_chg), "CHG", 0x14324F, 0x4A9EFF);
+          mode_btn(id(btn_multiplus_mode_inv), "INV", 0x4F3814, 0xF39C12);
+          mode_btn(id(btn_multiplus_mode_off), "OFF", 0x3C4043, 0xBDC1C6);
+
+          if (!api_ok || !id(s_multiplus_limit).has_state()) {
+            lv_label_set_text(id(lbl_multiplus_limit), "LIMIT --A");
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(0x555555), 0);
+          } else {
+            snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_multiplus_limit_pending));
+            lv_label_set_text(id(lbl_multiplus_limit), buf);
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(0xBDC1C6), 0);
+          }
+
+  # ---- Everything below is unchanged from page_electric.yaml: popup
+  # show/hide, mode-select actions, debounced limit writers, poll_electric.
+  # None of it touches the box template either way.
+  - id: poll_electric
+    then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_ladestand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_dc_bus_spannung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_dc_bus_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_verbleibende_zeit
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.smartshunt_leistung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_eingangsleistung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_eingangsspannung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_eingangsfrequenz_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsleistung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsspannung_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_ausgangsfrequenz_l1
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.multiplus_zustand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: select.multiplus
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.multiplus_strombegrenzung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_leistung_pv_ertrag
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_zustand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: number.mppt_190w_stromstarke
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.mppt_190w
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.gx_device_dc_verbrauch
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: switch.fram_parkmodus
+
+  - id: show_charger_popup
+    then:
+      - lambda: |-
+          id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
+              ? id(s_multiplus_limit).state : 0.0f;
+      - script.execute: draw_electric
+      - lvgl.widget.update:
+          id: obj_electric_popup_backdrop
+          hidden: false
+      - lvgl.widget.update:
+          id: obj_electric_popup_panel
+          hidden: false
+
+  - id: close_charger_popup
+    then:
+      - lvgl.widget.update:
+          id: obj_electric_popup_backdrop
+          hidden: true
+      - lvgl.widget.update:
+          id: obj_electric_popup_panel
+          hidden: true
+
+  - id: act_multiplus_set_mode
+    parameters:
+      option: string
+    then:
+      - homeassistant.service:
+          service: select.select_option
+          data:
+            entity_id: select.multiplus
+          data_template:
+            option: "{{ opt }}"
+          variables:
+            opt: !lambda "return option;"
+
+  - id: act_multiplus_limit_up
+    then:
+      - lambda: |-
+          float v = id(g_multiplus_limit_pending) + 1.0f;
+          if (v > 16.0f) v = 16.0f;
+          id(g_multiplus_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: multiplus_limit_write_debounced
+
+  - id: act_multiplus_limit_down
+    then:
+      - lambda: |-
+          float v = id(g_multiplus_limit_pending) - 1.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_multiplus_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: multiplus_limit_write_debounced
+
+  - id: multiplus_limit_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.multiplus_strombegrenzung
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_multiplus_limit_pending));"
+
+  - id: multiplus_limit_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: multiplus_limit_write_now
+
+  - id: show_solar_popup
+    then:
+      - lambda: |-
+          id(g_mppt_limit_pending) = id(s_mppt_limit).has_state()
+              ? id(s_mppt_limit).state : 0.0f;
+      - script.execute: draw_electric
+      - lvgl.widget.update: {id: obj_solar_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_solar_popup_panel, hidden: false}
+
+  - id: close_solar_popup
+    then:
+      - lvgl.widget.update: {id: obj_solar_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_solar_popup_panel, hidden: true}
+
+  - id: act_mppt_toggle
+    then:
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.mppt_190w
+
+  - id: act_mppt_limit_up
+    then:
+      - lambda: |-
+          float v = id(g_mppt_limit_pending) + 1.0f;
+          if (v > 20.0f) v = 20.0f;
+          id(g_mppt_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: mppt_limit_write_debounced
+
+  - id: act_mppt_limit_down
+    then:
+      - lambda: |-
+          float v = id(g_mppt_limit_pending) - 1.0f;
+          if (v < 0.0f) v = 0.0f;
+          id(g_mppt_limit_pending) = v;
+      - script.execute: draw_electric
+      - script.execute: mppt_limit_write_debounced
+
+  - id: mppt_limit_write_now
+    then:
+      - homeassistant.service:
+          service: number.set_value
+          data:
+            entity_id: number.mppt_190w_stromstarke
+          data_template:
+            value: "{{ val }}"
+          variables:
+            val: !lambda "return str_sprintf(\"%.0f\", id(g_mppt_limit_pending));"
+
+  - id: mppt_limit_write_debounced
+    mode: restart
+    then:
+      - delay: 400ms
+      - script.execute: mppt_limit_write_now
+
+  - id: show_battery_popup
+    then:
+      - script.execute: draw_electric
+      - lvgl.widget.update: {id: obj_battery_popup_backdrop, hidden: false}
+      - lvgl.widget.update: {id: obj_battery_popup_panel, hidden: false}
+
+  - id: close_battery_popup
+    then:
+      - lvgl.widget.update: {id: obj_battery_popup_backdrop, hidden: true}
+      - lvgl.widget.update: {id: obj_battery_popup_panel, hidden: true}
+
+  - id: act_park_toggle
+    then:
+      - homeassistant.service:
+          service: switch.toggle
+          data:
+            entity_id: switch.fram_parkmodus
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_electric
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Electric - Victron-style overview (page_electric) - WIDGET variant
+    # =========================================================================
+    - id: page_electric
+      bg_color: 0x000000
+      bg_opa: COVER
+      on_load:
+        - script.execute: poll_electric
+      widgets:
+        # ---- Grid: identical geometry to page_electric.yaml - 3x300
+        # wide + 2x40 gap columns at x215/555/895, 2x290 tall + 40 gap
+        # rows at y122/452. power_flow_box's own fixed row offsets
+        # (16/48/100/132/210) assume exactly this ~300x290 box class -
+        # see that component's own header comment.
+        - power_flow_box:
+            id: box_shore
+            x: 215
+            y: 122
+            width: 300
+            height: 290
+            title: "SHORE"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: false
+            show_sub_row: true
+
+        - obj: &arrow_wrap
+            align: TOP_LEFT
+            bg_opa: TRANSP
+            border_width: 0
+            clickable: false
+            scrollbar_mode: "OFF"
+            scroll_dir: NONE
+            x: 515
+            y: 122
+            width: 40
+            height: 290
+            widgets:
+              - label:
+                  id: arrow_shore_charger
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
+
+        - power_flow_box:
+            id: box_charger
+            x: 555
+            y: 122
+            width: 300
+            height: 290
+            title: "INVERTER / CHARGER"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: true
+            show_sub_row: false
+
+        # Charger's vertical load bar - not a power_flow_box slot (see
+        # this file's header §2). Positioned exactly like
+        # page_electric.yaml's own RIGHT_MID bar, just as a sibling
+        # instead of a box-internal widget: id unchanged
+        # (bar_electric_charger_load).
+        - bar:
+            id: bar_electric_charger_load
+            align: TOP_LEFT
+            x: 825  # = box_charger.x + 300 - 16 - 14 (RIGHT_MID, x:-16, width:14)
+            y: 142  # = box_charger.y + (290 - 250) / 2, vertically centered
+            width: 14
+            height: 250
+            min_value: 0
+            max_value: 100
+            value: 0
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            radius: 4
+            indicator:
+              bg_color: 0x4A9EFF
+              radius: 3
+
+        # Charger's tap target - invisible button OVER the box + bar,
+        # topmost z-order so it actually receives the touch (see this
+        # file's header §1 on why a plain `power_flow_box:` widget can't
+        # carry on_click itself here).
+        - button:
+            id: btn_electric_charger_tap
+            align: TOP_LEFT
+            x: 555
+            y: 122
+            width: 300
+            height: 290
+            radius: 12
+            bg_opa: TRANSP
+            border_width: 0
+            shadow_width: 0
+            on_click:
+              - script.execute: show_charger_popup
+
+        - obj:
+            <<: *arrow_wrap
+            x: 855
+            y: 122
+            widgets:
+              - label:
+                  id: arrow_charger_acloads
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
+
+        - power_flow_box:
+            id: box_ac_loads
+            x: 895
+            y: 122
+            width: 300
+            height: 290
+            title: "AC LOADS"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: false
+            show_sub_row: true
+
+        - obj:
+            <<: *arrow_wrap
+            x: 555
+            y: 412
+            width: 300
+            height: 40
+            widgets:
+              - label:
+                  id: arrow_row_down
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
+
+        - power_flow_box:
+            id: box_solar
+            x: 215
+            y: 452
+            width: 300
+            height: 290
+            title: "SOLAR YIELD"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: true
+            show_sub_row: true
+
+        - button:
+            id: btn_electric_solar_tap
+            align: TOP_LEFT
+            x: 215
+            y: 452
+            width: 300
+            height: 290
+            radius: 12
+            bg_opa: TRANSP
+            border_width: 0
+            shadow_width: 0
+            on_click:
+              - script.execute: show_solar_popup
+
+        - obj:
+            <<: *arrow_wrap
+            x: 515
+            y: 452
+            widgets:
+              - label:
+                  id: arrow_solar_battery
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
+
+        - power_flow_box:
+            id: box_battery
+            x: 555
+            y: 452
+            width: 300
+            height: 290
+            title: "BATTERY"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: true
+            show_sub_row: false
+            show_bar: true
+            bar_min: 0
+            bar_max: 100
+            bar_track_color: col_electric_panel_border
+
+        # Battery's extra rows - NOT power_flow_box slots (see this
+        # file's header §2): the remaining-time line, the 3-column
+        # V/A/W row, and the starter-voltage footer. Transparent overlay
+        # `obj:` positioned exactly over the box, using the EXACT SAME
+        # relative coordinates page_electric.yaml's own box_frame anchor
+        # uses for these three - direct copy, not a redesign. Ids
+        # unchanged from page_electric.yaml.
+        - obj:
+            align: TOP_LEFT
+            x: 555
+            y: 452
+            width: 300
+            height: 290
+            bg_opa: TRANSP
+            border_width: 0
+            clickable: false
+            scrollbar_mode: "OFF"
+            scroll_dir: NONE
+            widgets:
+              - label:
+                  id: lbl_electric_batt_time
+                  align: TOP_MID
+                  y: 164
+                  text: ""
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+              - label:
+                  id: lbl_electric_batt_v
+                  align: TOP_LEFT
+                  x: 24
+                  y: 210
+                  width: 76
+                  text_align: CENTER
+                  text: "---V"
+                  text_font: font_ui_20
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_a
+                  align: TOP_MID
+                  y: 210
+                  width: 76
+                  text_align: CENTER
+                  text: "---A"
+                  text_font: font_ui_20
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_w
+                  align: TOP_RIGHT
+                  x: -24
+                  y: 210
+                  width: 76
+                  text_align: CENTER
+                  text: "---W"
+                  text_font: font_ui_20
+                  text_color: 0x555555
+              - label:
+                  id: lbl_electric_batt_sub
+                  align: BOTTOM_MID
+                  y: -16
+                  text: "START ---V"
+                  text_font: font_ui_20
+                  text_color: 0x555555
+
+        - button:
+            id: btn_electric_battery_tap
+            align: TOP_LEFT
+            x: 555
+            y: 452
+            width: 300
+            height: 290
+            radius: 12
+            bg_opa: TRANSP
+            border_width: 0
+            shadow_width: 0
+            on_click:
+              - script.execute: show_battery_popup
+
+        - obj:
+            <<: *arrow_wrap
+            x: 855
+            y: 452
+            widgets:
+              - label:
+                  id: arrow_battery_dcloads
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
+
+        - power_flow_box:
+            id: box_dc_loads
+            x: 895
+            y: 452
+            width: 300
+            height: 290
+            title: "DC LOADS"
+            title_font: font_ui_20
+            main_font: font_ui_40
+            sub_font: font_ui_20
+            bg_color: col_electric_panel_bg
+            border_color: col_electric_panel_border
+            title_color: col_electric_title
+            show_state: true
+            show_sub_row: true
+
+        # ---- Popups - unchanged from page_electric.yaml verbatim (not
+        # part of the box template in either variant).
+        - button:
+            id: obj_electric_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_charger_popup
+
+        - obj:
+            id: obj_electric_popup_panel
+            align: CENTER
+            width: 640
+            height: 420
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "INVERTER / CHARGER"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "MODUS"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_multiplus_mode_off
+                  align: TOP_MID
+                  x: -225
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "OFF"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "off"}
+
+              - button:
+                  id: btn_multiplus_mode_chg
+                  align: TOP_MID
+                  x: -75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "CHG"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "charger_only"}
+
+              - button:
+                  id: btn_multiplus_mode_inv
+                  align: TOP_MID
+                  x: 75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "INV"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "inverter_only"}
+
+              - button:
+                  id: btn_multiplus_mode_on
+                  align: TOP_MID
+                  x: 225
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ON"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: {id: act_multiplus_set_mode, option: "on"}
+
+              - label:
+                  align: TOP_MID
+                  y: 190
+                  text: "LANDSTROM-LIMIT"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_multiplus_limit_down
+                  align: TOP_MID
+                  x: -140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_multiplus_limit_down
+
+              - label:
+                  id: lbl_multiplus_limit
+                  align: TOP_MID
+                  y: 236
+                  width: 190
+                  text_align: CENTER
+                  text_font: font_ui_24
+                  text: "LIMIT --A"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_multiplus_limit_up
+                  align: TOP_MID
+                  x: 140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_multiplus_limit_up
+
+              - button:
+                  id: btn_electric_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_charger_popup
+
+        - button:
+            id: obj_solar_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_solar_popup
+
+        - obj:
+            id: obj_solar_popup_panel
+            align: CENTER
+            width: 640
+            height: 420
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "SOLAR YIELD"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "MODUS"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_mppt_mode_off
+                  align: TOP_MID
+                  x: -75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "OFF"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_toggle
+
+              - button:
+                  id: btn_mppt_mode_on
+                  align: TOP_MID
+                  x: 75
+                  y: 90
+                  width: 130
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ON"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_toggle
+
+              - label:
+                  align: TOP_MID
+                  y: 190
+                  text: "LADESTROM-LIMIT"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_mppt_limit_down
+                  align: TOP_MID
+                  x: -140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_limit_down
+
+              - label:
+                  id: lbl_mppt_limit
+                  align: TOP_MID
+                  y: 236
+                  width: 190
+                  text_align: CENTER
+                  text_font: font_ui_24
+                  text: "LIMIT --A"
+                  text_color: 0x555555
+
+              - button:
+                  id: btn_mppt_limit_up
+                  align: TOP_MID
+                  x: 140
+                  y: 220
+                  width: 80
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_ui_24
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_mppt_limit_up
+
+              - button:
+                  id: btn_solar_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_solar_popup
+
+        - button:
+            id: obj_battery_popup_backdrop
+            align: TOP_LEFT
+            x: 0
+            y: 0
+            width: ${screen_w}
+            height: ${screen_h}
+            bg_color: 0x000000
+            bg_opa: 70%
+            border_width: 0
+            radius: 0
+            shadow_width: 0
+            hidden: true
+            on_click:
+              - script.execute: close_battery_popup
+
+        - obj:
+            id: obj_battery_popup_panel
+            align: CENTER
+            width: 520
+            height: 300
+            radius: 16
+            bg_color: 0x1A1C1E
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x4A9EFF
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 20
+                  text: "BATTERY"
+                  text_font: font_ui_20
+                  text_color: 0xBDC1C6
+
+              - label:
+                  align: TOP_MID
+                  y: 60
+                  text: "PARKMODUS"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+
+              - button:
+                  id: btn_park_toggle
+                  align: TOP_MID
+                  y: 96
+                  width: 200
+                  height: 60
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        id: lbl_park_state
+                        align: CENTER
+                        text: "---"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_park_toggle
+
+              - button:
+                  id: btn_battery_popup_close
+                  align: BOTTOM_MID
+                  y: -20
+                  width: 200
+                  height: 56
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SCHLIESSEN"
+                        text_font: font_ui_16
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: close_battery_popup

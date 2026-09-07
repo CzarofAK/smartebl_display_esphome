@@ -212,6 +212,13 @@ psram:
 packages:
   basics: !include .basics.yaml
   p0: !include smart_ebl_pages/page_home.yaml
+  # Electric has two interchangeable implementations - page_electric.yaml
+  # ("legacy": hand-rolled LVGL widgets, no external dependency) or
+  # page_electric_widget.yaml ("widget": same page built on the
+  # power_flow_box external component, github.com/CzarofAK/power_flow_widget).
+  # Swap by changing this ONE line; include exactly one, never both (both
+  # declare the same ids). See page_electric_widget.yaml's own header for
+  # the full comparison.
   p1: !include smart_ebl_pages/page_electric.yaml
   p2: !include smart_ebl_pages/page_electric_fuses.yaml
   p3: !include smart_ebl_pages/page_climate_boiler.yaml
