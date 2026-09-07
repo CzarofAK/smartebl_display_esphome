@@ -498,14 +498,22 @@ script:
           if (!api_ok || !id(s_battery_soc).has_state()) {
             lv_label_set_text(id(lbl_electric_batt_main), "---%");
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0x555555), 0);
+            lv_bar_set_value(id(bar_electric_battery_soc), 0, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(id(bar_electric_battery_soc), lv_color_hex(0x555555), LV_PART_INDICATOR);
           } else {
             float soc = id(s_battery_soc).state;
             snprintf(buf, sizeof(buf), "%.0f%%", soc);
             lv_label_set_text(id(lbl_electric_batt_main), buf);
             uint32_t col = 0xFFFFFF;
-            if (soc < 20.0f) col = 0xE74C3C;
-            else if (soc < 40.0f) col = 0xF39C12;
+            uint32_t bar_col = 0x2ECC71;  // SOC bar: explicit green for "good",
+            // unlike the number's own white default - a filled gauge
+            // benefits from an explicit "fine" color the way a plain
+            // number doesn't (see this bar widget's own comment).
+            if (soc < 20.0f) { col = 0xE74C3C; bar_col = 0xE74C3C; }
+            else if (soc < 40.0f) { col = 0xF39C12; bar_col = 0xF39C12; }
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(col), 0);
+            lv_bar_set_value(id(bar_electric_battery_soc), (int) soc, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(id(bar_electric_battery_soc), lv_color_hex(bar_col), LV_PART_INDICATOR);
           }
 
           // ---- IDLE/CHARGING/DISCHARGING - interpreted from the
@@ -604,8 +612,19 @@ script:
           // pure sink, never both - so they only ever need forward/dash,
           // not a reverse arrow. Small threshold (5W) rather than >0 so
           // sensor noise at true idle doesn't flicker the arrow.
+          // 2026-09-07 ("näher ans Victron-Original" pass): arrows now
+          // also pick up color on active flow (0x4A9EFF, the fleet's
+          // existing "neutral active" token - not a new color) vs. the
+          // existing static 0x707070 while idle. This is deliberately
+          // NOT a reintroduction of the walking-dash flow animation the
+          // repo owner already asked to remove ("braucht das viel
+          // Leistung?") - it's one more style call inside the same
+          // already-executing, value-change-triggered draw_electric
+          // pass, zero extra redraw cost.
           auto set_flow = [&](lv_obj_t *arrow, bool has_state, float watts) {
-            lv_label_set_text(arrow, (has_state && watts > 5.0f) ? "→" : "-");
+            bool active = has_state && watts > 5.0f;
+            lv_label_set_text(arrow, active ? "→" : "-");
+            lv_obj_set_style_text_color(arrow, lv_color_hex(active ? 0x4A9EFF : 0x707070), 0);
           };
           set_flow(id(arrow_shore_charger), api_ok && id(s_multiplus_in_w).has_state(),
               api_ok && id(s_multiplus_in_w).has_state() ? id(s_multiplus_in_w).state : 0.0f);
@@ -622,7 +641,12 @@ script:
           // back UP through the inverter to the AC loads. Reuses the
           // exact same IDLE/CHARGING/DISCHARGING classification as the
           // Battery box itself (computed above) rather than a second,
-          // possibly-disagreeing threshold on the same current sensor.
+          // possibly-disagreeing threshold on the same current sensor -
+          // and, as of the 2026-09-07 arrow-coloring pass above, also
+          // reuses that same classification's own batt_state_col
+          // directly (green/orange/secondary-gray, already computed)
+          // instead of a second color decision that could disagree with
+          // the Battery box's own state line.
           if (batt_state == "CHARGING") {
             lv_label_set_text(id(arrow_row_down), "↓");
           } else if (batt_state == "DISCHARGING") {
@@ -630,6 +654,7 @@ script:
           } else {
             lv_label_set_text(id(arrow_row_down), "-");
           }
+          lv_obj_set_style_text_color(id(arrow_row_down), lv_color_hex(batt_state_col), 0);
 
           // ---- Charger/Inverter popup (hidden unless open, see
           // show_charger_popup/close_charger_popup) - mode buttons'
@@ -946,10 +971,23 @@ lvgl:
             width: 300
             height: 290
             radius: 12
-            bg_color: 0x202124
+            # Victron/Venus-OS-style panel chrome (2026-09-07, in response
+            # to "näher ans Victron-Original/Venus-OS-Dashboard heranbringen"):
+            # a neutral-gray panel (the old 0x202124/0x3C4043 pair) reads as
+            # "generic dark UI", not specifically Victron. Victron's own
+            # gui-v2 overview-page tokens (color_overviewPage_widget_background
+            # / _border, themes/color/Dark.json upstream) are a dark BLUE-
+            # tinted panel with a blue accent border, not neutral gray - blue
+            # is Victron's brand/"OK" color, not just decoration. Swapped to
+            # the closest fleet-safe equivalent: this only touches page-local
+            # panel chrome, NOT design_rules.md §6's protected six-color
+            # semantic palette (good/warning/alarm/invalid/secondary/footer/
+            # active), so it doesn't need a fleet-wide design_rules.md change
+            # or repo-owner sign-off on a semantic-color deviation.
+            bg_color: 0x142230
             bg_opa: COVER
             border_width: 1
-            border_color: 0x3C4043
+            border_color: 0x27588A
             # Real, LVGL-default cause of repo-owner's "die Abstände sind
             # immer noch unterschiedlich", even though every box already
             # used the identical y-values (12/74/108/-14) for each row:
@@ -1325,6 +1363,42 @@ lvgl:
                   <<: *row_main
                   id: lbl_electric_batt_main
                   text: "---%"
+              # SOC fill bar (2026-09-07, "näher ans Victron-Original"
+              # pass) - Victron's own overview page treats the battery
+              # widget as the page's visual anchor with a fill gauge, not
+              # just a number. A VERTICAL bar like the Charger box's own
+              # (RIGHT_MID, full box height) does NOT fit here: this box
+              # is already the most crowded on the page (title/main/
+              # state/time/V-A-W row/starter-voltage footer all stacked
+              # top to bottom), and a full-height bar on either edge
+              # would run straight through the V/A/W row and the right-
+              # edge W value. The one gap that exists without moving any
+              # existing row is the ~36px band between row_main's bottom
+              # (~y96) and row_state's top (y132) - so this is a thin
+              # HORIZONTAL bar dropped into exactly that gap, same 24px
+              # side inset the V/A/W row below already uses (252 =
+              # 300 - 2x24), not a redesign of the box's own vertical
+              # rhythm. Value + indicator color (green/orange/red) set
+              # in draw_electric, reusing the exact same 20%/40% SOC
+              # thresholds the number above already uses - bar and text
+              # always agree.
+              - bar:
+                  id: bar_electric_battery_soc
+                  align: TOP_MID
+                  y: 100
+                  width: 252
+                  height: 10
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x1A1C1E
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x3C4043
+                  radius: 4
+                  indicator:
+                    bg_color: 0x555555
+                    radius: 3
               # Shared state/secondary-line slot - see row_state's own
               # comment (on the Shore box, above; this is the box the
               # pattern was named after). Remaining time below is EXTRA,
