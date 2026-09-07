@@ -236,6 +236,11 @@ sensor:
       - script.execute: draw_electric
 
 binary_sensor:
+  # Not shown on this page any more (draw_electric's own comment, above,
+  # on why the Shore box's CONNECTED/DISCONNECTED line was removed) -
+  # kept defined since smartebl's link still publishes it and a future
+  # page/use may still want it, same "reserved, not deleted" treatment
+  # this repo gives other now-unused-but-still-real entities.
   - platform: template
     id: s_shore_power_connected
     name: "Shore Power Connected (via link)"
@@ -287,39 +292,26 @@ script:
               (millis() - id(link_last_rx_ms)) < 3000;
           char buf[32];
 
-          // ---- Shore - connected/disconnected (small status line) still
-          // comes from smartebl's own link; main/sub values come from
-          // the MultiPlus (HA) any time THEY have state, independent of
-          // link status - the AC meter is real regardless of whether
-          // smartebl's own shore-detection circuit happens to be linked
-          // right now. Main = input power, sub-left/right = input
-          // voltage/frequency (repo-owner spec, replacing the old
-          // W+A sub-line).
+          // ---- Shore - main/sub values come from the MultiPlus (HA) any
+          // time THEY have state, independent of link status - the AC
+          // meter is real regardless of whether smartebl's own
+          // shore-detection circuit happens to be linked right now. Main
+          // = input power, sub-left/right = input voltage/frequency
+          // (repo-owner spec, replacing the old W+A sub-line).
           //
-          // Repo-owner (2026-09-06): "shore zeigt 71W an aber
-          // disconnected?" - expected, not a bug, given the above: this
-          // status word is smartebl's OWN physical shore-sense input
-          // (a separate wire/circuit on the electroblock), while the W
-          // value is the MultiPlus's real AC-input meter reading over
-          // HA - two independent sensors for "is shore power plugged
-          // in", not one value derived from the other. They can
-          // genuinely disagree (smartebl's own sense wire not tripped
-          // yet/miswired/not connected on this installation while the
-          // MultiPlus is still measuring real AC input, or vice versa)
-          // - if that mismatch is persistent rather than a one-off, the
-          // fix is in smartebl's own shore-detection wiring/firmware,
-          // not here; this page is only reporting the two entities as
-          // given.
-          if (!connected) {
-            lv_label_set_text(id(lbl_electric_shore_status), "---");
-            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0x555555), 0);
-          } else if (id(s_shore_power_connected).state) {
-            lv_label_set_text(id(lbl_electric_shore_status), "CONNECTED");
-            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0x2ECC71), 0);
-          } else {
-            lv_label_set_text(id(lbl_electric_shore_status), "DISCONNECTED");
-            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(0xBDC1C6), 0);
-          }
+          // The CONNECTED/DISCONNECTED status line (smartebl's own
+          // physical shore-sense input) that used to sit here is GONE
+          // (repo-owner, 2026-09-07: "'Disconnected' steht immer noch
+          // beim Shore block. Der Text block kann weg.") - it never
+          // agreed with the real W reading next to it (see the removed
+          // comment's own "shore zeigt 71W an aber disconnected?" report,
+          // 2026-09-06 - correct in principle, two independent sensors,
+          // but confusing enough in practice that the repo owner wants it
+          // gone rather than explained again). lbl_electric_shore_status
+          // itself stays declared, just permanently blank - it's also the
+          // `&row_state` anchor every other box's own state line merges
+          // in (Charger/Solar/Battery/DC Loads), so removing the widget
+          // outright would take their state lines down with it.
           if (!api_ok || !id(s_multiplus_in_w).has_state()) {
             lv_label_set_text(id(lbl_electric_shore), "--- W");
             lv_obj_set_style_text_color(id(lbl_electric_shore), lv_color_hex(0x555555), 0);
@@ -500,9 +492,9 @@ script:
             lv_obj_set_style_text_color(id(lbl_electric_dc_loads), lv_color_hex(0xFFFFFF), 0);
           }
 
-          // ---- Battery (emphasized box) - SmartShunt SOC, same
-          // thresholds as m5dial_fram/page_power_1.yaml's identical
-          // logic (20%/40% SOC).
+          // ---- Battery - SmartShunt SOC, same thresholds as
+          // m5dial_fram/page_power_1.yaml's identical logic (20%/40%
+          // SOC).
           if (!api_ok || !id(s_battery_soc).has_state()) {
             lv_label_set_text(id(lbl_electric_batt_main), "---%");
             lv_obj_set_style_text_color(id(lbl_electric_batt_main), lv_color_hex(0x555555), 0);
@@ -1041,16 +1033,21 @@ lvgl:
                   text: "--- W"
                   text_font: font_ui_40
                   text_color: 0x555555
-              # Connected/disconnected - smartebl's own link reading
-              # (see draw_electric). Shared state/secondary-line slot
-              # every box on this page uses except AC Loads (its former
-              # duplicate %-of-1600W line was removed outright, not
-              # reflowed - see that box's own comment).
+              # Shared state/secondary-line slot every box on this page
+              # uses except AC Loads (its former duplicate %-of-1600W
+              # line was removed outright, not reflowed - see that box's
+              # own comment). Shore's own use of this slot (the
+              # smartebl-link CONNECTED/DISCONNECTED reading) is gone
+              # (draw_electric's own comment explains why) - text stays
+              # permanently blank here, never written by draw_electric
+              # any more; this widget only still exists to carry the
+              # `&row_state` anchor's position/font for the other boxes'
+              # `<<: *row_state` merges (Charger/Solar/Battery/DC Loads).
               - label: &row_state
                   id: lbl_electric_shore_status
                   align: TOP_MID
                   y: 132
-                  text: "---"
+                  text: ""
                   text_font: font_ui_20
                   text_color: 0x555555
               - label: &row_bottom_l
@@ -1075,14 +1072,42 @@ lvgl:
         # connection anyway). Text is set in draw_electric, not on a
         # timer - see that script's own "Flow-direction arrows" comment
         # for why each one only needs the states it actually has.
-        - label:
-            id: arrow_shore_charger
+        #
+        # Each arrow used to be a bare `label:` with a hand-guessed
+        # absolute x/y - close to the gap between its two boxes but never
+        # exactly centered in it (repo-owner, 2026-09-07: "Die Pfeile
+        # zwischen den boxen sind ziemlich random platziert! bitte
+        # zwischen den boxen einmitten (vertikal und horizontal)").
+        # Fixed the same way this file already centers other things by
+        # construction rather than by hand-computed offsets (see the
+        # inverter load bar's own RIGHT_MID comment) - each arrow is now
+        # a label with `align: CENTER` inside a small transparent wrapper
+        # `obj:` sized to exactly the real gap rectangle between its two
+        # boxes (40px, the actual x215/555/895 column gap or y122/452 row
+        # gap - see the grid's own comment at the top of this page for
+        # where those numbers come from), so LVGL centers the glyph in
+        # both axes on its own - no glyph-width/line-height guessing.
+        - obj: &arrow_wrap
             align: TOP_LEFT
-            x: 525
-            y: 252
-            text_font: font_ui_28
-            text: "-"
-            text_color: 0x707070
+            bg_opa: TRANSP
+            border_width: 0
+            clickable: false
+            scrollbar_mode: "OFF"
+            scroll_dir: NONE
+            # Row 0 (y122-412) horizontal gap between col0 (x215-515) and
+            # col1 (x555-855): x515-555, full row height so the arrow
+            # centers on the row's own vertical middle (y267).
+            x: 515
+            y: 122
+            width: 40
+            height: 290
+            widgets:
+              - label:
+                  id: arrow_shore_charger
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
 
         # Inverter/Charger is now a BUTTON - tap opens the mode/shore-
         # limit popup at the bottom of this page's widget list. Already
@@ -1142,14 +1167,22 @@ lvgl:
                     radius: 3
             on_click:
               - script.execute: show_charger_popup
-        - label:
-            id: arrow_charger_acloads
-            align: TOP_LEFT
-            x: 865
-            y: 252
-            text_font: font_ui_28
-            text: "-"
-            text_color: 0x707070
+        # Row 0 horizontal gap between col1 (x555-855) and col2 (x895-
+        # 1195): x855-895 - see arrow_shore_charger's own wrapper comment
+        # above for the general approach.
+        - obj:
+            <<: *arrow_wrap
+            x: 855
+            y: 122
+            width: 40
+            height: 290
+            widgets:
+              - label:
+                  id: arrow_charger_acloads
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
         - obj:
             <<: *box_frame
             id: obj_electric_ac_loads
@@ -1185,16 +1218,25 @@ lvgl:
         # sources/sinks, see draw_electric's own comment), so this one
         # needs all three states: ↓/↑/-, not just one arrow direction
         # and a dash.
-        - label:
-            id: arrow_row_down
-            align: TOP_LEFT
-            x: 695
-            y: 420
-            text_font: font_ui_28
-            text: "-"
-            text_color: 0x707070
+        # Vertical gap between row0 (bottom y412) and row1 (top y452):
+        # y412-452, full column1 width (x555-855) so the arrow centers on
+        # the column's own horizontal middle (x705) - see
+        # arrow_shore_charger's own wrapper comment above.
+        - obj:
+            <<: *arrow_wrap
+            x: 555
+            y: 412
+            width: 300
+            height: 40
+            widgets:
+              - label:
+                  id: arrow_row_down
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
 
-        # ---- Row 2 (y=452, h=290): Solar -> Battery (emphasized) -> DC
+        # ---- Row 2 (y=452, h=290): Solar -> Battery -> DC
         # Loads - same 300x290 grid as row 1 (see the top-of-page
         # comment); column x is identical to row 1's (215/555/895) too,
         # since every box is now the same width.
@@ -1234,14 +1276,22 @@ lvgl:
                   text: "---A"
             on_click:
               - script.execute: show_solar_popup
-        - label:
-            id: arrow_solar_battery
-            align: TOP_LEFT
-            x: 505
-            y: 582
-            text_font: font_ui_28
-            text: "-"
-            text_color: 0x707070
+        # Row 1 (y452-742) horizontal gap between col0 (x215-515) and
+        # col1 (x555-855): x515-555 - see arrow_shore_charger's own
+        # wrapper comment above.
+        - obj:
+            <<: *arrow_wrap
+            x: 515
+            y: 452
+            width: 40
+            height: 290
+            widgets:
+              - label:
+                  id: arrow_solar_battery
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
 
         # Battery - now a BUTTON (opens the park-mode popup below, see
         # show_battery_popup), and the same 300x290 grid cell as every
@@ -1253,22 +1303,19 @@ lvgl:
             id: btn_electric_battery
             x: 555
             y: 452
-            # The one box that deliberately does NOT take box_frame's
-            # radius/bg_color/border as-is - repo-owner's "emphasized"
-            # accent styling for the hero box. Still inherits width,
-            # height and (crucially, see box_frame's own comment)
-            # pad_all: 0 from the shared frame - only the look, not the
-            # geometry, is special-cased here.
-            radius: 16
-            bg_color: 0x14324F
-            border_width: 2
-            border_color: 0x4A9EFF
+            # Used to deliberately NOT take box_frame's radius/bg_color/
+            # border as-is - a blue "emphasized" accent for this box as
+            # the hero of the page. Reverted (repo-owner, 2026-09-07:
+            # "Wieso ist 'Battery' blau, während alle anderen grau
+            # sind?") - this box now takes box_frame's radius/bg_color/
+            # border like every other box on the page, same grey, no
+            # more special-cased look. Still inherits width/height/
+            # pad_all: 0 from the shared frame, same as always.
             shadow_width: 0
             widgets:
               - label:
                   <<: *row_title
                   text: "BATTERY"
-                  text_color: 0xBDC1C6
               # Same row_main template as every other box now (repo-
               # owner: no more unapproved deviation - see row_main's own
               # comment on the Shore box). SOC's own color-by-threshold
@@ -1349,14 +1396,22 @@ lvgl:
                   text_color: 0x555555
             on_click:
               - script.execute: show_battery_popup
-        - label:
-            id: arrow_battery_dcloads
-            align: TOP_LEFT
-            x: 885
-            y: 582
-            text_font: font_ui_28
-            text: "-"
-            text_color: 0x707070
+        # Row 1 horizontal gap between col1 (x555-855) and col2 (x895-
+        # 1195): x855-895 - see arrow_shore_charger's own wrapper comment
+        # above.
+        - obj:
+            <<: *arrow_wrap
+            x: 855
+            y: 452
+            width: 40
+            height: 290
+            widgets:
+              - label:
+                  id: arrow_battery_dcloads
+                  align: CENTER
+                  text_font: font_ui_28
+                  text: "-"
+                  text_color: 0x707070
         - obj:
             <<: *box_frame
             id: obj_electric_dc_loads

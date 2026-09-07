@@ -179,15 +179,29 @@ script:
             if (oy > R_MAX) oy = R_MAX;
             if (oy < -R_MAX) oy = -R_MAX;
           }
-          // obj_levelling_bubble's parent is obj_levelling_root, a local
-          // 400x400 coordinate container (same "local coordinate origin"
-          // trick page_climate's own obj_truma_room/obj_truma_water use)
-          // filling the left half of the content area rather than the
-          // whole screen - see that container's own widget comment.
-          // lv_obj_set_pos is always parent-relative, so ox/oy=0 has to
-          // land on the container's own center: (400-52)/2 = 174 on
-          // both axes (bubble is now 52x52, doubled from 26x26).
-          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox + 174, (int) oy + 174);
+          // Real bug fixed (repo-owner, 2026-09-07: "kannst du die
+          // blase in der bewegung so limitieren, dass sie im sichtbaren
+          // bereich bleibt? im moment sehe ich sie nirgends") - this
+          // used to add a "+174" here on the theory that lv_obj_set_pos
+          // is always parent-top-left-relative, so ox/oy=0 had to be
+          // pushed out to the 400x400 container's own center
+          // ((400-52)/2 = 174). That's backwards: obj_levelling_bubble
+          // has `align: CENTER` set on its own widget definition below,
+          // and LVGL positions an object with an alignment set relative
+          // to THAT alignment's reference point, not the parent's
+          // top-left - exactly the same "x/y are offsets from the
+          // aligned position" behavior m5dial_fram/page_levelling.yaml's
+          // own `lvgl.widget.update: {id: ..., x: ox, y: oy}` already
+          // relies on (see this file's header) - it needs no such
+          // compensation because it never added one. The "+174" here
+          // was therefore double-offsetting: at this installation's real
+          // readings (ox ~ +143, per this lambda's own sign-fix comment
+          // above) the bubble's actual center landed at parent-center +
+          // (317, ...), ~117px past the 400x400 container's own right
+          // edge - clipped out of view entirely, matching the report.
+          // Fixed by passing ox/oy straight through, same as the
+          // reference file.
+          lv_obj_set_pos(id(obj_levelling_bubble), (int) ox, (int) oy);
 
           bool vl_ok = api_ok && id(s_levelling_vl).has_state();
           bool vr_ok = api_ok && id(s_levelling_vr).has_state();
