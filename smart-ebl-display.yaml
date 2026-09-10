@@ -304,6 +304,40 @@ esp_ldo:
     voltage: 2.5V
 
 # =============================================================================
+# Panel PMIC wake-up - works around esphome/esphome#15564's boot hang
+# =============================================================================
+# Real-world symptom this addresses: boot hangs right after the
+# `display.mipi_dsi:024]: Running Setup` log line, then the task watchdog
+# kills loopTask ~5s later - a crash chased to
+# mipi_dsi_hal_host_gen_write_dcs_command() spinning forever inside
+# mipi_dsi_host_ll_gen_is_cmd_fifo_full() because the panel never
+# acknowledges the DSI init sequence WAVESHARE-10.1-DSI-TOUCH-A sends.
+# esphome/esphome#15564 (open, filed against this exact board/panel
+# model) reports the JD9365 panel sits behind a small PMIC that needs
+# waking over I2C first, and gives the wake sequence below, sourced from
+# Waveshare's own ESP-IDF LCD driver per the reporter - better provenance
+# than a guess, but still only one report, not yet confirmed by another
+# user or an ESPHome maintainer, and not checked against this board's own
+# datasheet (none was available). See `custom_components/panel_power_init/`
+# for the implementation and its own header comment for why this needs to
+# be a real component (setup_priority) rather than an `on_boot:` action -
+# the hang happens inside display.mipi_dsi's own setup(), before any
+# on_boot automation could ever run.
+#
+# ⚠ Before flashing: this board's `bus_touch` I2C bus already runs
+# `scan: true` (see the `i2c:` block above) - check the boot log for
+# "Found i2c device at address 0x45" BEFORE this component's own wake
+# sequence exists to disturb the bus. If it's not there, this isn't the
+# same PMIC/address on this specific board and the fix below won't apply
+# as written. If the crash persists after flashing this, that scan log
+# (or its absence) is the first thing to check, per
+# `custom_components/panel_power_init/__init__.py`'s own comment.
+
+panel_power_init:
+  i2c_id: bus_touch
+  address: 0x45
+
+# =============================================================================
 # Display - 10.1-DSI-TOUCH-A (800x1280, JD9365 panel, 2 DSI lanes)
 # =============================================================================
 # WAVESHARE-10.1-DSI-TOUCH-A already exists as a built-in model in
@@ -353,12 +387,19 @@ touchscreen:
       - script.execute: on_touch_activity
 
 # =============================================================================
-# SBB clock widget (Mainscreen) - reused verbatim from m5dial_clock_sbb
+# External components - one local (this repo), one git (shared across
+# the user's Smart EBL/FRAM devices)
 # =============================================================================
+# SBB clock widget (Mainscreen), reused verbatim from m5dial_clock_sbb -
 # pages.md §6: "the widget scales by width/height alone ... no changes
 # needed to reuse it here at a much larger size than the M5Dial's
 # 240x240". Pulled as a git external_component, same as the user's
 # other Smart EBL/FRAM devices that use it.
+#
+# panel_power_init (see the section above, right before `display:`) is
+# local to THIS repo, not a separate git repo like sbb_clock - it's a
+# single-board workaround for esphome/esphome#15564, not a reusable
+# widget shared across devices, so custom_components/ is where it stays.
 
 external_components:
   - source:
@@ -366,6 +407,10 @@ external_components:
       url: https://github.com/CzarofAK/m5dial_clock_sbb
       ref: main
     components: [sbb_clock]
+  - source:
+      type: local
+      path: custom_components
+    components: [panel_power_init]
 
 sbb_clock: # marker key - without it ESPHome won't load the component
 

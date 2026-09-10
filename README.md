@@ -624,6 +624,26 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       open and unresolved upstream (esphome#16873) - see design_rules.md
       §4.
 
+- [ ] **Panel PMIC wake-up added (`panel_power_init`), works around
+      [esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
+      - UNVERIFIED on this repo's own hardware.** That upstream issue
+      (open, same board/panel, ESPHome 2026.3.3) describes a boot hang
+      right after `display.mipi_dsi:024]: Running Setup` (task watchdog
+      kills `loopTask` ~5s later) and reports fixing it with an I2C wake
+      sequence at address `0x45` to a PMIC behind the JD9365 panel,
+      sourced from Waveshare's own ESP-IDF driver per the reporter - one
+      report, not yet independently confirmed. Added as a local
+      component (`custom_components/panel_power_init/`, `setup_priority`
+      just below `i2c::BUS` so it runs before `display.mipi_dsi`'s own
+      `setup()` - see `docs/hardware.md`'s new section for the full
+      write-up and why an `on_boot:` hook can't reach far enough back to
+      help here) rather than assumed safe to skip - low-cost if unneeded
+      (a few I2C writes to an address nothing else on `bus_touch` uses),
+      real if this board hits the same hang. **Check the `bus_touch`
+      scan log for "Found i2c device at address 0x45" on the next flash**
+      - confirms or rules out whether this board has the same PMIC at
+      the same address.
+
 ## Building & Flashing
 
 ```bash
