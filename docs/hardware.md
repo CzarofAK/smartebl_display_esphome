@@ -267,37 +267,49 @@ ESPHome's own source, not from a Waveshare page.
 
 ## Panel PMIC wake-up (`panel_power_init`) - works around esphome/esphome#15564
 
-Reported symptom (not yet seen on this repo's own hardware log, but
-matches this exact board/panel and this exact `mipi_dsi` model string):
-boot hangs right after `display.mipi_dsi:024]: Running Setup`, then the
-task watchdog kills `loopTask` ~5s later - `mipi_dsi_hal_host_gen_write_
-dcs_command()` spinning forever in `mipi_dsi_host_ll_gen_is_cmd_fifo_
-full()` because the JD9365 panel never acknowledges the DCS init
-sequence `WAVESHARE-10.1-DSI-TOUCH-A` sends.
-[esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
+**Confirmed on this repo's own hardware log**: boot hangs right after
+`display.mipi_dsi:024]: Running Setup`, then the task watchdog kills
+`loopTask` ~5s later - register dump decodes to
+`mipi_dsi_hal_host_gen_write_dcs_command()` spinning forever in
+`mipi_dsi_host_ll_gen_is_cmd_fifo_full()`, because the JD9365 panel
+never acknowledges the DCS init sequence `WAVESHARE-10.1-DSI-TOUCH-A`
+sends. [esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
 (open as of 2026-09-10, filed against this exact board/panel, ESPHome
 2026.3.3) attributes this to a small PMIC sitting behind the panel that
 stays asleep after a cold boot until woken over I2C, and reports a wake
 sequence at address `0x45` (reg `0x95=0x11`, `0x95=0x17`, `0x96=0x00` +
 100ms, `0x96=0xFF` + 300ms) that fixed it for them - sourced from
 Waveshare's own ESP-IDF LCD driver per the reporter, not derived from
-this board's own datasheet (none available). `custom_components/
-panel_power_init/` runs that sequence with a `setup_priority` just below
-`i2c::BUS`, so it always completes before `display.mipi_dsi`'s own
-`setup()` - see that component's own header comment for why an
-`on_boot:` automation can't reach far enough back to help here (the hang
-is inside `display.mipi_dsi`'s `setup()` itself).
+this board's own datasheet (none available). The fix now lives in its
+own repo, [`github.com/CzarofAK/panel_power_init`](https://github.com/CzarofAK/panel_power_init)
+(pulled via `external_components:`, `ref: main`, in
+`smart-ebl-display.yaml` - see that repo's README for the full write-up),
+running that sequence with a `setup_priority` just below `i2c::BUS` so
+it always completes before `display.mipi_dsi`'s own `setup()` - see its
+header comment for why an `on_boot:` automation can't reach far enough
+back to help here (the hang is inside `display.mipi_dsi`'s `setup()`
+itself).
 
-**Confidence: low-medium.** One upstream reporter, "works fine in my
-project" - no second confirmation from another user or an ESPHome
-maintainer as of this writing, and not checked against this board's own
-PMIC datasheet. Enabled via `panel_power_init: {i2c_id: bus_touch,
-address: 0x45}` in `smart-ebl-display.yaml`, right before the `display:`
-block. **Before flashing:** `bus_touch` already runs `scan: true` - check
-the boot log for "Found i2c device at address 0x45" first. If it's not
-there, this isn't the same PMIC/address on this board and the fix as
-written doesn't apply. If the crash persists after flashing this
-regardless, that scan log is the first thing to check next.
+**Confidence: low-medium, and NOT yet confirmed to actually fix this
+board's crash.** One upstream reporter, "works fine in my project" - no
+second confirmation from another user or an ESPHome maintainer as of
+this writing, and not checked against this board's own PMIC datasheet.
+Enabled via `panel_power_init: {i2c_id: bus_touch, address: 0x45}` in
+`smart-ebl-display.yaml`, right before the `display:` block.
+
+**Real-world test result so far, inconclusive:** `bus_touch` already
+runs `scan: true`, and was checked at `logger: level: VERY_VERBOSE` on
+the exact crashing boot - but showed **no** `i2c.idf` scan output at
+all, not even the "Scanning for devices" line that should print
+regardless of what the scan finds. That's not a clean "0x45 absent"
+result (which would argue against this fix applying here at all) - it
+means the scan's own log output isn't showing up for a reason that
+hasn't been root-caused yet (wrong log tag for this ESPHome release?
+scan running before something else? the bus genuinely not responding to
+anything, PMIC included?). Until that's resolved, treat this fix as
+plausible but **unverified** on this board - flashing it hasn't been
+confirmed to get past the crash yet. If it doesn't, chasing why the scan
+never logs anything is the next real debugging step.
 
 ## Required companion component: esp_ldo
 
