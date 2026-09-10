@@ -624,36 +624,34 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       open and unresolved upstream (esphome#16873) - see design_rules.md
       §4.
 
-- [ ] **Panel PMIC wake-up added (`panel_power_init`), works around
-      [esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
-      - the crash it targets is CONFIRMED on this repo's own hardware,
-      the fix itself is still UNVERIFIED.** This repo's own boot log
-      reproduced the exact hang the upstream issue (open, same
-      board/panel, ESPHome 2026.3.3) describes: right after
+- [x] **Panel PMIC wake-up added (`panel_power_init`) - CONFIRMED WORKING
+      on real hardware, fixes esphome/esphome#15564's boot hang.** This
+      repo's own boot log reproduced the exact hang the upstream issue
+      (open, same board/panel, ESPHome 2026.3.3) describes: right after
       `display.mipi_dsi:024]: Running Setup`, task watchdog kills
       `loopTask` ~5s later, register dump decodes to
       `mipi_dsi_hal_host_gen_write_dcs_command()` spinning in
       `mipi_dsi_host_ll_gen_is_cmd_fifo_full()`. The reported fix - an
       I2C wake sequence at address `0x45` to a PMIC behind the JD9365
       panel, sourced from Waveshare's own ESP-IDF driver per the
-      reporter - is one report, not yet independently confirmed upstream
-      either. Originally added as a local component, now split into its
-      own repo, [`panel_power_init`](https://github.com/CzarofAK/panel_power_init)
+      reporter - **got this board past the crash on the next flash**:
+      `panel_power_init:011]: Waking panel PMIC over I2C before DSI
+      init...` → `display.mipi_dsi:175]: MIPI DSI setup complete` → clean
+      boot through to Wi-Fi/Home Assistant. Lives in its own repo,
+      [`panel_power_init`](https://github.com/CzarofAK/panel_power_init)
       (pulled via `external_components:`, matching the `sbb_clock`
       convention) - `setup_priority` just below `i2c::BUS` so it runs
       before `display.mipi_dsi`'s own `setup()`, see that repo's README
-      for the full write-up and why an `on_boot:` hook can't reach far
-      enough back to help here.
-      **Real-world test result so far: inconclusive, not confirmed
-      working.** `bus_touch`'s `scan: true`, checked at `logger: level:
-      VERY_VERBOSE` on the actual crashing boot, showed **no** `i2c.idf`
-      scan output at all - not even the unconditional "Scanning for
-      devices" line, let alone a "Found device at address 0x.." line for
-      `0x45` or anything else. That doesn't confirm the PMIC is present,
-      but it also doesn't rule out that this fix could still work - why
-      the scan itself isn't logging anything is a separate, still-open
-      question. This fix has not yet been confirmed to actually get the
-      board past the crash.
+      for the full write-up.
+      **The earlier "inconclusive scan" finding turned out to be a
+      red herring, not a real problem**: `bus_touch`'s own scan does
+      find all three devices on the bus (`0x18`/`0x45`/`0x5D`) - it just
+      couldn't print on the crashing boot, because ESPHome logs scan
+      results from its global `dump_config()` pass, which only runs
+      after every component's `setup()` finishes, and `display.mipi_dsi`'s
+      never did until this fix landed. Still upstream from a single
+      report, still not independently confirmed by ESPHome or Waveshare
+      - but now confirmed on this board, not just plausible in theory.
 
 ## Building & Flashing
 
