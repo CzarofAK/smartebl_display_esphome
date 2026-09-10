@@ -290,26 +290,29 @@ header comment for why an `on_boot:` automation can't reach far enough
 back to help here (the hang is inside `display.mipi_dsi`'s `setup()`
 itself).
 
-**Confidence: low-medium, and NOT yet confirmed to actually fix this
-board's crash.** One upstream reporter, "works fine in my project" - no
-second confirmation from another user or an ESPHome maintainer as of
-this writing, and not checked against this board's own PMIC datasheet.
-Enabled via `panel_power_init: {i2c_id: bus_touch, address: 0x45}` in
-`smart-ebl-display.yaml`, right before the `display:` block.
+**Confidence: high - confirmed working end-to-end on this board's own
+hardware (2026-09-10).** With `panel_power_init` enabled: the log now
+reads `panel_power_init:011]: Waking panel PMIC over I2C before DSI
+init...` → `display.mipi_dsi:175]: MIPI DSI setup complete` → clean boot
+through to Wi-Fi/Home Assistant, no watchdog kill. Enabled via
+`panel_power_init: {i2c_id: bus_touch, address: 0x45}` in
+`smart-ebl-display.yaml`, right before the `display:` block. Register
+values still sourced from a single upstream report
+([esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)),
+not this board's own PMIC datasheet - but now confirmed to work on this
+board specifically, not just plausible in theory.
 
-**Real-world test result so far, inconclusive:** `bus_touch` already
-runs `scan: true`, and was checked at `logger: level: VERY_VERBOSE` on
-the exact crashing boot - but showed **no** `i2c.idf` scan output at
-all, not even the "Scanning for devices" line that should print
-regardless of what the scan finds. That's not a clean "0x45 absent"
-result (which would argue against this fix applying here at all) - it
-means the scan's own log output isn't showing up for a reason that
-hasn't been root-caused yet (wrong log tag for this ESPHome release?
-scan running before something else? the bus genuinely not responding to
-anything, PMIC included?). Until that's resolved, treat this fix as
-plausible but **unverified** on this board - flashing it hasn't been
-confirmed to get past the crash yet. If it doesn't, chasing why the scan
-never logs anything is the next real debugging step.
+**The earlier "no scan output at all" finding, resolved - it was never
+a sign of a silent bus.** `bus_touch`'s own scan (`scan: true`) DOES
+find all three devices on this bus once the board actually finishes
+booting: `Found device at address 0x18` / `0x45` / `0x5D`. Those lines
+just never had a chance to print on the *crashing* boot, because
+ESPHome logs them from its global `dump_config()` pass, which only runs
+after **every** component's `setup()` completes - and `display.mipi_dsi`'s
+`setup()` was hanging (then crashing) before `dump_config()` was ever
+reached. The scan itself was working correctly the whole time; there
+was just nothing broken left to explain once the actual crash was
+fixed.
 
 ## Required companion component: esp_ldo
 
