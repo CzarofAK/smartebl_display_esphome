@@ -165,6 +165,55 @@ POE-ETH schematic PDF
 blocked from this session — open it from a normal connection), not a
 placeholder to guess at.
 
+**Repo-owner follow-up, 2026-09-12: a black LVGL overlay isn't good
+enough for night use — real backlight control is wanted.** Correct
+complaint — an overlay only hides content behind black pixels, it never
+reduces the backlight's own light output, and this panel is edge/direct-
+lit like any other LCD (not OLED), so a good amount of light still shows
+through dark pixels. Re-investigated this session (same network block as
+above, plus `esphome`'s own `mipi_dsi` C++ source read directly from
+GitHub — that host isn't blocked): `mipi_dsi.h`/`mipi_dsi.cpp` implement
+**no** power/backlight/sleep API whatsoever — no `turn_off()`/`turn_on()`
+override, no runtime DCS-command method exposed to YAML at all, only
+`CONF_ENABLE_PIN` at setup time (the same `enable_pin:` already
+commented out above, confirmed not needed for bring-up). So even a
+confirmed real GPIO would need `mipi_dsi` to actually drive it as a
+backlight enable — untested whether it does anything beyond a
+setup-time reset-adjacent pulse.
+
+Two concrete, *untested* hypotheses worth checking against real hardware
+or the schematic before writing any code against them (deliberately not
+implemented here — this board's own boot-hang history,
+[esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
+above, is exactly what guessing at undocumented panel/PMIC behavior
+without hardware in hand can cost):
+
+1. **A real backlight-enable GPIO does exist** on the schematic, just
+   not yet located (this session's network block on `waveshare.com`
+   never lifted) — the straightforward case, if `mipi_dsi` turns out to
+   drive `enable_pin:` as an actual output once one is wired.
+2. **No separate GPIO at all — the backlight is gated through the same
+   PMIC `panel_power_init` already wakes over I2C** at address `0x45`.
+   That component's confirmed wake sequence writes register `0x96`
+   (`0x00` then `0xFF`, per esphome/esphome#15564) as part of powering
+   the panel up — plausible that the same register (or the standard
+   MIPI DCS `Write_CTRL_Display`/`Write_Display_Brightness` commands,
+   `0x53`/`0x51`, sent over the DSI link itself rather than I2C) is what
+   this panel actually uses for backlight, needing no dedicated GPIO at
+   all. **Not verified against this PMIC's own datasheet or by testing
+   on the real board** — writing an untested value to a working PMIC
+   register blind, especially one already responsible for one confirmed
+   boot-hang bug, is not something to ship without a way to immediately
+   power-cycle the board if it goes wrong.
+
+Whoever has hands on the real hardware next: (2) is the more promising
+lead precisely because it reuses infrastructure this repo already has
+working (`bus_touch`, address `0x45`) rather than needing a new wire —
+but confirm it on the bench, not by flashing it into the vehicle. Until
+one of these is confirmed, `smart-ebl-display.yaml`'s brightness
+slider/night mode stay a software dim-overlay simulation, not real
+backlight control — see that file's `apply_backlight` comment.
+
 ## Not confirmed — placeholders, must be verified before flashing
 
 **RS232 link UART pins — confirmed bad (GPIO37/38), moved to GPIO21/20.**

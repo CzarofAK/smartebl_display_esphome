@@ -709,11 +709,19 @@ interval:
                       std::string val = kv.substr(eq + 1);
                       float f = atof(val.c_str());
                       bool on = val == "1";
-                      if (key == "tank1_level") {
-                        id(s_tank1_level).publish_state(f);
-                      } else if (key == "tank2_level") {
-                        id(s_tank2_level).publish_state(f);
-                      } else if (key == "tank3_level") {
+                      // tank1_level/tank2_level (Fresh/Waste) - TEMPORARY,
+                      // 2026-09-12: commented out, not removed, while
+                      // page_levels.yaml sources Fresh/Waste from Victron
+                      // (HA sensor.fresh_stand/sensor.waste_stand) instead -
+                      // see that file's own sensor: block comment for why
+                      // and how to revert (uncomment these two cases AND
+                      // s_tank1_level/s_tank2_level there).
+                      // if (key == "tank1_level") {
+                      //   id(s_tank1_level).publish_state(f);
+                      // } else if (key == "tank2_level") {
+                      //   id(s_tank2_level).publish_state(f);
+                      // } else
+                      if (key == "tank3_level") {
                         id(s_tank3_level).publish_state(f);
                       } else if (key == "fuse_f1_voltage") {
                         id(s_fuse_f1_voltage).publish_state(f);
@@ -794,10 +802,33 @@ interval:
 
   # Re-evaluate link staleness once a second regardless of whether a
   # new frame arrived - see this block's own header comment above.
+  #
+  # draw_electric is gated to "Electric Overview is the visible page"
+  # now, 2026-09-12 - it used to run unconditionally here every single
+  # second regardless of which page was actually on screen (justified,
+  # at the time, purely by "safe to call for a page that isn't shown" -
+  # true, but "safe" isn't "free": draw_electric touches a couple dozen
+  # widgets across all six Electric boxes on every call). That's a real,
+  # avoidable contributor to the PSRAM-bus pressure design_rules.md §4
+  # already tracks (the `E lcd.dsi: ... underrun happens` log line,
+  # confirmed recurring during normal operation, now also reported by
+  # the repo owner as an occasional visible blue flash on the real
+  # panel - see that section for the full write-up and why this alone
+  # isn't presented as a confirmed fix for it). Every value-driven path
+  # into draw_electric (every relevant sensor's own on_value, in
+  # page_electric.yaml) is untouched - only this redundant once-a-second
+  # "the link might have gone stale" redraw of a page nobody is looking
+  # at is skipped now; entering Electric (`nav_show_electric`) already
+  # calls draw_electric explicitly, so there's no stale-frame gap on
+  # arrival.
   - interval: 1s
     then:
       - script.execute: draw_status_bar
-      - script.execute: draw_electric
+      - if:
+          condition:
+            lambda: 'return id(g_current_page) == 1 && id(g_electric_subpage) == 0;'
+          then:
+            - script.execute: draw_electric
 
   # Sleep mode - "no touch for 10 minutes" is only ever detectable by
   # polling (see check_sleep_idle's own comment); 5s is plenty fine-
@@ -871,6 +902,23 @@ script:
   # slider's own 10% floor) so the UI stays legible at minimum, unlike
   # sleep mode's own full-black overlay, which is a deliberately
   # different, total-blackout state.
+  #
+  # Repo-owner follow-up, 2026-09-12: correctly points out this overlay
+  # is NOT a real fix for night use - it hides content behind black
+  # pixels, it doesn't reduce the backlight's own light output (this is
+  # an LCD, not an OLED - dark pixels still let real light through).
+  # Re-checked this session whether ESPHome's `mipi_dsi` component
+  # itself offers anything better: it doesn't - no `turn_off()`/
+  # `turn_on()` override, no runtime DCS-command API at all (read
+  # directly from its C++ source, not inferred). See
+  # docs/hardware.md's own section (right above the `display:` block's
+  # header comment there) for the two real, but still UNVERIFIED,
+  # hardware-level candidates - a dedicated backlight GPIO not yet
+  # found, or the same `panel_power_init` PMIC gating backlight through
+  # I2C/DCS. Neither is implemented here: guessing at either without
+  # real hardware to test against risks repeating this board's own
+  # boot-hang history (esphome/esphome#15564). This overlay stays the
+  # working, if imperfect, baseline until one of those is confirmed.
   - id: apply_backlight
     then:
       - lambda: |-

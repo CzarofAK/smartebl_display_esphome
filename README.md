@@ -240,9 +240,22 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
-- [ ] Find the backlight PWM pin (`docs/pages.md` §7) — check the
-      user-supplied [Waveshare wiki page](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
-      for this exact panel once off this session's network block
+- [ ] Find real backlight control (`docs/pages.md` §7) — repo owner,
+      2026-09-12: the brightness slider/night mode's black LVGL overlay
+      isn't good enough, the backlight itself needs to be controllable.
+      Re-investigated (`docs/hardware.md`'s own section) - ESPHome's
+      `mipi_dsi` component has no power/backlight API at all, confirmed
+      by reading its C++ source directly, so a confirmed GPIO alone
+      wouldn't be enough either. Two candidates, both unverified against
+      real hardware: (1) a dedicated backlight-enable GPIO on the
+      schematic PDF (check the user-supplied
+      [Waveshare wiki page](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
+      once off this session's network block), or (2) the same
+      `panel_power_init` PMIC (I2C address `0x45`) already confirmed
+      wired for panel wake-up gating backlight too, via its `0x96`
+      register or a standard MIPI DCS backlight command sent over DSI -
+      needs testing on the bench (with a way to power-cycle it), not
+      guessed into the vehicle
 - [ ] Confirm the cross-category alarm ranking draft in `docs/pages.md` §7
 - [x] Light/Features floor-plan source photo added
       (`docs/assets/floorplan-source.jpg`, zone breakdown in

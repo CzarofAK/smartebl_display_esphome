@@ -134,6 +134,40 @@ the actual device once real pages are built, not guessed in advance.
   still open, unresolved upstream (esphome#16873) - a confirmed new
   visual artifact was worse than an already-tracked non-fatal log line,
   so this wasn't a net improvement to keep.
+  **Now also reported as a visible artifact, 2026-09-12** - repo owner:
+  the panel "blitzt von Zeit zu Zeit blau" (flashes blue every so often)
+  during normal use. No new root cause found beyond what's already
+  written above - this is very likely the same tracked underrun, just
+  now visually confirmed rather than only a background log line (a DSI
+  DMA fetch that can't complete in time for its scan window is a
+  plausible source of exactly this kind of single-frame solid-color
+  flash on a JD9365 panel). Checked upstream (esphome/esphome#16873
+  itself, and `mipi_dsi`'s own C++ source on ESPHome's `dev` branch) for
+  anything new to try: the async-flush/cache-sync/PPA-acceleration work
+  that issue tracks is real but still unmerged, open PRs, not in any
+  released ESPHome version - not something to build against yet.
+  `mipi_dsi`'s own class exposes no buffer-count/double-buffering knob
+  at all (confirmed by reading `mipi_dsi.h`/`mipi_dsi.cpp` directly, not
+  inferred) and implements no runtime display-off/DCS-command API
+  either - the buffer_size experiment above is genuinely the only lever
+  ESPHome exposes today, and it's already been tried and reverted for
+  making things worse.
+  One thing IS changed here, but presented honestly as a reduction in
+  this repo's own contribution to the PSRAM-bus pressure, not a
+  confirmed fix for the flash itself (no real hardware in this session
+  to verify against): `smart-ebl-display.yaml`'s 1s `interval:` used to
+  call `draw_electric` - a couple dozen `lv_label_set_text`/
+  `lv_obj_set_*` calls across all six Electric boxes - every second
+  regardless of whether Electric was even the visible page, purely to
+  re-evaluate link staleness (same reasoning as `draw_status_bar`'s own
+  once-a-second call). That's now gated to "Electric Overview is
+  actually on screen" - see that interval's own comment. Cuts a real,
+  avoidable, periodic chunk of redraw/PSRAM traffic; whether that chunk
+  was ever large enough to be *the* trigger for a given flash is
+  unconfirmed. **If the flash still occurs after this**, the next real
+  step is watching esphome#16873 for its async-flush/cache-sync work to
+  reach a release and upgrading then - not guessing at further
+  mitigations blind, per this document's own §1 reasoning.
 - ~~**Multi-page navigation model.**~~ Decided at the concept level:
   [`docs/pages.md`](pages.md) — a persistent left nav rail (not a
   swipe/tab-bar), a bottom-left quick-switch popup reachable from any
