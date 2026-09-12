@@ -161,11 +161,20 @@ script:
           // above) - was tank1_level over the link, gated on the link's
           // own `connected`; now HA-fed like Gas A/Gas I/Diesel below, so
           // gated on `api_ok`/`has_state()` the same way those are, not
-          // on link status any more. Same 10%/25% thresholds as
-          // m5dial_fram/page_water.yaml's fresh ring either way
-          // (design_rules.md §2: must not disagree with the M5Dial).
+          // on link status any more. Same 10%/25% critical/warning
+          // thresholds as m5dial_fram/page_water.yaml's fresh ring
+          // either way (design_rules.md §2: must not disagree with the
+          // M5Dial) - only the "normal" color is repo-owner's own call
+          // now, see this column's own "normal" comment below.
           bool fresh_ok = api_ok && id(s_fresh_stand).has_state();
           float fresh = fresh_ok ? id(s_fresh_stand).state : 0.0f;
+          // Normal-state color unified to blue (0x4A9EFF) across all
+          // five columns, 2026-09-12, repo-owner request ("alle gleich
+          // blau, nur nach Zustand ändern") - this column already used
+          // it, only WASTE/DIESEL/GAS I actually changed (see their own
+          // comments below). Critical (red)/warning (orange)/invalid
+          // (grey) stay exactly as before, on every column - only the
+          // "nothing wrong" bucket's color is what this request unifies.
           uint32_t fresh_col = !fresh_ok ? 0x555555 :
               (fresh < 10.0f ? 0xE74C3C : (fresh < 25.0f ? 0xF39C12 : 0x4A9EFF));
           lv_bar_set_value(id(bar_levels_fresh), fresh_ok ? (int) fresh : 0, LV_ANIM_OFF);
@@ -178,20 +187,27 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "%.0f%%", fresh);
             lv_label_set_text(id(lbl_levels_fresh_pct), buf);
-            // 180 L - same vehicle-fixed constant m5dial_fram/
-            // page_water.yaml uses for this same physical tank (read
-            // there via HA, here via HA too now - same tank either way).
-            snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.80f);
+            // 120 L - repo-owner-supplied capacity, 2026-09-12 (was
+            // 180 L, m5dial_fram/page_water.yaml's own constant for
+            // its link-fed tank1 reading of what may not even be the
+            // same physical tank now that FRISCH reads Victron's own
+            // sensor.fresh_stand instead - flag to the repo owner if
+            // page_water.yaml's own 180 L should change too, or if
+            // these are genuinely two different tanks).
+            snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.20f);
             lv_label_set_text(id(lbl_levels_fresh_l), buf);
           }
 
           // ---- WASTE (Victron, HA `sensor.waste_stand`) - same
           // TEMPORARY source swap as FRISCH above, same >=80%/>=95%
-          // thresholds as m5dial_fram/page_water.yaml's grey ring.
+          // critical/warning thresholds as m5dial_fram/page_water.yaml's
+          // grey ring.
           bool waste_ok = api_ok && id(s_waste_stand).has_state();
           float waste = waste_ok ? id(s_waste_stand).state : 0.0f;
+          // Normal-state color: was 0x9AA0A6 (grey-blue), now 0x4A9EFF -
+          // see FRISCH's own "normal-state color unified" comment above.
           uint32_t waste_col = !waste_ok ? 0x555555 :
-              (waste >= 95.0f ? 0xE74C3C : (waste >= 80.0f ? 0xF39C12 : 0x9AA0A6));
+              (waste >= 95.0f ? 0xE74C3C : (waste >= 80.0f ? 0xF39C12 : 0x4A9EFF));
           lv_bar_set_value(id(bar_levels_waste), waste_ok ? (int) waste : 0, LV_ANIM_OFF);
           lv_obj_set_style_bg_color(id(bar_levels_waste), lv_color_hex(waste_col), LV_PART_INDICATOR);
           lv_obj_set_style_text_color(id(lbl_levels_waste_cap), lv_color_hex(waste_col), 0);
@@ -202,7 +218,10 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "%.0f%%", waste);
             lv_label_set_text(id(lbl_levels_waste_pct), buf);
-            snprintf(buf, sizeof(buf), "%.0f L", waste * 0.90f);
+            // 80 L - repo-owner-supplied capacity, 2026-09-12 (was 90 L -
+            // same possibly-different-physical-tank caveat as FRISCH's
+            // own capacity comment above applies here too).
+            snprintf(buf, sizeof(buf), "%.0f L", waste * 0.80f);
             lv_label_set_text(id(lbl_levels_waste_l), buf);
           }
 
@@ -214,8 +233,10 @@ script:
           // once confirmed against how this vehicle's own gauge reads.
           bool diesel_ok = api_ok && id(s_diesel_level).has_state();
           float diesel = diesel_ok ? id(s_diesel_level).state : 0.0f;
+          // Normal-state color: was 0xBDC1C6 (light grey), now 0x4A9EFF -
+          // see FRISCH's own "normal-state color unified" comment above.
           uint32_t diesel_col = !diesel_ok ? 0x555555 :
-              (diesel < 10.0f ? 0xE74C3C : (diesel < 25.0f ? 0xF39C12 : 0xBDC1C6));
+              (diesel < 10.0f ? 0xE74C3C : (diesel < 25.0f ? 0xF39C12 : 0x4A9EFF));
           lv_bar_set_value(id(bar_levels_diesel), diesel_ok ? (int) diesel : 0, LV_ANIM_OFF);
           lv_obj_set_style_bg_color(id(bar_levels_diesel), lv_color_hex(diesel_col), LV_PART_INDICATOR);
           lv_obj_set_style_text_color(id(lbl_levels_diesel_cap), lv_color_hex(diesel_col), 0);
@@ -226,15 +247,21 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "%.0f%%", diesel);
             lv_label_set_text(id(lbl_levels_diesel_pct), buf);
-            // 90 L - repo-owner-confirmed capacity for this tank, same
-            // "%-of-capacity" shape as Fresh's 180L/Waste's 90L lines.
+            // 90 L - repo-owner-confirmed capacity for this tank,
+            // unchanged by the 2026-09-12 Fresh/Waste capacity update
+            // above (120L/80L) - same "%-of-capacity" shape either way.
             snprintf(buf, sizeof(buf), "%.0f L", diesel * 0.90f);
             lv_label_set_text(id(lbl_levels_diesel_l), buf);
           }
 
           // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
-          // same 10%/25% thresholds and "in use"/"reserve" accent colors
-          // as m5dial_fram/page_gas.yaml.
+          // same 10%/25% thresholds as m5dial_fram/page_gas.yaml.
+          // Normal-state color unified to blue for both (Gas I was
+          // 0x9AA0A6 grey - see FRISCH's own comment above) - the
+          // "in use"/"reserve" accent distinction that grey used to
+          // carry is gone; both bottles now read identically when fine,
+          // same as every other column, only the CAP label text ("GAS
+          // A"/"GAS I") still tells them apart.
           bool gas_a_ok = api_ok && id(s_gas_a).has_state();
           bool gas_i_ok = api_ok && id(s_gas_i).has_state();
           float gas_a = gas_a_ok ? id(s_gas_a).state : 0.0f;
@@ -242,7 +269,7 @@ script:
           uint32_t gas_a_col = !gas_a_ok ? 0x555555 :
               (gas_a < 10.0f ? 0xE74C3C : (gas_a < 25.0f ? 0xF39C12 : 0x4A9EFF));
           uint32_t gas_i_col = !gas_i_ok ? 0x555555 :
-              (gas_i < 10.0f ? 0xE74C3C : (gas_i < 25.0f ? 0xF39C12 : 0x9AA0A6));
+              (gas_i < 10.0f ? 0xE74C3C : (gas_i < 25.0f ? 0xF39C12 : 0x4A9EFF));
           lv_bar_set_value(id(bar_levels_gas_a), gas_a_ok ? (int) gas_a : 0, LV_ANIM_OFF);
           lv_obj_set_style_bg_color(id(bar_levels_gas_a), lv_color_hex(gas_a_col), LV_PART_INDICATOR);
           lv_obj_set_style_text_color(id(lbl_levels_gas_a_cap), lv_color_hex(gas_a_col), 0);
