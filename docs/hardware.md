@@ -158,12 +158,12 @@ sequence alone, no host-driven reset pulse needed, and the backlight is
 apparently either always-on or controlled some other way outside this
 config. `smart-ebl-display.yaml` now leaves both commented out rather
 than guessing GPIOs. **Confidence: high** — confirmed working on the
-actual hardware, not inferred from a sibling board. If software
-backlight control is ever wanted, that's a real GPIO to find on the
-POE-ETH schematic PDF
-(`files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf`,
-blocked from this session — open it from a normal connection), not a
-placeholder to guess at.
+actual hardware, not inferred from a sibling board.
+
+*(This section originally sent anyone wanting software backlight
+control to look for a GPIO on the schematic — wrong guess, not just an
+open item; see the next section for the confirmed answer: there is no
+backlight GPIO on this board at all, it's I2C.)*
 
 **Repo-owner follow-up, 2026-09-12: a black LVGL overlay isn't good
 enough for night use — real backlight control is wanted.** Correct
@@ -176,43 +176,40 @@ GitHub — that host isn't blocked): `mipi_dsi.h`/`mipi_dsi.cpp` implement
 **no** power/backlight/sleep API whatsoever — no `turn_off()`/`turn_on()`
 override, no runtime DCS-command method exposed to YAML at all, only
 `CONF_ENABLE_PIN` at setup time (the same `enable_pin:` already
-commented out above, confirmed not needed for bring-up). So even a
-confirmed real GPIO would need `mipi_dsi` to actually drive it as a
-backlight enable — untested whether it does anything beyond a
-setup-time reset-adjacent pulse.
+commented out above, confirmed not needed for bring-up). So a GPIO
+alone was never going to be enough here even if one turned up — and it
+turns out there isn't one to find in the first place.
 
-Two concrete, *untested* hypotheses worth checking against real hardware
-or the schematic before writing any code against them (deliberately not
-implemented here — this board's own boot-hang history,
-[esphome/esphome#15564](https://github.com/esphome/esphome/issues/15564)
-above, is exactly what guessing at undocumented panel/PMIC behavior
-without hardware in hand can cost):
+## Backlight control — confirmed, no GPIO at all: I2C, device `0x45`, register `0x86`
 
-1. **A real backlight-enable GPIO does exist** on the schematic, just
-   not yet located (this session's network block on `waveshare.com`
-   never lifted) — the straightforward case, if `mipi_dsi` turns out to
-   drive `enable_pin:` as an actual output once one is wired.
-2. **No separate GPIO at all — the backlight is gated through the same
-   PMIC `panel_power_init` already wakes over I2C** at address `0x45`.
-   That component's confirmed wake sequence writes register `0x96`
-   (`0x00` then `0xFF`, per esphome/esphome#15564) as part of powering
-   the panel up — plausible that the same register (or the standard
-   MIPI DCS `Write_CTRL_Display`/`Write_Display_Brightness` commands,
-   `0x53`/`0x51`, sent over the DSI link itself rather than I2C) is what
-   this panel actually uses for backlight, needing no dedicated GPIO at
-   all. **Not verified against this PMIC's own datasheet or by testing
-   on the real board** — writing an untested value to a working PMIC
-   register blind, especially one already responsible for one confirmed
-   boot-hang bug, is not something to ship without a way to immediately
-   power-cycle the board if it goes wrong.
+**Resolved same day**, from a primary source: the repo owner supplied
+the exact "Backlight Control" section of Waveshare's own wiki for this
+panel (`waveshare.com/wiki/10.1-DSI-TOUCH-A`, blocked from this session
+directly, quoted content is not) plus its ESP32-P4-NANO BSP component
+reference. Quoting it: *"the backlight can be controlled by writing
+0x00~0xFF (full brightness) to the 0x45 device and 0x86 register on the
+screen through the \[host's\] I2C"*, with the BSP component exposing
+`bsp_display_brightness_init()`/`_on()`/`_off()`/`_set(0-100)` on top of
+exactly that. So: no GPIO, no PWM pin, ever — the backlight is entirely
+I2C-controlled, same bus as touch and the panel PMIC (`bus_touch`,
+`address: 0x45`) — genuinely the same **device address** `panel_power_init`
+already talks to for its confirmed wake sequence (register `0x96` there,
+`0x86` here — two different registers on the same chip, not a
+collision). `smart-ebl-display.yaml`'s `apply_backlight`/
+`set_panel_backlight_raw` now write it directly with a plain
+`i2c::I2CBus::write()` call on `bus_touch` — no new external component
+needed, unlike `panel_power_init`'s multi-register wake sequence.
 
-Whoever has hands on the real hardware next: (2) is the more promising
-lead precisely because it reuses infrastructure this repo already has
-working (`bus_touch`, address `0x45`) rather than needing a new wire —
-but confirm it on the bench, not by flashing it into the vehicle. Until
-one of these is confirmed, `smart-ebl-display.yaml`'s brightness
-slider/night mode stay a software dim-overlay simulation, not real
-backlight control — see that file's `apply_backlight` comment.
+**Confidence: high** — primary vendor source for this exact panel, and
+it reuses a device address already proven reachable on this exact
+board, not a fresh guess. **Not yet flash-tested in this session**
+(no hardware here) — confirm brightness actually changes on the next
+real flash. If it doesn't, or `0x86` turns out to need some register-
+select preamble the wiki quote didn't mention (the way the PMIC wake
+sequence needs `0x95` written first), that's the next thing to check
+with a logic analyzer against the real chip, not to assume — same
+caution this repo already applies to `panel_power_init`'s own register
+values.
 
 ## Not confirmed — placeholders, must be verified before flashing
 

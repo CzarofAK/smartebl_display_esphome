@@ -84,14 +84,15 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
   page uses — there's no confirmed ambient-light sensor on this board.
   The popup's AUTO/DAY/NIGHT selector (`act_daynight_set_mode`) overrides
   this per user choice, persisted (`g_daynight`, `restore_value: true`).
-- **Brightness slider is built, but still has nothing real to drive**:
-  `docs/hardware.md` still leaves `reset_pin`/`enable_pin` unconfigured on
-  this board — no PWM-capable backlight GPIO confirmed yet. The slider
-  and its backing global (`g_backlight_pct`, persisted) are in place;
-  `apply_backlight` is the one place a real `output:`/`ledc` write
-  belongs once that pin is found (see §7's open item — the user-supplied
-  Waveshare wiki page for this exact panel is the next place to check
-  once this session's network block on `waveshare.com` doesn't apply).
+- **Brightness slider drives the real backlight now** (2026-09-12,
+  superseding this section's own earlier "nothing real to drive" text):
+  not a GPIO/PWM pin at all — Waveshare's own wiki for this panel
+  documents the backlight as I2C-controlled, device `0x45` (the same
+  address `panel_power_init` already uses for the panel PMIC), register
+  `0x86`, `0x00`-`0xFF`. `apply_backlight` writes it directly. See
+  `docs/hardware.md`'s own section for the full write-up and confidence
+  level (primary vendor source, not yet flash-tested in the session that
+  wired it).
 
 ### Sleep mode
 
@@ -100,10 +101,12 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
 panel (`check_sleep_idle`, driven by `touchscreen: on_touch:`'s activity
 timer) — any touch wakes it immediately. A small manual SLEEP button next
 to the day/night one (`toggle_sleep_manual`) blanks on demand at any time,
-not just inside the window. Simulated with a full-screen black overlay
-(`obj_sleep_overlay`, top_layer, drawn last so it also catches the waking
-tap itself) rather than a real backlight-off, for the same unconfirmed-pin
-reason as the brightness slider above.
+not just inside the window. A full-screen black overlay (`obj_sleep_overlay`,
+top_layer, drawn last so it also catches the waking tap itself) stays as
+the click target that wakes the display and covers the last frame for the
+instant before brightness is restored - real backlight-off now runs
+alongside it too (2026-09-12, see the brightness slider entry above),
+not simulated by the overlay alone any more.
 
 ## 5. Page catalog
 
@@ -186,11 +189,13 @@ on-screen position:
   6. Door/window open while driving
   7. Levelling not set (irrelevant while driving; lowest, if shown at all while in motion)
 
-- **Backlight PWM pin unconfirmed** (§4) — blocks the brightness slider
-  from doing anything real. The user-supplied
-  [Waveshare wiki page for this exact panel](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
-  is the next thing to check once off this session's network block —
-  `docs/hardware.md` should get the finding, not this file.
+- ~~**Backlight PWM pin unconfirmed.**~~ Resolved, 2026-09-12 - there is
+  no PWM pin, the backlight is I2C-controlled (device `0x45`, register
+  `0x86`), per the user-supplied
+  [Waveshare wiki page for this exact panel](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A).
+  The brightness slider now drives it for real - see `docs/hardware.md`
+  for the full finding and `smart-ebl-display.yaml`'s `apply_backlight`
+  for the write.
 
 - **Light/Features floor plan — source image landed.**
   `docs/assets/floorplan-source.jpg` is now in the repo (rear twin-bed
