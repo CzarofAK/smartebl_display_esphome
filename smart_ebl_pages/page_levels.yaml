@@ -3,46 +3,76 @@
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
 # docs/pages.md §5's original 5-column catalog, exactly as specified:
-# Fresh / Waste (both smartebl's own tank1_level/tank2_level, over the
-# RS232 link) + Gas A / Gas I / Diesel (Home Assistant - smartebl's
-# hardware has no dual-bottle gas or fuel-tank input of its own, so these
-# three are sourced from HA instead, same precedent as page_electric
-# reusing m5dial_fram's real Victron entities). tank3_level is wired but
-# not shown on this page (reserved, see the sensor: block's own comment).
+# Fresh / Waste + Gas A / Gas I / Diesel, all five now Home Assistant-fed
+# (smartebl's hardware has no dual-bottle gas or fuel-tank input of its
+# own, so Gas/Diesel were always HA - same precedent as page_electric
+# reusing m5dial_fram's real Victron entities).
+#
+# Fresh/Waste were originally smartebl's own tank1_level/tank2_level over
+# the RS232 link - TEMPORARILY switched to Victron instead (HA
+# `sensor.fresh_stand`/`sensor.waste_stand`), 2026-09-12, per explicit
+# repo-owner request. The link-fed originals are commented out in the
+# sensor: block below, not deleted - see that comment for how to revert.
+# tank3_level is wired but not shown on this page (reserved, see the
+# sensor: block's own comment).
 # =============================================================================
 
 sensor:
-  # Tanks - page_levels (docs/pages.md §5's "Levels" row). tank1/tank2
-  # were already wired here before that page existed (README's earlier
-  # "reserved for that future page" note) - now consumed. tank3_level is
-  # NEW: protocol.md listed it "planned" (not yet wired on the display
-  # side) but smartebl's own smart-ebl.yaml already broadcasts it
-  # (group 2's `T2;tank1_level=..;tank2_level=..;tank3_level=..;`) - the
-  # README's own "wire one more else if" pattern applies, see the reader
-  # below. WHICH physical tank tank3 is remains unconfirmed - smartebl's
-  # CLAUDE.md documents exactly 3 generic tank-sensor inputs, compatible
-  # with any of fresh/grey/LPG per that hardware's own datasheet, with no
-  # fixed assignment. NOT shown on page_levels (repo-owner: keep that
-  # page's original 5-column Fresh/Waste/Gas A/Gas I/Diesel catalog as
-  # specified) - kept wired, same "reserved for later" status tank1/
-  # tank2 themselves had before page_levels existed, in case a use for
-  # it turns up.
-  - platform: template
-    id: s_tank1_level
-    name: "Freshwater Level (via link)"
-    unit_of_measurement: "%"
-    accuracy_decimals: 0
+  # ---- FRESH / WASTE - TEMPORARY switch to Victron (HA), 2026-09-12 ----
+  # Repo-owner request: pull Fresh/Waste from Victron instead of
+  # smartebl's own link (`tank1_level`/`tank2_level`) - `sensor.fresh_stand`/
+  # `sensor.waste_stand`, explicitly called out as a TEMPORARY fix, not a
+  # decision to stop using the link's own tank sensing for good. Same HA
+  # precedent this page already uses for Gas A/Gas I/Diesel (below) -
+  # `homeassistant` platform, `on_value` -> `draw_levels`, `api_ok`-gated
+  # in that script rather than the link's own `connected` check.
+  #
+  # s_tank1_level/s_tank2_level (the link-fed originals) are commented
+  # out, NOT deleted, exactly per that request - reverting is: uncomment
+  # these two, uncomment their two `else if` cases in the link reader
+  # (smart-ebl-display.yaml's own `interval:` lambda, right next to
+  # `tank3_level`'s), switch draw_levels' Fresh/Waste blocks back from
+  # `s_fresh_stand`/`s_waste_stand` + `fresh_ok`/`waste_ok` to
+  # `s_tank1_level`/`s_tank2_level` + the link's own `connected` check
+  # (see that script's own git history for the exact prior shape).
+  - platform: homeassistant
+    id: s_fresh_stand
+    entity_id: sensor.fresh_stand
     on_value:
       - script.execute: draw_levels
 
-  - platform: template
-    id: s_tank2_level
-    name: "Greywater Level (via link)"
-    unit_of_measurement: "%"
-    accuracy_decimals: 0
+  - platform: homeassistant
+    id: s_waste_stand
+    entity_id: sensor.waste_stand
     on_value:
       - script.execute: draw_levels
 
+  # - platform: template
+  #   id: s_tank1_level
+  #   name: "Freshwater Level (via link)"
+  #   unit_of_measurement: "%"
+  #   accuracy_decimals: 0
+  #   on_value:
+  #     - script.execute: draw_levels
+  #
+  # - platform: template
+  #   id: s_tank2_level
+  #   name: "Greywater Level (via link)"
+  #   unit_of_measurement: "%"
+  #   accuracy_decimals: 0
+  #   on_value:
+  #     - script.execute: draw_levels
+
+  # tank1/tank2 were already wired here before page_levels existed
+  # (README's earlier "reserved for that future page" note); tank3_level
+  # is likewise real (smartebl's own smart-ebl.yaml already broadcasts
+  # it, group 2's `T2;tank1_level=..;tank2_level=..;tank3_level=..;`) but
+  # WHICH physical tank it is remains unconfirmed - smartebl's CLAUDE.md
+  # documents exactly 3 generic tank-sensor inputs, compatible with any
+  # of fresh/grey/LPG per that hardware's own datasheet, with no fixed
+  # assignment. NOT shown on page_levels (repo-owner: keep that page's
+  # original 5-column Fresh/Waste/Gas A/Gas I/Diesel catalog as
+  # specified) - kept wired, reserved, in case a use for it turns up.
   - platform: template
     id: s_tank3_level
     name: "Tank 3 Level (via link)"
@@ -83,15 +113,25 @@ sensor:
       - script.execute: draw_levels
 
 script:
-  # ---- Levels (page_levels) - pages.md §5's original "Levels" row,
-  # exactly: Fresh (`tank1_level`, link) / Waste (`tank2_level`, link) /
-  # Gas A, außen/"in use" (HA `sensor.gas_1_stand`) / Gas I, innen/
-  # "reserve" (HA `sensor.gas_2_stand`) / Diesel (HA
-  # `sensor.nw19939_fuel_level`, repo-owner-supplied) - see the sensor:
-  # block's own comment (above, where s_gas_a/s_gas_i/s_diesel_level are
+  # ---- Levels (page_levels) - pages.md §5's original "Levels" row:
+  # Fresh (HA `sensor.fresh_stand`) / Waste (HA `sensor.waste_stand`) -
+  # TEMPORARY Victron swap, 2026-09-12, was `tank1_level`/`tank2_level`
+  # over the link (see the sensor: block's own comment) / Gas A, außen/
+  # "in use" (HA `sensor.gas_1_stand`) / Gas I, innen/"reserve" (HA
+  # `sensor.gas_2_stand`) / Diesel (HA `sensor.nw19939_fuel_level`,
+  # repo-owner-supplied) - see the sensor: block's own comment (above,
+  # where s_fresh_stand/s_waste_stand/s_gas_a/s_gas_i/s_diesel_level are
   # declared) for the entity-level detail.
   - id: poll_levels
     then:
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.fresh_stand
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: sensor.waste_stand
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
@@ -114,21 +154,25 @@ script:
           #else
           bool api_ok = true;
           #endif
-          bool connected = id(link_last_rx_ms) != 0 &&
-              (millis() - id(link_last_rx_ms)) < 3000;
           char buf[32];
 
-          // ---- FRISCH (tank1, link) - same 10%/25% thresholds as
-          // m5dial_fram/page_water.yaml's fresh ring (design_rules.md
-          // §2: must not disagree with the M5Dial about thresholds).
-          float fresh = connected ? id(s_tank1_level).state : 0.0f;
-          uint32_t fresh_col = !connected ? 0x555555 :
+          // ---- FRISCH (Victron, HA `sensor.fresh_stand`) - TEMPORARY
+          // source swap, 2026-09-12 (see the sensor: block's own comment
+          // above) - was tank1_level over the link, gated on the link's
+          // own `connected`; now HA-fed like Gas A/Gas I/Diesel below, so
+          // gated on `api_ok`/`has_state()` the same way those are, not
+          // on link status any more. Same 10%/25% thresholds as
+          // m5dial_fram/page_water.yaml's fresh ring either way
+          // (design_rules.md §2: must not disagree with the M5Dial).
+          bool fresh_ok = api_ok && id(s_fresh_stand).has_state();
+          float fresh = fresh_ok ? id(s_fresh_stand).state : 0.0f;
+          uint32_t fresh_col = !fresh_ok ? 0x555555 :
               (fresh < 10.0f ? 0xE74C3C : (fresh < 25.0f ? 0xF39C12 : 0x4A9EFF));
-          lv_bar_set_value(id(bar_levels_fresh), connected ? (int) fresh : 0, LV_ANIM_OFF);
+          lv_bar_set_value(id(bar_levels_fresh), fresh_ok ? (int) fresh : 0, LV_ANIM_OFF);
           lv_obj_set_style_bg_color(id(bar_levels_fresh), lv_color_hex(fresh_col), LV_PART_INDICATOR);
           lv_obj_set_style_text_color(id(lbl_levels_fresh_cap), lv_color_hex(fresh_col), 0);
-          lv_obj_set_style_text_color(id(lbl_levels_fresh_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
-          if (!connected) {
+          lv_obj_set_style_text_color(id(lbl_levels_fresh_pct), lv_color_hex(fresh_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!fresh_ok) {
             lv_label_set_text(id(lbl_levels_fresh_pct), "---%");
             lv_label_set_text(id(lbl_levels_fresh_l), "--- L");
           } else {
@@ -136,21 +180,23 @@ script:
             lv_label_set_text(id(lbl_levels_fresh_pct), buf);
             // 180 L - same vehicle-fixed constant m5dial_fram/
             // page_water.yaml uses for this same physical tank (read
-            // there via HA, here via the link - same tank either way).
+            // there via HA, here via HA too now - same tank either way).
             snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.80f);
             lv_label_set_text(id(lbl_levels_fresh_l), buf);
           }
 
-          // ---- WASTE (tank2, link) - same >=80%/>=95% thresholds as
-          // m5dial_fram/page_water.yaml's grey ring.
-          float waste = connected ? id(s_tank2_level).state : 0.0f;
-          uint32_t waste_col = !connected ? 0x555555 :
+          // ---- WASTE (Victron, HA `sensor.waste_stand`) - same
+          // TEMPORARY source swap as FRISCH above, same >=80%/>=95%
+          // thresholds as m5dial_fram/page_water.yaml's grey ring.
+          bool waste_ok = api_ok && id(s_waste_stand).has_state();
+          float waste = waste_ok ? id(s_waste_stand).state : 0.0f;
+          uint32_t waste_col = !waste_ok ? 0x555555 :
               (waste >= 95.0f ? 0xE74C3C : (waste >= 80.0f ? 0xF39C12 : 0x9AA0A6));
-          lv_bar_set_value(id(bar_levels_waste), connected ? (int) waste : 0, LV_ANIM_OFF);
+          lv_bar_set_value(id(bar_levels_waste), waste_ok ? (int) waste : 0, LV_ANIM_OFF);
           lv_obj_set_style_bg_color(id(bar_levels_waste), lv_color_hex(waste_col), LV_PART_INDICATOR);
           lv_obj_set_style_text_color(id(lbl_levels_waste_cap), lv_color_hex(waste_col), 0);
-          lv_obj_set_style_text_color(id(lbl_levels_waste_pct), lv_color_hex(connected ? 0xFFFFFF : 0x555555), 0);
-          if (!connected) {
+          lv_obj_set_style_text_color(id(lbl_levels_waste_pct), lv_color_hex(waste_ok ? 0xFFFFFF : 0x555555), 0);
+          if (!waste_ok) {
             lv_label_set_text(id(lbl_levels_waste_pct), "---%");
             lv_label_set_text(id(lbl_levels_waste_l), "--- L");
           } else {
@@ -234,21 +280,28 @@ script:
           // wording those pages use. Diesel slotted in with fuel
           // (running dry) treated as an inconvenience, same tier as
           // fresh water, not a damage-tier item.
+          //
+          // "KEINE VERBINDUNG" (no *link* connection) renamed to
+          // "KEINE DATEN" (no data) - with Fresh/Waste's TEMPORARY move
+          // to HA (see the sensor: block's own comment), this whole page
+          // is HA-fed now, so a wording that specifically named the
+          // RS232 link stopped matching what the fallback actually means
+          // here (every source on this page missing at once).
           std::string status;
           uint32_t status_col = 0x555555;
-          if (!connected && !(gas_a_ok && gas_i_ok) && !diesel_ok) {
-            status = "KEINE VERBINDUNG";
-          } else if (connected && waste >= 95.0f) {
+          if (!fresh_ok && !waste_ok && !(gas_a_ok && gas_i_ok) && !diesel_ok) {
+            status = "KEINE DATEN";
+          } else if (waste_ok && waste >= 95.0f) {
             status = "ABWASSER VOLL"; status_col = 0xE74C3C;
-          } else if (connected && fresh < 10.0f) {
+          } else if (fresh_ok && fresh < 10.0f) {
             status = "FRISCHWASSER LEER"; status_col = 0xE74C3C;
           } else if (gas_a_ok && gas_i_ok && gas_a < 10.0f && gas_i < 10.0f) {
             status = "GAS LEER"; status_col = 0xE74C3C;
           } else if (diesel_ok && diesel < 10.0f) {
             status = "DIESEL LEER"; status_col = 0xE74C3C;
-          } else if (connected && waste >= 80.0f) {
+          } else if (waste_ok && waste >= 80.0f) {
             status = "ABWASSER VOLL"; status_col = 0xF39C12;
-          } else if (connected && fresh < 25.0f) {
+          } else if (fresh_ok && fresh < 25.0f) {
             status = "FRISCHWASSER KNAPP"; status_col = 0xF39C12;
           } else if (gas_a_ok && gas_i_ok && gas_a < 25.0f && gas_i < 25.0f) {
             status = "GAS KNAPP"; status_col = 0xF39C12;

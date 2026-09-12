@@ -349,21 +349,21 @@ panel_power_init:
 # ESPHome's mipi_dsi component (>=2025.8.0) - it carries the panel's full
 # init sequence and timing, so no custom init_sequence: is needed here.
 #
-# reset_pin/enable_pin (backlight) are both optional in the mipi_dsi
-# schema and left out entirely rather than guessed - confirmed working
-# without them on the real board (panel comes up over pure DSI init,
-# no host-driven reset pulse needed; backlight is apparently either
-# always-on or controlled some other way this config doesn't touch
-# yet). If software backlight control is wanted later, that's a real
-# GPIO to find on the POE-ETH schematic (docs/hardware.md), not a
-# placeholder to fill in blind.
+# reset_pin/enable_pin are both optional in the mipi_dsi schema and left
+# out entirely rather than guessed - confirmed working without them on
+# the real board (panel comes up over pure DSI init, no host-driven
+# reset pulse needed). enable_pin was originally suspected to be for
+# backlight, hence the placeholder below - it isn't: the backlight has
+# no GPIO at all, it's controlled purely over I2C (device `0x45`,
+# register `0x86`, see `apply_backlight`'s own comment, right after the
+# `daynight`/sleep scripts, for the confirmed Waveshare wiki source and
+# the actual write).
 
 display:
   - platform: mipi_dsi
     id: disp_main
     model: WAVESHARE-10.1-DSI-TOUCH-A
-#    reset_pin: GPIO_TODO_VERIFY_RESET_PIN       # see docs/hardware.md
-#    enable_pin: GPIO_TODO_VERIFY_BACKLIGHT_PIN  # see docs/hardware.md
+#    reset_pin: GPIO_TODO_VERIFY_RESET_PIN  # see docs/hardware.md
 
 # =============================================================================
 # Touchscreen - GT9271 (GT911-compatible), address 0x5D
@@ -518,11 +518,13 @@ font:
     glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night
-# icon) - AUTO only for this release, driven by HA's sun.sun, same
-# source m5dial_fram's clock page uses. The popup's manual DAY/NIGHT
-# override and the brightness slider are both still open items (the
-# slider is blocked on an unconfirmed backlight PWM pin, docs/hardware.md
-# §7/pages.md §7) - not built here.
+# icon) - this comment had gone stale (still said "AUTO only, manual
+# override and brightness slider both still open items" long after the
+# day/night popup, manual DAY/NIGHT override, and brightness slider all
+# landed further down this file - see apply_daynight/act_daynight_set_mode/
+# apply_backlight) - corrected here per this file's own house rule.
+# AUTO mode is driven by HA's sun.sun, same source m5dial_fram's clock
+# page uses.
 text_sensor:
   - platform: homeassistant
     id: s_sun
@@ -579,10 +581,9 @@ globals:
     restore_value: true
     initial_value: "0"
 
-  # ---- Backlight (see apply_backlight) - persisted like g_daynight, even
-  # though nothing drives real PWM from it yet (see that script's own
-  # comment) - no reason to make the user re-pick it every boot once the
-  # pin IS found.
+  # ---- Backlight (see apply_backlight) - persisted like g_daynight, so
+  # a manually-picked level survives a reboot instead of the panel
+  # always coming back at full brightness.
   - id: g_backlight_pct
     type: int
     restore_value: true
@@ -709,11 +710,19 @@ interval:
                       std::string val = kv.substr(eq + 1);
                       float f = atof(val.c_str());
                       bool on = val == "1";
-                      if (key == "tank1_level") {
-                        id(s_tank1_level).publish_state(f);
-                      } else if (key == "tank2_level") {
-                        id(s_tank2_level).publish_state(f);
-                      } else if (key == "tank3_level") {
+                      // tank1_level/tank2_level (Fresh/Waste) - TEMPORARY,
+                      // 2026-09-12: commented out, not removed, while
+                      // page_levels.yaml sources Fresh/Waste from Victron
+                      // (HA sensor.fresh_stand/sensor.waste_stand) instead -
+                      // see that file's own sensor: block comment for why
+                      // and how to revert (uncomment these two cases AND
+                      // s_tank1_level/s_tank2_level there).
+                      // if (key == "tank1_level") {
+                      //   id(s_tank1_level).publish_state(f);
+                      // } else if (key == "tank2_level") {
+                      //   id(s_tank2_level).publish_state(f);
+                      // } else
+                      if (key == "tank3_level") {
                         id(s_tank3_level).publish_state(f);
                       } else if (key == "fuse_f1_voltage") {
                         id(s_fuse_f1_voltage).publish_state(f);
@@ -794,10 +803,33 @@ interval:
 
   # Re-evaluate link staleness once a second regardless of whether a
   # new frame arrived - see this block's own header comment above.
+  #
+  # draw_electric is gated to "Electric Overview is the visible page"
+  # now, 2026-09-12 - it used to run unconditionally here every single
+  # second regardless of which page was actually on screen (justified,
+  # at the time, purely by "safe to call for a page that isn't shown" -
+  # true, but "safe" isn't "free": draw_electric touches a couple dozen
+  # widgets across all six Electric boxes on every call). That's a real,
+  # avoidable contributor to the PSRAM-bus pressure design_rules.md §4
+  # already tracks (the `E lcd.dsi: ... underrun happens` log line,
+  # confirmed recurring during normal operation, now also reported by
+  # the repo owner as an occasional visible blue flash on the real
+  # panel - see that section for the full write-up and why this alone
+  # isn't presented as a confirmed fix for it). Every value-driven path
+  # into draw_electric (every relevant sensor's own on_value, in
+  # page_electric.yaml) is untouched - only this redundant once-a-second
+  # "the link might have gone stale" redraw of a page nobody is looking
+  # at is skipped now; entering Electric (`nav_show_electric`) already
+  # calls draw_electric explicitly, so there's no stale-frame gap on
+  # arrival.
   - interval: 1s
     then:
       - script.execute: draw_status_bar
-      - script.execute: draw_electric
+      - if:
+          condition:
+            lambda: 'return id(g_current_page) == 1 && id(g_electric_subpage) == 0;'
+          then:
+            - script.execute: draw_electric
 
   # Sleep mode - "no touch for 10 minutes" is only ever detectable by
   # polling (see check_sleep_idle's own comment); 5s is plenty fine-
@@ -858,19 +890,37 @@ script:
       - script.execute: apply_daynight
       - script.execute: draw_daynight_popup
 
-  # ---- Brightness - SOFTWARE dimming, not a real backlight PWM ---------
-  # Confirmed (repo owner, against Waveshare's own wiki page for this
-  # exact panel): there is no backlight GPIO on this board at all to
-  # drive - not just unconfirmed, genuinely absent. A real hardware
-  # dimmer was never going to happen here, so this fakes the same
-  # result instead: obj_brightness_dim_overlay (top_layer, drawn over
-  # every page's content but BELOW obj_sleep_overlay and non-clickable,
-  # so it dims what's on screen without ever blocking a touch) is a
-  # plain black rectangle whose opacity this drives - more opaque =
-  # darker screen. Capped well short of fully opaque (200/255 at the
-  # slider's own 10% floor) so the UI stays legible at minimum, unlike
-  # sleep mode's own full-black overlay, which is a deliberately
-  # different, total-blackout state.
+  # ---- Brightness - REAL backlight control over I2C, 2026-09-12 -------
+  # SUPERSEDES the earlier "no backlight GPIO exists, fake it with a
+  # black LVGL overlay" era (repo owner, correctly: an overlay hides
+  # content behind black pixels, it never reduces the backlight's own
+  # light output - this is an LCD, not an OLED). This session's earlier
+  # investigation (docs/hardware.md, right above `display:`) had already
+  # found ESPHome's `mipi_dsi` component exposes no power/backlight API
+  # of its own to hang a GPIO or DCS command off - turns out that's
+  # moot, because there IS no GPIO: the repo owner supplied Waveshare's
+  # own wiki for this exact panel (10.1-DSI-TOUCH-A, "Backlight Control"
+  # section) plus its ESP32-P4-NANO BSP component reference
+  # (`bsp_display_brightness_set()`) - the backlight is driven purely
+  # over I2C, address `0x45`, register `0x86`, write `0x00`-`0xFF`
+  # (`0xFF` = full brightness). That's the SAME I2C address
+  # `panel_power_init` (above `display:`) already talks to for the PMIC
+  # wake sequence - a different register (`0x86` here vs. `0x95`/`0x96`
+  # for the wake sequence, so no overlap) on a bus/chip already proven
+  # reachable on this exact board, not a fresh guess. Plain
+  # `i2c::I2CBus::write()` on `bus_touch` (no new component needed -
+  # ESPHome's own IDFI2CBus already gives us this from a lambda).
+  # **High confidence (primary vendor source, not inferred) but not yet
+  # flash-tested in this session** - confirm on the next real flash,
+  # same as any other change here; if writing `0x86` ever turns out to
+  # need the same kind of register-select preamble the wake sequence's
+  # `0x95` does (undocumented on the wiki page as quoted), that's the
+  # next thing to check against a logic analyzer, not assume.
+  #
+  # `obj_brightness_dim_overlay` (the old fake-dimming black rectangle)
+  # is removed along with its top_layer widget - see this file's git
+  # history if the overlay approach is ever needed again for something
+  # else.
   - id: apply_backlight
     then:
       - lambda: |-
@@ -878,10 +928,7 @@ script:
           char buf[8];
           snprintf(buf, sizeof(buf), "%d%%", pct);
           lv_label_set_text(id(lbl_backlight_pct), buf);
-          float dim = (100 - pct) / 90.0f;  // slider range is 10-100
-          if (dim < 0.0f) dim = 0.0f;
-          if (dim > 1.0f) dim = 1.0f;
-          lv_obj_set_style_bg_opa(id(obj_brightness_dim_overlay), (lv_opa_t) (dim * 200), 0);
+          id(set_panel_backlight_raw).execute((uint8_t) ((pct * 255 + 50) / 100));
 
   - id: act_backlight_set
     parameters:
@@ -889,6 +936,18 @@ script:
     then:
       - globals.set: {id: g_backlight_pct, value: !lambda "return pct;"}
       - script.execute: apply_backlight
+
+  # Raw I2C write, factored out of apply_backlight so sleep mode (below)
+  # can force the backlight fully off/back on without disturbing the
+  # user's own persisted g_backlight_pct - waking just re-runs
+  # apply_backlight to restore whatever level was set before sleeping.
+  - id: set_panel_backlight_raw
+    parameters:
+      val: int
+    then:
+      - lambda: |-
+          uint8_t reg_data[2] = {0x86, (uint8_t) val};
+          id(bus_touch)->write(0x45, reg_data, 2);
 
   - id: show_daynight_popup
     then:
@@ -925,10 +984,17 @@ script:
   # it never also reaches whatever's underneath). Manual: the small moon
   # button next to the day/night one blanks immediately, any time, no
   # need to wait for the window/timer (e.g. before parking up for the
-  # night). Same "blank overlay, not real backlight off" caveat as the
-  # brightness slider above - there's no confirmed backlight GPIO to
-  # power down, so this simulates sleep by covering the UI in solid
-  # black rather than actually cutting the panel's backlight.
+  # night).
+  #
+  # Now ALSO cuts the real backlight over I2C (`set_panel_backlight_raw`,
+  # see `apply_backlight`'s own comment for where `0x45`/`0x86` comes
+  # from) rather than only covering the UI in solid black - the overlay
+  # stays (it still does real work: it's the click target that wakes the
+  # display, and it keeps the last frame's content from being visible
+  # for the split second between waking touch and `apply_backlight`
+  # restoring real brightness). Passes a raw byte, not `g_backlight_pct`,
+  # specifically so the user's own chosen level is untouched while
+  # asleep - waking calls `apply_backlight` to restore exactly that.
   - id: on_touch_activity
     then:
       - globals.set: {id: g_last_touch_ms, value: !lambda "return millis();"}
@@ -942,6 +1008,7 @@ script:
           then:
             - globals.set: {id: g_sleep_active, value: "true"}
             - lvgl.widget.update: {id: obj_sleep_overlay, hidden: false}
+            - script.execute: {id: set_panel_backlight_raw, val: 0}
 
   - id: wake_from_sleep
     then:
@@ -951,6 +1018,7 @@ script:
           then:
             - globals.set: {id: g_sleep_active, value: "false"}
             - lvgl.widget.update: {id: obj_sleep_overlay, hidden: true}
+            - script.execute: apply_backlight
 
   - id: toggle_sleep_manual
     then:
@@ -1590,10 +1658,10 @@ lvgl:
                 text_font: font_ui_16
                 text_color: 0x707070
 
-            # No PWM-capable backlight GPIO confirmed yet (see
-            # apply_backlight's own comment) - the slider still works
-            # and persists (g_backlight_pct), it just has nothing real
-            # to dim until that pin is found.
+            # Drives the real backlight over I2C now (see
+            # apply_backlight's own comment for the address/register).
+            # min_value 10, not 0 - keeps the panel from going fully
+            # dark from this slider alone (that's what SLEEP is for).
             - slider:
                 id: sld_backlight
                 align: TOP_MID
@@ -1640,35 +1708,9 @@ lvgl:
                 on_click:
                   - script.execute: close_daynight_popup
 
-      # ---- Brightness dim overlay (see apply_backlight) - an `obj:`,
-      # not a `button:`, but that alone does NOT make it non-clickable:
-      # stock LVGL sets LV_OBJ_FLAG_CLICKABLE on every object created by
-      # lv_obj_create(), `button:` widgets are not special-cased, they
-      # just default that same flag on too. Confirmed as a real bug on
-      # real hardware (2026-09-06): this being full-screen, always
-      # present (only bg_opa changes) and drawn AFTER the status bar/nav
-      # rail in this same top_layer list meant it sat on top of and
-      # silently swallowed every touch across the whole UI, on every
-      # page - matching "touch stops working entirely" exactly.
-      # `clickable: false` (the same flat boolean-flag pattern already
-      # used for `hidden:` throughout this file, mapping to
-      # LV_OBJ_FLAG_CLICKABLE) makes it change how dark the content
-      # LOOKS without ever intercepting a tap meant for whatever's
-      # underneath. Starts fully transparent (bg_opa 0); apply_backlight
-      # (called from on_boot and every slider move) drives the real
-      # value.
-      - obj:
-          id: obj_brightness_dim_overlay
-          align: TOP_LEFT
-          x: 0
-          y: 0
-          width: ${screen_w}
-          height: ${screen_h}
-          bg_color: 0x000000
-          bg_opa: TRANSP
-          border_width: 0
-          radius: 0
-          clickable: false
+      # `obj_brightness_dim_overlay` (a black rectangle that used to fake
+      # dimming by covering the UI, since removed - see `apply_backlight`'s
+      # own comment) is gone: brightness is now real, over I2C.
 
       # ---- Sleep overlay (pages.md's display-power open item) - LAST in
       # this widget list on purpose: LVGL draws top_layer widgets in list

@@ -240,9 +240,27 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
-- [ ] Find the backlight PWM pin (`docs/pages.md` §7) — check the
-      user-supplied [Waveshare wiki page](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A)
-      for this exact panel once off this session's network block
+- [x] **Real backlight control found and wired - no GPIO at all, I2C.**
+      Repo owner, 2026-09-12, correctly pushed back that the brightness
+      slider/night mode's black LVGL overlay wasn't good enough (an
+      overlay hides content, it doesn't reduce the backlight's own
+      light output). This session's first pass confirmed ESPHome's
+      `mipi_dsi` component has no power/backlight API at all (its C++
+      source, read directly) and wrote up two unverified hardware
+      hypotheses - resolved the same day when the repo owner supplied
+      the exact "Backlight Control" section of Waveshare's own wiki for
+      this panel: there's no GPIO to find because there never was one -
+      the backlight is driven entirely over I2C, device `0x45`
+      (the same address `panel_power_init` already talks to for the
+      panel PMIC wake-up, a different register - no collision),
+      register `0x86`, `0x00`-`0xFF`. `apply_backlight`/
+      `set_panel_backlight_raw` now write it directly (plain
+      `i2c::I2CBus::write()`, no new component needed) - the brightness
+      slider and sleep mode both drive real brightness now, the old
+      fake dim overlay (`obj_brightness_dim_overlay`) is removed. High
+      confidence (primary vendor source) but not yet flash-tested in
+      this session - confirm on the next real flash, see
+      `docs/hardware.md`'s own section for the full write-up.
 - [ ] Confirm the cross-category alarm ranking draft in `docs/pages.md` §7
 - [x] Light/Features floor-plan source photo added
       (`docs/assets/floorplan-source.jpg`, zone breakdown in
