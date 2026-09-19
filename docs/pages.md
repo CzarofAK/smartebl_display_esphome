@@ -85,7 +85,7 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
   `g_backlight_pct` to 100 (day) or 60 (night) and runs it straight
   through `apply_backlight` — the exact same I2C write the brightness
   slider itself uses (`set_panel_backlight_raw`, address `0x45`,
-  register `0x86`), so this drives the real hardware backlight, not a
+  register `0x96`), so this drives the real hardware backlight, not a
   cosmetic overlay. AUTO's day/night split is unchanged: `sun.sun` from
   Home Assistant (`s_sun`), the same source `m5dial_fram`'s clock page
   uses — there's no confirmed ambient-light sensor on this board. A mode
@@ -99,11 +99,14 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
   superseding this section's own earlier "nothing real to drive" text):
   not a GPIO/PWM pin at all — Waveshare's own wiki for this panel
   documents the backlight as I2C-controlled, device `0x45` (the same
-  address `panel_power_init` already uses for the panel PMIC), register
-  `0x86`, `0x00`-`0xFF`. `apply_backlight` writes it directly. See
-  `docs/hardware.md`'s own section for the full write-up and confidence
-  level (primary vendor source, not yet flash-tested in the session that
-  wired it).
+  address `panel_power_init` already uses for the panel PMIC),
+  `0x00`-`0xFF`. `apply_backlight` writes it directly. **Register
+  corrected to `0x96` on 2026-09-19** — the wiki's `0x86` is the
+  ESP32-P4-NANO pairing and does nothing on this board, which is why
+  the slider was inert on the first flash; `panel_power_init`'s own
+  boot sequence writing `0x96`=`0x00`/`0xFF` confirms `0x96` is the
+  backlight. See `docs/hardware.md`'s own section for the full
+  write-up and confidence level.
 
 ### Sleep mode
 
@@ -227,7 +230,8 @@ on-screen position:
 
 - ~~**Backlight PWM pin unconfirmed.**~~ Resolved, 2026-09-12 - there is
   no PWM pin, the backlight is I2C-controlled (device `0x45`, register
-  `0x86`), per the user-supplied
+  `0x96` — `0x86` per the wiki below is the ESP32-P4-NANO pairing and
+  is wrong for this board, corrected 2026-09-19), per the user-supplied
   [Waveshare wiki page for this exact panel](https://www.waveshare.com/wiki/10.1-DSI-TOUCH-A).
   The brightness slider now drives it for real - see `docs/hardware.md`
   for the full finding and `smart-ebl-display.yaml`'s `apply_backlight`

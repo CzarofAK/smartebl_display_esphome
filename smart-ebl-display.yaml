@@ -360,9 +360,8 @@ panel_power_init:
 # reset pulse needed). enable_pin was originally suspected to be for
 # backlight, hence the placeholder below - it isn't: the backlight has
 # no GPIO at all, it's controlled purely over I2C (device `0x45`,
-# register `0x86`, see `apply_backlight`'s own comment, right after the
-# `daynight`/sleep scripts, for the confirmed Waveshare wiki source and
-# the actual write).
+# register `0x96`, see `apply_backlight`'s own comment, right after the
+# `daynight`/sleep scripts, for the source and the actual write).
 
 display:
   - platform: mipi_dsi
@@ -893,7 +892,7 @@ script:
   # Night 60%") - AUTO/DAY/NIGHT sets `g_backlight_pct` to one of two
   # fixed levels and runs it straight through `apply_backlight` below,
   # which is the exact same I2C write (`set_panel_backlight_raw`,
-  # address `0x45`, register `0x86`) the brightness slider itself uses -
+  # address `0x45`, register `0x96`) the brightness slider itself uses -
   # so yes, this is the real hardware backlight, not a cosmetic overlay.
   # AUTO's day/night split is unchanged (`s_sun`, HA's `sun.sun`); a
   # mode change (or a sunrise/sunset while in AUTO) overwrites whatever
@@ -938,20 +937,36 @@ script:
   # own wiki for this exact panel (10.1-DSI-TOUCH-A, "Backlight Control"
   # section) plus its ESP32-P4-NANO BSP component reference
   # (`bsp_display_brightness_set()`) - the backlight is driven purely
-  # over I2C, address `0x45`, register `0x86`, write `0x00`-`0xFF`
-  # (`0xFF` = full brightness). That's the SAME I2C address
-  # `panel_power_init` (above `display:`) already talks to for the PMIC
-  # wake sequence - a different register (`0x86` here vs. `0x95`/`0x96`
-  # for the wake sequence, so no overlap) on a bus/chip already proven
-  # reachable on this exact board, not a fresh guess. Plain
-  # `i2c::I2CBus::write()` on `bus_touch` (no new component needed -
-  # ESPHome's own IDFI2CBus already gives us this from a lambda).
-  # **High confidence (primary vendor source, not inferred) but not yet
-  # flash-tested in this session** - confirm on the next real flash,
-  # same as any other change here; if writing `0x86` ever turns out to
-  # need the same kind of register-select preamble the wake sequence's
-  # `0x95` does (undocumented on the wiki page as quoted), that's the
-  # next thing to check against a logic analyzer, not assume.
+  # over I2C, address `0x45`, write `0x00`-`0xFF` (`0xFF` = full
+  # brightness). That's the SAME I2C address `panel_power_init` (above
+  # `display:`) already talks to for the PMIC wake sequence, on a
+  # bus/chip already proven reachable on this exact board.
+  #
+  # REGISTER CORRECTED 2026-09-19 (repo owner: slider moved, backlight
+  # didn't): the register is `0x96`, NOT `0x86`. `0x86` came from the
+  # 10.1-DSI-TOUCH-A wiki's "Backlight Control" section, which documents
+  # the ESP32-P4-NANO pairing and is stale for this board
+  # (ESP32-P4-WIFI6-POE-ETH); Waveshare's newer P4 dev-kit docs for the
+  # same DSI-TOUCH-A panel and a working ESP-IDF implementation on this
+  # exact panel both use `0x96`. Corroborated right here in this repo:
+  # `panel_power_init`'s wake sequence (sourced from Waveshare's own
+  # ESP-IDF LCD driver) writes `0x95`=`0x11`, `0x95`=`0x17`, then
+  # `0x96`=`0x00`, wait 100ms, `0x96`=`0xFF`, wait 300ms - i.e. it ramps
+  # the backlight off and back to full through `0x96` at boot. So
+  # `0x96` is not "the wake register" as this comment used to claim, it
+  # IS the backlight PWM register, and writing `0x86` was simply landing
+  # on a register this chip does nothing with - which is exactly the
+  # reported symptom (boot brightness full, slider inert).
+  #
+  # Plain `i2c::I2CBus::write()` on `bus_touch` (no new component needed
+  # - ESPHome's own IDFI2CBus already gives us this from a lambda). The
+  # write is logged at DEBUG (`[backlight]` tag, includes the I2C
+  # ErrorCode) so the next flash can tell "register wrong" apart from
+  # "write never reached the chip". `0x95` is deliberately NOT re-sent
+  # here: `panel_power_init` runs it once at boot, before `display:`'s
+  # own setup, and that state persists - if the log shows err=0 but
+  # brightness still doesn't move, re-sending the `0x95` preamble right
+  # before the `0x96` write is the next thing to try.
   #
   # `obj_brightness_dim_overlay` (the old fake-dimming black rectangle)
   # is removed along with its top_layer widget - see this file's git
@@ -982,8 +997,12 @@ script:
       val: int
     then:
       - lambda: |-
-          uint8_t reg_data[2] = {0x86, (uint8_t) val};
-          id(bus_touch)->write(0x45, reg_data, 2);
+          // 0x96 = backlight PWM (NOT 0x86 as the 10.1-DSI-TOUCH-A wiki says -
+          // stale; confirmed by Waveshare's newer DSI-TOUCH-A P4 docs and
+          // a working ESP-IDF implementation on this exact panel)
+          uint8_t buf[2] = {0x96, (uint8_t) val};
+          auto err = id(bus_touch)->write(0x45, buf, 2);
+          ESP_LOGD("backlight", "0x45 reg 0x96 <- 0x%02X, err=%d", buf[1], (int) err);
 
   - id: show_daynight_popup
     then:
@@ -1023,7 +1042,7 @@ script:
   # night).
   #
   # Now ALSO cuts the real backlight over I2C (`set_panel_backlight_raw`,
-  # see `apply_backlight`'s own comment for where `0x45`/`0x86` comes
+  # see `apply_backlight`'s own comment for where `0x45`/`0x96` comes
   # from) rather than only covering the UI in solid black - the overlay
   # stays (it still does real work: it's the click target that wakes the
   # display, and it keeps the last frame's content from being visible

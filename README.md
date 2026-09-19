@@ -253,14 +253,19 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       this panel: there's no GPIO to find because there never was one -
       the backlight is driven entirely over I2C, device `0x45`
       (the same address `panel_power_init` already talks to for the
-      panel PMIC wake-up, a different register - no collision),
-      register `0x86`, `0x00`-`0xFF`. `apply_backlight`/
+      panel PMIC wake-up), `0x00`-`0xFF`. `apply_backlight`/
       `set_panel_backlight_raw` now write it directly (plain
       `i2c::I2CBus::write()`, no new component needed) - the brightness
       slider and sleep mode both drive real brightness now, the old
-      fake dim overlay (`obj_brightness_dim_overlay`) is removed. High
-      confidence (primary vendor source) but not yet flash-tested in
-      this session - confirm on the next real flash, see
+      fake dim overlay (`obj_brightness_dim_overlay`) is removed.
+      **Register corrected 2026-09-19: `0x96`, not `0x86`.** The wiki's
+      `0x86` documents the ESP32-P4-NANO pairing and does nothing on
+      this board - first flash showed a moving slider and an unchanged
+      backlight. `panel_power_init`'s own boot sequence (Waveshare's
+      ESP-IDF driver) writes `0x96`=`0x00` then `0x96`=`0xFF`, i.e. it
+      ramps the backlight through `0x96` - so `0x96` is the PWM
+      register and `0x95` its enable preamble. The write now logs its
+      I2C `ErrorCode` at DEBUG (`backlight` tag). See
       `docs/hardware.md`'s own section for the full write-up.
 - [ ] Confirm the cross-category alarm ranking draft in `docs/pages.md` §7
 - [x] Light/Features floor-plan source photo added
@@ -705,7 +710,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       100%, Night 60% (repo-owner's own numbers), AUTO unchanged
       (`sun.sun`). Gives the toggle above a real job again: `apply_daynight`
       sets `g_backlight_pct` and runs it through `apply_backlight` - the
-      exact same I2C write (`set_panel_backlight_raw`, `0x45`/`0x86`) the
+      exact same I2C write (`set_panel_backlight_raw`, `0x45`/`0x96`) the
       brightness slider itself uses, so this is the real hardware
       backlight, not a cosmetic overlay. A mode change or a sunrise/
       sunset while in AUTO overwrites whatever level was set before, by
