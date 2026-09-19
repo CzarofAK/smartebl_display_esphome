@@ -1064,11 +1064,12 @@ script:
 
   # Electric has 2 sub-pages (pages.md §5's Electric row: 1 Overview,
   # 2 Fuses) - pages.md §2's "tapping the active icon again cycles to
-  # the next sub-page" pattern, implemented for real for the first time
-  # here (every earlier nav entry only ever had one page). Arriving from
-  # elsewhere shows whatever sub-page was last open (g_electric_subpage
-  # persists across nav taps, not reset to 0 every time) - re-tapping
-  # while ALREADY on Electric is what cycles.
+  # the next sub-page" pattern. Arriving from elsewhere always resets to
+  # sub-page 1 (repo-owner request, 2026-09-19: previously
+  # g_electric_subpage persisted across nav taps, so leaving on sub-page
+  # 2 and coming back showed sub-page 2 again - confusing, since nothing
+  # on screen showed WHICH sub-page you'd land on) - re-tapping while
+  # ALREADY on Electric is what cycles.
   - id: nav_show_electric
     then:
       - lambda: |-
@@ -1076,6 +1077,7 @@ script:
             id(g_electric_subpage) = id(g_electric_subpage) == 0 ? 1 : 0;
           } else {
             id(g_current_page) = 1;
+            id(g_electric_subpage) = 0;
           }
       - if:
           condition:
@@ -1123,7 +1125,10 @@ script:
   # (0->1->2->0) now that the real 18-entity contact list replaced the
   # single placeholder sub-page 1 used to be (page_sensors_windows.yaml/
   # page_sensors_flaps.yaml, see the former's own header). Sub-page 3 is
-  # the unchanged, real, ported Levelling page.
+  # the unchanged, real, ported Levelling page. Arriving from elsewhere
+  # always resets to sub-page 1 - same reasoning/repo-owner request as
+  # nav_show_electric above (g_sensors_subpage used to persist across nav
+  # taps).
   - id: nav_show_sensors
     then:
       - lambda: |-
@@ -1131,6 +1136,7 @@ script:
             id(g_sensors_subpage) = (id(g_sensors_subpage) + 1) % 3;
           } else {
             id(g_current_page) = 5;
+            id(g_sensors_subpage) = 0;
           }
       - if:
           condition:
@@ -1167,14 +1173,19 @@ script:
               lv_color_hex(cur == 5 ? 0x2ECC71 : 0xBDC1C6), 0);
           // ---- Sub-page indicators (pages.md §2's "1/2" pattern, "1/3"
           // for Sensors since it grew a third sub-page 2026-09-19) -----
+          // Always shown, not just while that section is active
+          // (repo-owner request, 2026-09-19: a section's own icon should
+          // advertise "this has more than one page" even before it's
+          // ever been tapped, not only once you're already on it) - both
+          // reset to sub-page 1 whenever nav_show_electric/
+          // nav_show_sensors is entered from elsewhere (see those
+          // scripts' own comments), so this always reads "1/2"/"1/3"
+          // right after a fresh arrival, same as the page actually shown.
           lv_label_set_text(id(lbl_nav_electric_sub),
-              cur == 1 ? (id(g_electric_subpage) == 0 ? "1/2" : "2/2") : "");
-          if (cur == 5) {
-            int sp = id(g_sensors_subpage);
-            lv_label_set_text(id(lbl_nav_sensors_sub), sp == 0 ? "1/3" : (sp == 1 ? "2/3" : "3/3"));
-          } else {
-            lv_label_set_text(id(lbl_nav_sensors_sub), "");
-          }
+              id(g_electric_subpage) == 0 ? "1/2" : "2/2");
+          int sens_sp = id(g_sensors_subpage);
+          lv_label_set_text(id(lbl_nav_sensors_sub),
+              sens_sp == 0 ? "1/3" : (sens_sp == 1 ? "2/3" : "3/3"));
 
   # ---- Status bar (top_layer, persists on every page) -------------------
   # The only script this release runs on a timer rather than purely
