@@ -224,7 +224,12 @@ packages:
   p3: !include smart_ebl_pages/page_climate_boiler.yaml
   p4: !include smart_ebl_pages/page_levels.yaml
   p5: !include smart_ebl_pages/page_fans.yaml
-  p6: !include smart_ebl_pages/page_sensors_overview.yaml
+  # Sensors now has THREE sub-pages (pages.md §5: 1 Fenster/Türen, 2
+  # Klappen, 3 Levelling) - was two (a placeholder + Levelling) until the
+  # real 18-entity door/window/flap list landed, 2026-09-19; see
+  # page_sensors_windows.yaml's own header for the full story.
+  p6: !include smart_ebl_pages/page_sensors_windows.yaml
+  p6b: !include smart_ebl_pages/page_sensors_flaps.yaml
   p7: !include smart_ebl_pages/page_sensors_levelling.yaml
 
 # =============================================================================
@@ -606,6 +611,10 @@ globals:
     type: int
     restore_value: false
     initial_value: "0"
+  # Sensors has THREE sub-pages (0 = Fenster/Türen, 1 = Klappen, 2 =
+  # Levelling, pages.md §5) since 2026-09-19 - was two (0/1) before the
+  # real door/window/flap entity list replaced the single placeholder
+  # page. See nav_show_sensors below for the 0->1->2->0 cycle.
   - id: g_sensors_subpage
     type: int
     restore_value: false
@@ -1108,16 +1117,18 @@ script:
       - script.execute: draw_fans
       - script.execute: poll_fans
 
-  # Sensors has 2 sub-pages (pages.md §5's Sensors row: 1 Sensors,
-  # 2 Levelling) - same cycle-on-repeat-tap pattern as Electric above.
-  # Sub-page 1 (page_sensors_overview) is an honest placeholder (pages.md
-  # §7's own open item - no entity list yet), sub-page 2 is the real,
-  # ported Levelling page.
+  # Sensors has 3 sub-pages (pages.md §5's Sensors row: 1 Fenster/Türen,
+  # 2 Klappen, 3 Levelling) since 2026-09-19 - same cycle-on-repeat-tap
+  # pattern as Electric above, extended from a 2-way to a 3-way cycle
+  # (0->1->2->0) now that the real 18-entity contact list replaced the
+  # single placeholder sub-page 1 used to be (page_sensors_windows.yaml/
+  # page_sensors_flaps.yaml, see the former's own header). Sub-page 3 is
+  # the unchanged, real, ported Levelling page.
   - id: nav_show_sensors
     then:
       - lambda: |-
           if (id(g_current_page) == 5) {
-            id(g_sensors_subpage) = id(g_sensors_subpage) == 0 ? 1 : 0;
+            id(g_sensors_subpage) = (id(g_sensors_subpage) + 1) % 3;
           } else {
             id(g_current_page) = 5;
           }
@@ -1125,11 +1136,17 @@ script:
           condition:
             lambda: 'return id(g_sensors_subpage) == 0;'
           then:
-            - lvgl.page.show: page_sensors_overview
+            - lvgl.page.show: page_sensors_windows
           else:
-            - lvgl.page.show: page_sensors_levelling
-            - script.execute: draw_levelling
-            - script.execute: poll_levelling
+            - if:
+                condition:
+                  lambda: 'return id(g_sensors_subpage) == 1;'
+                then:
+                  - lvgl.page.show: page_sensors_flaps
+                else:
+                  - lvgl.page.show: page_sensors_levelling
+                  - script.execute: draw_levelling
+                  - script.execute: poll_levelling
       - script.execute: draw_nav
 
   - id: draw_nav
@@ -1148,11 +1165,16 @@ script:
               lv_color_hex(cur == 4 ? 0x2ECC71 : 0xBDC1C6), 0);
           lv_obj_set_style_text_color(id(lbl_nav_sensors),
               lv_color_hex(cur == 5 ? 0x2ECC71 : 0xBDC1C6), 0);
-          // ---- Sub-page indicators (pages.md §2's "1/2" pattern) -----
+          // ---- Sub-page indicators (pages.md §2's "1/2" pattern, "1/3"
+          // for Sensors since it grew a third sub-page 2026-09-19) -----
           lv_label_set_text(id(lbl_nav_electric_sub),
               cur == 1 ? (id(g_electric_subpage) == 0 ? "1/2" : "2/2") : "");
-          lv_label_set_text(id(lbl_nav_sensors_sub),
-              cur == 5 ? (id(g_sensors_subpage) == 0 ? "1/2" : "2/2") : "");
+          if (cur == 5) {
+            int sp = id(g_sensors_subpage);
+            lv_label_set_text(id(lbl_nav_sensors_sub), sp == 0 ? "1/3" : (sp == 1 ? "2/3" : "3/3"));
+          } else {
+            lv_label_set_text(id(lbl_nav_sensors_sub), "");
+          }
 
   # ---- Status bar (top_layer, persists on every page) -------------------
   # The only script this release runs on a timer rather than purely
