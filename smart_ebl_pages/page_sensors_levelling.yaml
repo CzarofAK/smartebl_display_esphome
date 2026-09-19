@@ -1,12 +1,14 @@
 # =============================================================================
-#  smart_ebl_pages/page_sensors_levelling.yaml -- page: Sensors, sub-page 2 (Levelling)
+#  smart_ebl_pages/page_sensors_levelling.yaml -- page: Sensors, sub-page 3 (Levelling)
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
 # docs/pages.md §5: ported from m5dial_fram/page_levelling.yaml - same
 # MPU6050 tilt sensor + four pre-computed per-corner cm entities, same
-# bubble-target-rings metaphor. Reached as Sensors section's sub-page 2
-# (nav_show_sensors, main device file) - this page has no nav entry of
-# its own.
+# bubble-target-rings metaphor. Reached as Sensors section's sub-page 3
+# (nav_show_sensors, main device file) - was sub-page 2 until Sensors
+# grew a third sub-page (page_sensors_windows.yaml/page_sensors_flaps.yaml
+# split the old single placeholder page, 2026-09-19); this page has no
+# nav entry of its own regardless.
 #
 # ---- 2026-09-06 relayout (repo-owner: "sensors2: das Widget ist VIEL zu
 # klein! eine Seite der freien Flaeche benutzen. Die andere Haelfte ist
@@ -44,9 +46,10 @@
 #     when retracted / red when extended ("maybe others" - the repo
 #     owner's own words, so this isn't assumed final). Wiring it for
 #     real is then "replace this mockup's widgets with live ones",
-#     never "figure out the layout" - same reasoning
-#     page_sensors_overview.yaml's own placeholder already established
-#     for door/window contacts.
+#     never "figure out the layout" - same reasoning the old
+#     page_sensors_overview.yaml placeholder established for door/window
+#     contacts before that page's real entity list landed (see
+#     page_sensors_windows.yaml, its replacement).
 # =============================================================================
 
 sensor:

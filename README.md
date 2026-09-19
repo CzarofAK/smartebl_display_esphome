@@ -146,8 +146,9 @@ smartebl_display_esphome/
 │   ├── page_climate_boiler.yaml  # Truma: room heating + water heating
 │   ├── page_levels.yaml          # Fresh/Waste/Gas A/Gas I/Diesel
 │   ├── page_fans.yaml            # FANBOARD + HVAC blower
-│   ├── page_sensors_overview.yaml    # Sensors, sub-page 1 (placeholder)
-│   └── page_sensors_levelling.yaml   # Sensors, sub-page 2: spirit level
+│   ├── page_sensors_windows.yaml     # Sensors, sub-page 1: 11 door/window contacts
+│   ├── page_sensors_flaps.yaml       # Sensors, sub-page 2: 7 flap/hatch contacts
+│   └── page_sensors_levelling.yaml   # Sensors, sub-page 3: spirit level
 └── docs/                        # hardware.md, protocol.md, pages.md, design_rules.md
 ```
 
@@ -577,16 +578,23 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       Two-halves-with-a-divider layout, same as the Truma page, rather
       than that M5Dial file's concentric double ring (round-panel-
       specific, design_rules.md §3).
-    - **Sensors / Levelling** (`page_sensors_levelling`) - ported from
-      `m5dial_fram/page_levelling.yaml` verbatim (bubble-in-target-rings
-      metaphor, worst-corner-wins bubble color, same still-open item
-      there: the four corner cm sensors read 0 until an HA-side template
-      sensor does the real degrees-to-cm math). Sensors sub-page 1
-      (`page_sensors_overview`) is an honest placeholder, not a guess at
-      content - `docs/pages.md` §7's own open item (no door/window/
-      presence entity list yet) is unchanged, but the SENSORS nav entry
-      and its own "1/2" indicator exist now, so Levelling is reachable
-      without waiting on page 1.
+    - **Sensors / Fenster/Türen + Klappen** (`page_sensors_windows`,
+      `page_sensors_flaps`) - real entity list confirmed 2026-09-19,
+      replacing the placeholder grid `page_sensors_overview.yaml` used to
+      be. 18 door/window/flap contacts total, split across two sub-pages
+      (11 + 7) rather than crammed onto one, each Home Assistant-fed
+      (Zigbee-style per-device diagnostics): `binary_sensor.<name>_contact`
+      (OFFEN/GESCHLOSSEN) + `sensor.<name>_battery`/`_voltage`/
+      `_device_temperature` + `sensor.<name>_last_seen` (tracked as time
+      since this display last observed it change, not a timezone-parsed
+      read of the raw HA timestamp - see `page_sensors_windows.yaml`'s
+      own header for why). Sensors now cycles through **three** sub-pages
+      (SENSORS nav icon's indicator: "1/3"/"2/3"/"3/3").
+    - **Sensors / Levelling** (`page_sensors_levelling`, now sub-page 3) -
+      ported from `m5dial_fram/page_levelling.yaml` verbatim
+      (bubble-in-target-rings metaphor, worst-corner-wins bubble color,
+      same still-open item there: the four corner cm sensors read 0 until
+      an HA-side template sensor does the real degrees-to-cm math).
     - **`esphome`'s own `merge_warnings` noise, silenced.** The
       page_electric row-template pattern (`&box_frame`/`&row_main`/etc.,
       merged into each box via `<<:`) is, by inspection of ESPHome's own
