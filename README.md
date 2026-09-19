@@ -716,14 +716,12 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       der Alarmo Button darunter. Die Uhr sogar BOLT!"). The clock's own
       box grew 320px -> 460px wide, re-centered on the same horizontal
       midpoint so it overhangs `btn_tile_alarm` below on both sides, not
-      just one. `HH:MM` is now a dedicated 72px **bold** font
-      (`font_ui_72_bold`, `gfonts://Montserrat@bold` - the only bold
-      weight anywhere in this project); the date and OUT/IN temperature
-      lines moved from `font_ui_20` to the already-shared `font_ui_40`
-      (bigger, not bold - only the time itself was asked to be bold).
-      Label x/y offsets are a first pass, not measured against the
-      compiled subset font's real glyph metrics - refine once seen on
-      real hardware, same as every other pixel position in this file.
+      just one. `HH:MM` got a dedicated 72px **bold** font
+      (`font_ui_72_bold`, `gfonts://Montserrat@bold`); the date and
+      OUT/IN temperature lines moved from `font_ui_20` to the
+      already-shared `font_ui_40` (bigger, not bold - only the time
+      itself was asked to be bold at this point). Superseded by round 3
+      below for all four sizes; kept here for the history.
 - [x] **Sensors sub-page order reversed for Levelling** (repo-owner:
       "3 (Libelle und Hubstuetzen) soll auf Pos. 1 und die anderen 2 und
       3"). Levelling (`page_sensors_levelling`) moved from sub-page 3 to
@@ -732,6 +730,29 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       down to sub-pages 2/3. Only the order in `nav_show_sensors`'s
       if/else chain changed (main device file) - none of the three page
       files' own content or layout changed.
+- [x] **Home page's digital clock, round 3 - every line grew again**
+      (repo-owner: "Datum darf ruhig die 72px schrift von der Uhr
+      erhalten. Die Uhr nochmals viel grösser! Und darf oben über die
+      Boxen von ICEEX hinausragen! ... Temp und Datum muss grösser
+      werden - wie Uhr Datum"). `HH:MM` moved to a new dedicated 88px
+      bold font (`font_ui_88_bold`); the date and OUT/IN temperature
+      lines moved onto `font_ui_72_bold` - the exact same font object
+      the clock itself used in round 2, bold included, not a same-size
+      lookalike. Two layout changes this size jump forced: OUT/IN no
+      longer fit side by side at 72px within any width that also leaves
+      room for the switch tiles and the screen edge, so they're stacked
+      into their own rows now (OUT above IN, same reading order as
+      before); and four stacked 72-88px rows no longer fit the old
+      320px-tall box, so it grew upward - `y` 187 -> 70, right up
+      against the status bar's own 64px, deliberately overlapping
+      LIGHT/ICEEX's own top edge per the repo-owner's explicit
+      "hinausragen" ask - while the bottom edge (507, the fixed 20px gap
+      above the Alarmo tile the repo owner separately confirmed as
+      fine: "Abstand Alarm-Temp ist ok") stayed exactly where it was.
+      Box width/x also grew (460 -> 590 / 745 -> 680), still centered on
+      the same horizontal midpoint as the Alarmo tile below. All pixel
+      values are still a first pass, same caveat as round 2's own entry
+      above.
 
 ## Building & Flashing
 
