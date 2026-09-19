@@ -325,46 +325,59 @@ lvgl:
         # PSRAM allocation, no per-frame redraw, no external_component -
         # just four `lv_label_set_text` calls a second, and only while
         # this page is even the one on screen (see `draw_status_bar`'s
-        # own comment in the device file for the gating). Same bounding
-        # box the clock used to occupy (x815-1135/y187-507, see that
-        # widget's own old comments for why: flush with LIGHT/ICEEX to
-        # its left, bottom edge 20px above the Alarmo tile below) so
-        # nothing else on this page had to move.
+        # own comment in the device file for the gating).
+        #
+        # Widened + rescaled (2026-09-19, round 2 - repo-owner: "die
+        # Daten sind viel zu klein! dürfen breiter sein als der Alarmo
+        # Button darunter. Die Uhr sogar BOLT!"): 320 -> 460, re-centered
+        # on the same horizontal midpoint the old 320-wide box used
+        # (815+160=975, so 975-230=745) rather than just growing one
+        # edge - stays wider than `btn_tile_alarm` below (320) on both
+        # sides, not just one. y/height (187/320) unchanged, so the
+        # bottom edge and the 20px gap above the Alarmo tile are
+        # untouched. Exact label x/y offsets below are a first pass, not
+        # measured against real glyph metrics from the compiled subset
+        # font (design_rules.md's own "decided by looking at the actual
+        # device" reasoning) - refine once seen on real hardware.
         - obj:
             id: obj_home_clock
             align: TOP_LEFT
-            x: 815
+            x: 745
             y: 187
-            width: 320
+            width: 460
             height: 320
             bg_opa: TRANSP
             border_width: 0
             shadow_width: 0
             widgets:
-              # HH:MM - large, "standard blue" (design_rules.md §2's
-              # palette calls 0x4A9EFF "neutral active"; reused here
-              # verbatim rather than a new color, same "don't invent a
-              # second one of these" reasoning as everywhere else in this
-              # file). font_ui_40 - already the shared main-value size
-              # (Electric's boxes), no new font needed.
+              # HH:MM - large AND bold now (repo-owner's own ask,
+              # verbatim "BOLT") - font_ui_72_bold is a dedicated font
+              # (device file, `gfonts://Montserrat@bold`), the only bold
+              # weight and the only 72px font anywhere in this project,
+              # deliberately just for this one label. "Standard blue"
+              # (design_rules.md §2's palette calls 0x4A9EFF "neutral
+              # active"; reused verbatim, no new color).
               - label:
                   id: lbl_home_clock_time
                   align: TOP_MID
-                  y: 90
+                  y: 55
                   text: "--:--"
-                  text_font: font_ui_40
+                  text_font: font_ui_72_bold
                   text_color: 0x4A9EFF
               # DDD DD.MM.YY - German 2-letter day (Mo/Di/Mi/Do/Fr/Sa/So,
               # repo-owner's own pick over the 3/4-letter alternatives -
               # ESP-IDF's strftime has no German locale to draw "%a" from,
               # so `draw_status_bar` looks this up from a small fixed
-              # table instead) + 2-digit year, smaller, same blue.
+              # table instead) + 2-digit year. font_ui_40 (not bold,
+              # just bigger than the original font_ui_20 - only the time
+              # line itself was asked to be bold) - already the shared
+              # main-value size (Electric's boxes), no new font needed.
               - label:
                   id: lbl_home_clock_date
                   align: TOP_MID
-                  y: 150
+                  y: 160
                   text: "-- --.--.--"
-                  text_font: font_ui_20
+                  text_font: font_ui_40
                   text_color: 0x4A9EFF
               # OUT / IN temp - same size as the date line above, same
               # blue. Two separate labels (not one combined string) so
@@ -373,20 +386,22 @@ lvgl:
               # exactly like the status bar's own lbl_status_temp_in/out
               # this mirrors (`draw_status_bar` updates all four labels
               # from the one already-computed t/tbuf, see that script).
+              # x offsets widened (±70 -> ±115) to keep clear of each
+              # other at font_ui_40 instead of the old font_ui_20.
               - label:
                   id: lbl_home_clock_temp_out
                   align: TOP_MID
-                  x: -70
-                  y: 185
-                  text_font: font_ui_20
+                  x: -115
+                  y: 220
+                  text_font: font_ui_40
                   text: "OUT ---°C"
                   text_color: 0x555555
               - label:
                   id: lbl_home_clock_temp_in
                   align: TOP_MID
-                  x: 70
-                  y: 185
-                  text_font: font_ui_20
+                  x: 115
+                  y: 220
+                  text_font: font_ui_40
                   text: "IN ---°C"
                   text_color: 0x555555
 

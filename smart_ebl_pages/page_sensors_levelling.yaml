@@ -1,14 +1,17 @@
 # =============================================================================
-#  smart_ebl_pages/page_sensors_levelling.yaml -- page: Sensors, sub-page 3 (Levelling)
+#  smart_ebl_pages/page_sensors_levelling.yaml -- page: Sensors, sub-page 1 (Levelling)
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
 # docs/pages.md §5: ported from m5dial_fram/page_levelling.yaml - same
 # MPU6050 tilt sensor + four pre-computed per-corner cm entities, same
-# bubble-target-rings metaphor. Reached as Sensors section's sub-page 3
-# (nav_show_sensors, main device file) - was sub-page 2 until Sensors
-# grew a third sub-page (page_sensors_windows.yaml/page_sensors_flaps.yaml
-# split the old single placeholder page, 2026-09-19); this page has no
-# nav entry of its own regardless.
+# bubble-target-rings metaphor. Reached as Sensors section's sub-page 1
+# (nav_show_sensors, main device file) - was sub-page 3 (briefly sub-page
+# 2 before that, see git history) until moved to the front, 2026-09-19
+# round 2 (repo-owner: "3 [Levelling] soll auf Pos. 1 und die anderen 2
+# und 3" - page_sensors_windows.yaml/page_sensors_flaps.yaml shifted down
+# to sub-pages 2/3, keeping their own relative order; only the nav ORDER
+# changed, nothing in this file); this page has no nav entry of its own
+# regardless.
 #
 # ---- 2026-09-06 relayout (repo-owner: "sensors2: das Widget ist VIEL zu
 # klein! eine Seite der freien Flaeche benutzen. Die andere Haelfte ist
@@ -90,7 +93,7 @@ sensor:
 
 script:
   # ---- Sensors / Levelling (page_sensors_levelling, Sensors section's
-  # sub-page 2) - ported from m5dial_fram/page_levelling.yaml, same real
+  # sub-page 1) - ported from m5dial_fram/page_levelling.yaml, same real
   # entities, same bubble-level metaphor and per-corner cm readout (see
   # that file's own header for the full reasoning, including its own
   # still-open item: the corner sensors read 0 until an HA-side template
@@ -254,7 +257,7 @@ esphome:
 lvgl:
   pages:
     # =========================================================================
-    # Sensors, sub-page 2 (page_sensors_levelling) - see this file's own
+    # Sensors, sub-page 1 (page_sensors_levelling) - see this file's own
     # header for the 2026-09-06 left/right-half relayout. Divider at
     # x=705 - same left/right halves split as page_fans's own
     # obj_fans_divider, for a consistent "two-halves" convention across

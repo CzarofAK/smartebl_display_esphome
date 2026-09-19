@@ -502,6 +502,17 @@ font:
     id: font_ui_28
     size: 28
     glyphs: *ui_glyphs
+  # Home page's digital clock, HH:MM only (2026-09-19, repo-owner: "die
+  # Uhr sogar BOLT!" - i.e. bold, and the whole clock widget "viel zu
+  # klein") - the only bold weight and the only font this large anywhere
+  # in the file, both deliberate for that one label; every other font
+  # above stays the shared regular-weight set. `@bold` is the gfonts
+  # shorthand's own weight suffix (`font/__init__.py`'s
+  # `gfonts://Family@weight`), not a second font source.
+  - file: "gfonts://Montserrat@bold"
+    id: font_ui_72_bold
+    size: 72
+    glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night
 # icon) - this comment had gone stale (still said "AUTO only, manual
@@ -1125,16 +1136,17 @@ script:
       - script.execute: draw_fans
       - script.execute: poll_fans
 
-  # Sensors has 3 sub-pages (pages.md §5's Sensors row: 1 Fenster/Türen,
-  # 2 Klappen, 3 Levelling) since 2026-09-19 - same cycle-on-repeat-tap
-  # pattern as Electric above, extended from a 2-way to a 3-way cycle
-  # (0->1->2->0) now that the real 18-entity contact list replaced the
-  # single placeholder sub-page 1 used to be (page_sensors_windows.yaml/
-  # page_sensors_flaps.yaml, see the former's own header). Sub-page 3 is
-  # the unchanged, real, ported Levelling page. Arriving from elsewhere
-  # always resets to sub-page 1 - same reasoning/repo-owner request as
-  # nav_show_electric above (g_sensors_subpage used to persist across nav
-  # taps).
+  # Sensors has 3 sub-pages (pages.md §5's Sensors row: 1 Levelling,
+  # 2 Fenster/Türen, 3 Klappen) - same cycle-on-repeat-tap pattern as
+  # Electric above, 3-way cycle (0->1->2->0). Order changed 2026-09-19
+  # (round 2, repo-owner: "3 (Libelle und Hubstuetzen) soll auf Pos. 1
+  # und die anderen 2 und 3") - Levelling moved from sub-page 3 to
+  # sub-page 1, Fenster/Türen and Klappen keep their own relative order,
+  # shifted down to 2/3. Only this if/else chain's ORDER changed; the
+  # pages themselves (page_sensors_levelling/_windows/_flaps.yaml) are
+  # untouched. Arriving from elsewhere always resets to sub-page 1 - same
+  # reasoning/repo-owner request as nav_show_electric above
+  # (g_sensors_subpage used to persist across nav taps).
   - id: nav_show_sensors
     then:
       - lambda: |-
@@ -1148,17 +1160,17 @@ script:
           condition:
             lambda: 'return id(g_sensors_subpage) == 0;'
           then:
-            - lvgl.page.show: page_sensors_windows
+            - lvgl.page.show: page_sensors_levelling
+            - script.execute: draw_levelling
+            - script.execute: poll_levelling
           else:
             - if:
                 condition:
                   lambda: 'return id(g_sensors_subpage) == 1;'
                 then:
-                  - lvgl.page.show: page_sensors_flaps
+                  - lvgl.page.show: page_sensors_windows
                 else:
-                  - lvgl.page.show: page_sensors_levelling
-                  - script.execute: draw_levelling
-                  - script.execute: poll_levelling
+                  - lvgl.page.show: page_sensors_flaps
       - script.execute: draw_nav
 
   - id: draw_nav
