@@ -77,19 +77,24 @@ a deliberate user call, not an oversight.
 **Implemented** (2026-09-06): tap opens a popup (`obj_daynight_popup_panel`,
 top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
 
-- **Day/Night color scheme** (dark-on-black ↔ light) is software-only and
-  ships regardless of hardware status. Automatic default: `sun.sun` from
+- **AUTO/DAY/NIGHT now sets a standard backlight dim level** (2026-09-19,
+  repo-owner: "Auto/Day/Night könntest du mit standard dim level machen -
+  Day 100%, Night 60%") — its only consumer used to be the round
+  `sbb_clock` widget's `set_night_mode()` (a cosmetic face-color swap,
+  gone along with that widget, see §6); now `apply_daynight` sets
+  `g_backlight_pct` to 100 (day) or 60 (night) and runs it straight
+  through `apply_backlight` — the exact same I2C write the brightness
+  slider itself uses (`set_panel_backlight_raw`, address `0x45`,
+  register `0x86`), so this drives the real hardware backlight, not a
+  cosmetic overlay. AUTO's day/night split is unchanged: `sun.sun` from
   Home Assistant (`s_sun`), the same source `m5dial_fram`'s clock page
-  uses — there's no confirmed ambient-light sensor on this board. Its
-  AUTO/DAY/NIGHT selector currently has no visible effect of its own
-  (2026-09-19) — its only real consumer was the round `sbb_clock`
-  widget's `set_night_mode()`, since replaced by §6's plain-text digital
-  clock (blue on the page's always-black background, nothing to invert).
-  Left in place rather than removed — a future page-wide theme swap is
-  still a plausible use for it — but flagging this here so it isn't
-  mistaken for driving something it no longer does.
-  The popup's AUTO/DAY/NIGHT selector (`act_daynight_set_mode`) overrides
-  this per user choice, persisted (`g_daynight`, `restore_value: true`).
+  uses — there's no confirmed ambient-light sensor on this board. A mode
+  change (or a sunrise/sunset while in AUTO) overwrites whatever level
+  was set before, by design — the slider still works afterward for
+  fine-tuning between transitions, it just doesn't persist a custom
+  level across the next mode/sun change. The popup's AUTO/DAY/NIGHT
+  selector (`act_daynight_set_mode`) overrides the mode per user choice,
+  persisted (`g_daynight`, `restore_value: true`).
 - **Brightness slider drives the real backlight now** (2026-09-12,
   superseding this section's own earlier "nothing real to drive" text):
   not a GPIO/PWM pin at all — Waveshare's own wiki for this panel

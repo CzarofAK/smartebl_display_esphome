@@ -512,6 +512,11 @@ text_sensor:
     entity_id: sun.sun
     on_value:
       - script.execute: apply_daynight
+      # Keeps the brightness popup's own slider live if it happens to be
+      # open right as AUTO crosses sunrise/sunset (act_daynight_set_mode
+      # already does the same after a manual mode tap) - draw_daynight_popup
+      # re-reads g_backlight_pct, which apply_daynight above just changed.
+      - script.execute: draw_daynight_popup
 
 # =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
@@ -851,14 +856,37 @@ script:
   # `sbb_clock` widget this used to call `set_night_mode()` on is gone,
   # see the external_components section's own comment) - the digital
   # clock that replaced it is plain blue text on the page's always-black
-  # background, nothing to invert. `g_daynight`/`s_sun` still exist and
-  # still drive `apply_backlight` (below) and the status bar's own
-  # future day/night swap, if one is ever added there.
+  # background, nothing to invert.
+  #
+  # Drives the REAL backlight instead now (2026-09-19, repo-owner: "Auto/
+  # Day/Night könntest du mit standard dim level machen - Day 100%,
+  # Night 60%") - AUTO/DAY/NIGHT sets `g_backlight_pct` to one of two
+  # fixed levels and runs it straight through `apply_backlight` below,
+  # which is the exact same I2C write (`set_panel_backlight_raw`,
+  # address `0x45`, register `0x86`) the brightness slider itself uses -
+  # so yes, this is the real hardware backlight, not a cosmetic overlay.
+  # AUTO's day/night split is unchanged (`s_sun`, HA's `sun.sun`); a
+  # mode change (or a sunrise/sunset while in AUTO) overwrites whatever
+  # level was set before, by design - the slider is still there
+  # afterward for fine-tuning between transitions, it just no longer
+  # "remembers" a custom level across the next mode/sun change.
   - id: apply_daynight
     then:
       - lambda: |-
           const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
           lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+
+          bool night;
+          int m = id(g_daynight);
+          if (m == 1) {
+            night = false;
+          } else if (m == 2) {
+            night = true;
+          } else {
+            night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+          }
+          id(g_backlight_pct) = night ? 60 : 100;
+      - script.execute: apply_backlight
 
   - id: act_daynight_set_mode
     parameters:
