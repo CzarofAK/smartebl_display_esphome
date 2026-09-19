@@ -753,6 +753,22 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       the same horizontal midpoint as the Alarmo tile below. All pixel
       values are still a first pass, same caveat as round 2's own entry
       above.
+- [x] **Home page's digital clock, round 4 - temp partially rolled back,
+      clock bigger still** (repo-owner: "Temperaturen (out und in) zurück
+      auf die vorherige schrift grösse und auf eine linie. Uhr noch
+      grösser"). OUT/IN temperature moved back off `font_ui_72_bold` onto
+      `font_ui_40` (round 2's size) and back onto one row side by side,
+      undoing round 3's stacked-and-72px change for those two labels
+      only - the date line stayed on `font_ui_72_bold`, not mentioned
+      this round. `HH:MM` grew again, from `font_ui_88_bold` to a new
+      dedicated `font_ui_128_bold` (`font_ui_88_bold` removed outright -
+      nothing else ever used 88px). The box itself (590×437, still
+      overlapping the switch tiles' top edge, bottom edge still fixed
+      20px above Alarmo) didn't change size - going back to one shorter
+      temp row freed vertical room that went toward the bigger clock
+      instead of shrinking the box, and row y-offsets were recomputed so
+      the temp row's own margin above the Alarmo gap stays close to
+      round 3's, rather than opening a much bigger, unrequested gap.
 
 ## Building & Flashing
 
