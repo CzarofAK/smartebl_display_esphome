@@ -180,7 +180,7 @@ commented out above, confirmed not needed for bring-up). So a GPIO
 alone was never going to be enough here even if one turned up — and it
 turns out there isn't one to find in the first place.
 
-## Backlight control — confirmed, no GPIO at all: I2C, device `0x45`, register `0x86`
+## Backlight control — no GPIO at all: I2C, device `0x45`, register `0x96`
 
 **Resolved same day**, from a primary source: the repo owner supplied
 the exact "Backlight Control" section of Waveshare's own wiki for this
@@ -192,22 +192,45 @@ screen through the \[host's\] I2C"*, with the BSP component exposing
 `bsp_display_brightness_init()`/`_on()`/`_off()`/`_set(0-100)` on top of
 exactly that. So: no GPIO, no PWM pin, ever — the backlight is entirely
 I2C-controlled, same bus as touch and the panel PMIC (`bus_touch`,
-`address: 0x45`) — genuinely the same **device address** `panel_power_init`
-already talks to for its confirmed wake sequence (register `0x96` there,
-`0x86` here — two different registers on the same chip, not a
-collision). `smart-ebl-display.yaml`'s `apply_backlight`/
-`set_panel_backlight_raw` now write it directly with a plain
-`i2c::I2CBus::write()` call on `bus_touch` — no new external component
-needed, unlike `panel_power_init`'s multi-register wake sequence.
+`address: 0x45`).
 
-**Confidence: high** — primary vendor source for this exact panel, and
-it reuses a device address already proven reachable on this exact
-board, not a fresh guess. **Not yet flash-tested in this session**
-(no hardware here) — confirm brightness actually changes on the next
-real flash. If it doesn't, or `0x86` turns out to need some register-
-select preamble the wiki quote didn't mention (the way the PMIC wake
-sequence needs `0x95` written first), that's the next thing to check
-with a logic analyzer against the real chip, not to assume — same
+### Register corrected: `0x96`, not `0x86` (2026-09-19)
+
+**The address was right, the register was wrong.** Flash-tested on the
+real board: the brightness slider moved, the backlight didn't. The
+`0x86` figure above comes from the 10.1-DSI-TOUCH-A wiki's "Backlight
+Control" section, which documents the panel paired with an
+**ESP32-P4-NANO** — stale for this board (ESP32-P4-WIFI6-POE-ETH).
+Waveshare's newer ESP32-P4 dev-kit documentation for the same
+DSI-TOUCH-A panel, and a working ESP-IDF implementation on this exact
+panel, both use **register `0x96`** (repo-owner-supplied, plus
+[Harald Kreuzer's write-up of the ESP32-P4-Module-DEV-KIT-C with this
+display](https://www.haraldkreuzer.net/en/news/waveshare-esp32-p4-module-dev-kit-c-compact-development-board-101-inch-dsi-display)).
+
+This is corroborated **inside this repo**, independently of any wiki:
+[`panel_power_init`](https://github.com/CzarofAK/panel_power_init)'s
+wake sequence — sourced from Waveshare's own ESP-IDF LCD driver — writes
+`0x95`=`0x11`, `0x95`=`0x17`, then `0x96`=`0x00`, wait 100 ms,
+`0x96`=`0xFF`, wait 300 ms. That last pair is a backlight ramp: off,
+settle, full. `0x96` was never "the wake register" this doc used to
+treat as unrelated to backlight — it *is* the backlight PWM register,
+and `0x95` is its enable/unlock preamble. Writing `0x86` just landed on
+a register this chip ignores, which is exactly the observed symptom:
+full brightness after boot (set by `panel_power_init`'s own
+`0x96`=`0xFF`) and an inert slider.
+
+`smart-ebl-display.yaml`'s `apply_backlight`/`set_panel_backlight_raw`
+write `0x96` directly with a plain `i2c::I2CBus::write()` call on
+`bus_touch` — no new external component needed, unlike
+`panel_power_init`'s multi-register wake sequence — and log the write
+plus its I2C `ErrorCode` at DEBUG under the `backlight` tag.
+
+**Confidence: high, still not flash-tested with `0x96`.** If the next
+flash logs `err=0` and brightness *still* doesn't move, the next thing
+to try is re-sending the `0x95` preamble (`0x11`, `0x17`) immediately
+before the `0x96` write — `panel_power_init` sends it once at boot and
+this assumes that state persists. Check that against the real chip,
+don't assume — same
 caution this repo already applies to `panel_power_init`'s own register
 values.
 
