@@ -77,11 +77,17 @@ a deliberate user call, not an oversight.
 **Implemented** (2026-09-06): tap opens a popup (`obj_daynight_popup_panel`,
 top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
 
-- **Day/Night color scheme** (dark-on-black ↔ light, the same swap the
-  `sbb_clock` widget already does via `set_night_mode()`) is software-only
-  and ships regardless of hardware status. Automatic default: `sun.sun`
-  from Home Assistant (`s_sun`), the same source `m5dial_fram`'s clock
-  page uses — there's no confirmed ambient-light sensor on this board.
+- **Day/Night color scheme** (dark-on-black ↔ light) is software-only and
+  ships regardless of hardware status. Automatic default: `sun.sun` from
+  Home Assistant (`s_sun`), the same source `m5dial_fram`'s clock page
+  uses — there's no confirmed ambient-light sensor on this board. Its
+  AUTO/DAY/NIGHT selector currently has no visible effect of its own
+  (2026-09-19) — its only real consumer was the round `sbb_clock`
+  widget's `set_night_mode()`, since replaced by §6's plain-text digital
+  clock (blue on the page's always-black background, nothing to invert).
+  Left in place rather than removed — a future page-wide theme swap is
+  still a plausible use for it — but flagging this here so it isn't
+  mistaken for driving something it no longer does.
   The popup's AUTO/DAY/NIGHT selector (`act_daynight_set_mode`) overrides
   this per user choice, persisted (`g_daynight`, `restore_value: true`).
 - **Brightness slider drives the real backlight now** (2026-09-12,
@@ -116,7 +122,7 @@ listed in the nav rail's intended top-to-bottom order.
 
 | # | Section | Sub-pages | Content | Data source |
 |---|---|---|---|---|
-| 0 | Home | — | Clock (`sbb_clock`, right half) + 5 switch tiles + Fridge tile + Alarmo tile (§6) | link (switches) + HA (clock temp) |
+| 0 | Home | — | Digital clock (right half, §6) + 5 switch tiles + Fridge tile + Alarmo tile (§6) | link (switches) + HA (clock temp) |
 | 1 | Electric | 1: Overview, 2: Fuses | Victron-style power flow (Shore→Inverter→AC Loads / Solar→Battery→DC Loads) per `smartebl_display/docs/design.md`'s existing mockup — reuse directly, don't redesign; page 2: 16-fuse grid, `fuse_fN_ok = voltage > 1.0 V` per `design_rules.md` §2 | link (`docs/protocol.md` groups 1, 3) |
 | — | *implemented, page 1* | — | **Superseded finding, corrected:** this repo initially assumed the vehicle had no Victron gear behind `smartebl`, so AC Loads/Solar Yield/DC Loads rendered permanently invalid. The repo owner confirmed a real SmartShunt (battery monitor) and MultiPlus (inverter/charger), integrated into HA via the exact same entities `m5dial_fram`'s `page_power_1/2/3.yaml` already use — now wired: **Battery** box shows SmartShunt SOC%/voltage/current (same 20%/40% thresholds as `page_power_1`); **Inverter/Charger** box (now a button) shows the MultiPlus's real mode (`select.multiplus` — ON/CHG/INV/OFF) and state (`sensor.multiplus_zustand`), tapping it opens a popup to set the mode directly and adjust the shore/grid current limit (`number.multiplus_strombegrenzung`, clamped 0-16A per `page_power_2`'s own real-wiring-ceiling note); **AC Loads** shows the MultiPlus's WR output power (`sensor.multiplus_0_wr_leistung`) as a % of the installed model's 1600W nominal rating, same caveat as `page_power_3`'s identical calculation (not exact, thermal derating untracked). **Solar Yield and DC Loads also confirmed real and wired**: an MPPT 190W solar charge controller (`sensor.mppt_190w_leistung_pv_ertrag` for the yield figure, `sensor.mppt_190w_zustand` for its status line — same "main value + humanized state" shape as the Charger box) and the GX device's own aggregate DC-consumption sensor (`sensor.gx_device_dc_verbrauch`) — not the SmartShunt's net current shown in the Battery box, a genuinely separate figure. Shore connected/disconnected stays `smartebl`'s own link reading (`shore_power_connected`) — that detection is real and cheap regardless. Page 2 (fuse grid) is not built yet. Page also recentered (both horizontally and vertically within the content area) per repo-owner feedback that it wasn't. | — |
 | — | *reworked, page 1 (2026-09-06)* | — | Per repo-owner spec: boxes grew (row heights 130/170px → 210/290px, matched top/bottom margins - the page used to leave most of its content area empty). **Shore**'s main value is now the MultiPlus's real input power (`sensor.multiplus_eingangsleistung_l1`), sub-left/right voltage/frequency (`_eingangsspannung_l1`/`_eingangsfrequenz_l1`) - replaces the old combined W+A sub-line; connected/disconnected (still `shore_power_connected`, smartebl's own link) is now its own status line above the main value instead of replacing it. **AC Loads** mirrors that shape with output power/voltage/frequency (`sensor.multiplus_ausgangsleistung_l1`/`_ausgangsspannung_l1`/`_ausgangsfrequenz_l1`) - replaces the old %-of-1600W-nominal figure (`sensor.multiplus_0_wr_leistung`), though the same 80%/95% warning coloring carries over against the new sensor. **Solar Yield** is now a button, opening its own popup (same shape as the Charger one) for ON/OFF (`switch.mppt_190w`) and charge-current limit (`number.mppt_190w_stromstarke`, no confirmed real ceiling yet - see the popup's own comment); sub-left/right are now the MPPT's own DC battery-bus voltage/current (`sensor.mppt_190w_dc_batterie_bus_spannung`/`_stromstarke`), replacing the humanized-zustand sub line. **Battery** gained an IDLE/CHARGING/DISCHARGING line (interpreted from the SmartShunt's net current, `sensor.smartshunt_dc_bus_stromstarke`, ±0.5A treated as idle) and a remaining-time line (`sensor.smartshunt_verbleibende_zeit`, shown only while discharging) between the SOC and a proper 3-across V/A/W bottom row (`smartshunt_dc_bus_spannung`/`_stromstarke`/`sensor.smartshunt_leistung`) - fixes a real overlap bug between the old combined mid-line and the starter-voltage line at the bottom; also gained its own popup for `switch.fram_parkmodus`. Starter battery voltage is unchanged (still `smartebl`'s own link reading, at the very bottom). **DC Loads**' main value is still a placeholder - repo owner: "tbd", no entity picked yet. Also fixed on the Charger popup: mode buttons were left-to-right ON/CHG/INV/OFF, now OFF/CHARGER/INVERTER/ON per repo-owner spec; the LIMIT label drifted off-center as its digit count changed for want of `text_align: CENTER`, now fixed; the OFF button's own "active" highlight used to be styled identically to "inactive". **Open question, not yet answered:** Victron's own GUIv2 Inverter/Charger detail screen has a vertical bar this page has no equivalent for - repo owner asked what it represents; best unconfirmed guess is the AC input current as a % of the configured input current limit (`sensor.multiplus_eingangsstromstarke_l1` vs. `number.multiplus_strombegrenzung`, the same limit already wired into this popup) - needs checking against a real GX Touch/VRM before building anything against it. | — |
@@ -139,12 +145,25 @@ device stays the one place for it.
 
 ## 6. Home page detail
 
-Right half: `sbb_clock` widget, sized to fill it (the widget scales by
-`width`/`height` alone — see `m5dial_clock_sbb`'s README, no changes
-needed to reuse it here at a much larger size than the M5Dial's 240×240).
-No date/day shown (`show_date` left at its default `false`) — asked for
-explicitly, also a small mercy on the PSRAM-canvas redraw cost the
-README's roadmap already flags.
+Right half: **digital clock** (2026-09-19, replaced the round `sbb_clock`
+canvas widget — repo-owner: wants a version "ohne SBB clock, aber mit
+einer weniger HW intensiven digital Uhr", `design_rules.md` §4's own open
+item having flagged that canvas as a real, confirmed contributor to the
+PSRAM-bus pressure behind the recurring DSI underrun/blue-flash symptom).
+Plain LVGL labels instead — no canvas, no PSRAM allocation, no per-frame
+redraw. Same bounding box the old clock occupied. Content, top to bottom,
+all in the palette's "neutral active" blue (`0x4A9EFF`):
+
+- `HH:MM` — large (`font_ui_40`)
+- `DDD DD.MM.YY` — smaller (`font_ui_20`); `DDD` is the German 2-letter
+  day abbreviation (Mo/Di/Mi/Do/Fr/Sa/So — repo-owner's own pick over the
+  3/4-letter alternatives; ESP-IDF's `strftime` has no German locale, so
+  `draw_status_bar` looks it up from a small fixed table instead of
+  using `%a`)
+- `OUT`/`IN` temperature, same size as the date line — the same values
+  the status bar (§4) already shows, just also rendered here; each drops
+  to the invalid-value gray independently of the other when its own
+  source is stale, per `design_rules.md` §2
 
 Left half / remainder: tiles, one per switch, as a 2×3 grid **vertically
 centered in the content area and horizontally centered between the nav

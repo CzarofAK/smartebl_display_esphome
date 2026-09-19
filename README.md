@@ -670,6 +670,28 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       never did until this fix landed. Still upstream from a single
       report, still not independently confirmed by ESPHome or Waveshare
       - but now confirmed on this board, not just plausible in theory.
+- [x] **Home page's round `sbb_clock` widget replaced with a digital
+      clock, 2026-09-19** - repo-owner: wants a version "ohne SBB clock,
+      aber mit einer weniger HW intensiven digital Uhr". Plain LVGL
+      labels instead of the canvas-based `sbb_clock` component (pulled
+      from `m5dial_clock_sbb` via `external_components:`, now removed
+      entirely, along with the day/night-only `col_clock_*`/`col_page_bg`
+      colors it needed) - no canvas allocation, no per-frame redraw,
+      directly addressing the PSRAM-bus pressure `design_rules.md` §4's
+      own open item already named that canvas as a real contributor to.
+      Same top-right position/footprint. Shows `HH:MM` large, `DDD
+      DD.MM.YY` smaller underneath (`DDD` = German 2-letter day - Mo/Di/
+      Mi/Do/Fr/Sa/So, repo-owner's own pick, looked up from a small fixed
+      table since ESP-IDF's `strftime` has no German locale), and OUT/IN
+      temperature at the same smaller size below that - all in the
+      palette's existing "neutral active" blue (`0x4A9EFF`). Values come
+      from `draw_status_bar` (already computing the same time/IN/OUT-temp
+      figures every second for the top status bar) rather than a second,
+      separately-timed script. One side effect worth flagging: the
+      status bar's AUTO/DAY/NIGHT toggle had no other consumer of its
+      `set_night_mode()` call - it's left in place (still highlights its
+      own popup buttons correctly) but currently has no visible effect
+      anywhere else; see `docs/pages.md` §4's own note.
 
 ## Building & Flashing
 

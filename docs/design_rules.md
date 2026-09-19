@@ -113,10 +113,14 @@ the actual device once real pages are built, not guessed in advance.
   repo's own config does, and DSI's own DMA fetch competing with
   anything else on the PSRAM bus can starve it). The Mainscreen clock's
   own canvas used to add to that PSRAM pressure until it was shrunk to
-  fit internal RAM instead (see `smart-ebl-display.yaml`'s
-  `clock_face` widget and `m5dial_clock_sbb`'s README) - that removes
-  one contributor, not the underlying upstream issue itself. Not
-  something this repo can fix on its own; watch esphome#16873.
+  fit internal RAM instead (see `m5dial_clock_sbb`'s README) - that
+  removed one contributor, not the underlying upstream issue itself.
+  **That canvas is gone entirely now (2026-09-19)** - repo-owner request
+  for "eine weniger HW intensive digital Uhr" replaced the round
+  `sbb_clock` widget with plain LVGL labels (`page_home.yaml`'s digital
+  clock, `pages.md` §6) - zero canvas/PSRAM allocation, not just a
+  smaller one. Removes that contributor outright; still not the
+  underlying upstream issue itself - watch esphome#16873.
   **Still recurring (confirmed against a fuller real boot log, roughly
   every 30-90s during normal WiFi+HA operation, not just at boot) -
   non-fatal, the panel keeps working.** One mitigation was tried and
