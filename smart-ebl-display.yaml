@@ -502,16 +502,25 @@ font:
     id: font_ui_28
     size: 28
     glyphs: *ui_glyphs
-  # Home page's digital clock, HH:MM only (2026-09-19, repo-owner: "die
-  # Uhr sogar BOLT!" - i.e. bold, and the whole clock widget "viel zu
-  # klein") - the only bold weight and the only font this large anywhere
-  # in the file, both deliberate for that one label; every other font
-  # above stays the shared regular-weight set. `@bold` is the gfonts
-  # shorthand's own weight suffix (`font/__init__.py`'s
-  # `gfonts://Family@weight`), not a second font source.
+  # Home page's digital clock (2026-09-19, repo-owner round 2: "Uhr
+  # sogar BOLT!") - font_ui_72_bold is now the DATE and OUT/IN temp
+  # size too (round 3, repo-owner: "Datum darf ruhig die 72px schrift
+  # von der Uhr erhalten... Temp und Datum muss grösser werden - wie
+  # Uhr Datum" - i.e. reuse this exact font object for those labels
+  # too, bold included, rather than adding a third one at the same
+  # size). `@bold` is the gfonts shorthand's own weight suffix
+  # (`font/__init__.py`'s `gfonts://Family@weight`), not a second font
+  # source.
   - file: "gfonts://Montserrat@bold"
     id: font_ui_72_bold
     size: 72
+    glyphs: *ui_glyphs
+  # HH:MM only, bigger again (round 3, repo-owner: "Die Uhr nochmals
+  # viel grösser!") - now the only thing at this size, since
+  # font_ui_72_bold above moved on to also cover date/temp.
+  - file: "gfonts://Montserrat@bold"
+    id: font_ui_88_bold
+    size: 88
     glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night

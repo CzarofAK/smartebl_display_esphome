@@ -327,81 +327,95 @@ lvgl:
         # this page is even the one on screen (see `draw_status_bar`'s
         # own comment in the device file for the gating).
         #
-        # Widened + rescaled (2026-09-19, round 2 - repo-owner: "die
-        # Daten sind viel zu klein! dürfen breiter sein als der Alarmo
-        # Button darunter. Die Uhr sogar BOLT!"): 320 -> 460, re-centered
-        # on the same horizontal midpoint the old 320-wide box used
-        # (815+160=975, so 975-230=745) rather than just growing one
-        # edge - stays wider than `btn_tile_alarm` below (320) on both
-        # sides, not just one. y/height (187/320) unchanged, so the
-        # bottom edge and the 20px gap above the Alarmo tile are
-        # untouched. Exact label x/y offsets below are a first pass, not
-        # measured against real glyph metrics from the compiled subset
-        # font (design_rules.md's own "decided by looking at the actual
-        # device" reasoning) - refine once seen on real hardware.
+        # Widened + rescaled, round 3 (2026-09-19, repo-owner: "Datum
+        # darf ruhig die 72px schrift von der Uhr erhalten. Die Uhr
+        # nochmals viel grösser! Und darf oben über die Boxen von ICEEX
+        # hinausragen! ... Temp und Datum muss grösser werden - wie Uhr
+        # Datum"): every line grew again -
+        #   - HH:MM: font_ui_72_bold -> a dedicated font_ui_88_bold
+        #   - Date: font_ui_40 -> font_ui_72_bold (the SAME font object
+        #     the clock used before, bold included - repo-owner's own
+        #     "ruhig die 72px Schrift von der Uhr", not a lookalike copy)
+        #   - OUT/IN temp: font_ui_40 -> font_ui_72_bold too ("wie Uhr
+        #     Datum" - matching the now-72px date line)
+        # Two knock-on layout changes this size jump forces:
+        #   1. OUT/IN no longer fit side by side at this size within any
+        #      width that still leaves room for the switch tiles and the
+        #      screen edge (each label is roughly as wide alone as the
+        #      whole old 460px box) - stacked into their own rows
+        #      instead, keeping the OUT-above-IN reading order the
+        #      side-by-side layout already had.
+        #   2. Four stacked 72-88px rows no longer fit in the old 320px
+        #      height without either shrinking or growing upward - grown
+        #      upward (y 187 -> 70, right up against the status bar's own
+        #      64px, repo-owner explicitly OK'd overlapping ICEEX/LIGHT's
+        #      own top edge for this). Bottom edge (507, the fixed 20px
+        #      gap above the Alarmo tile - "Abstand Alarm-Temp ist ok",
+        #      i.e. don't touch it) is UNCHANGED: height grew from
+        #      507-187=320 to 507-70=437, all of it added at the top.
+        # Box re-centered on the same horizontal midpoint the Alarmo tile
+        # below uses (815+160=975, so 975-295=680) rather than growing
+        # one edge - 590 wide leaves 15px to the switch tiles' own right
+        # edge (665) and 10px to the screen edge (1280), both tight on
+        # purpose per the "darf hinausragen" request. Exact label x/y
+        # offsets below are a first pass, not measured against real
+        # glyph metrics from the compiled subset font (design_rules.md's
+        # own "decided by looking at the actual device" reasoning) -
+        # refine once seen on real hardware.
         - obj:
             id: obj_home_clock
             align: TOP_LEFT
-            x: 745
-            y: 187
-            width: 460
-            height: 320
+            x: 680
+            y: 70
+            width: 590
+            height: 437
             bg_opa: TRANSP
             border_width: 0
             shadow_width: 0
             widgets:
-              # HH:MM - large AND bold now (repo-owner's own ask,
-              # verbatim "BOLT") - font_ui_72_bold is a dedicated font
-              # (device file, `gfonts://Montserrat@bold`), the only bold
-              # weight and the only 72px font anywhere in this project,
-              # deliberately just for this one label. "Standard blue"
-              # (design_rules.md §2's palette calls 0x4A9EFF "neutral
-              # active"; reused verbatim, no new color).
+              # HH:MM - "standard blue" (design_rules.md §2's palette
+              # calls 0x4A9EFF "neutral active"; reused verbatim, no new
+              # color).
               - label:
                   id: lbl_home_clock_time
                   align: TOP_MID
-                  y: 55
+                  y: 10
                   text: "--:--"
-                  text_font: font_ui_72_bold
+                  text_font: font_ui_88_bold
                   text_color: 0x4A9EFF
               # DDD DD.MM.YY - German 2-letter day (Mo/Di/Mi/Do/Fr/Sa/So,
               # repo-owner's own pick over the 3/4-letter alternatives -
               # ESP-IDF's strftime has no German locale to draw "%a" from,
               # so `draw_status_bar` looks this up from a small fixed
-              # table instead) + 2-digit year. font_ui_40 (not bold,
-              # just bigger than the original font_ui_20 - only the time
-              # line itself was asked to be bold) - already the shared
-              # main-value size (Electric's boxes), no new font needed.
+              # table instead) + 2-digit year.
               - label:
                   id: lbl_home_clock_date
                   align: TOP_MID
-                  y: 160
+                  y: 126
                   text: "-- --.--.--"
-                  text_font: font_ui_40
+                  text_font: font_ui_72_bold
                   text_color: 0x4A9EFF
-              # OUT / IN temp - same size as the date line above, same
-              # blue. Two separate labels (not one combined string) so
-              # each can independently drop to the design_rules.md §2
-              # invalid-value gray when its own source is stale/down,
-              # exactly like the status bar's own lbl_status_temp_in/out
-              # this mirrors (`draw_status_bar` updates all four labels
-              # from the one already-computed t/tbuf, see that script).
-              # x offsets widened (±70 -> ±115) to keep clear of each
-              # other at font_ui_40 instead of the old font_ui_20.
+              # OUT / IN temp - own row each now (see this widget's own
+              # header comment for why), OUT above IN keeping the same
+              # reading order the old side-by-side layout had. Still two
+              # separate labels so each can independently drop to the
+              # design_rules.md §2 invalid-value gray when its own source
+              # is stale/down, exactly like the status bar's own
+              # lbl_status_temp_in/out this mirrors (`draw_status_bar`
+              # updates all four labels from the one already-computed
+              # t/tbuf, see that script).
               - label:
                   id: lbl_home_clock_temp_out
                   align: TOP_MID
-                  x: -115
                   y: 220
-                  text_font: font_ui_40
+                  text_font: font_ui_72_bold
                   text: "OUT ---°C"
                   text_color: 0x555555
               - label:
                   id: lbl_home_clock_temp_in
                   align: TOP_MID
-                  x: 115
-                  y: 220
-                  text_font: font_ui_40
+                  y: 314
+                  text_font: font_ui_72_bold
                   text: "IN ---°C"
                   text_color: 0x555555
 
