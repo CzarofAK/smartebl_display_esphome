@@ -146,9 +146,9 @@ smartebl_display_esphome/
 │   ├── page_climate_boiler.yaml  # Truma: room heating + water heating
 │   ├── page_levels.yaml          # Fresh/Waste/Gas A/Gas I/Diesel
 │   ├── page_fans.yaml            # FANBOARD + HVAC blower
-│   ├── page_sensors_windows.yaml     # Sensors, sub-page 1: 11 door/window contacts
-│   ├── page_sensors_flaps.yaml       # Sensors, sub-page 2: 7 flap/hatch contacts
-│   └── page_sensors_levelling.yaml   # Sensors, sub-page 3: spirit level
+│   ├── page_sensors_levelling.yaml   # Sensors, sub-page 1: spirit level
+│   ├── page_sensors_windows.yaml     # Sensors, sub-page 2: 11 door/window contacts
+│   └── page_sensors_flaps.yaml       # Sensors, sub-page 3: 7 flap/hatch contacts
 └── docs/                        # hardware.md, protocol.md, pages.md, design_rules.md
 ```
 
@@ -590,7 +590,9 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       read of the raw HA timestamp - see `page_sensors_windows.yaml`'s
       own header for why). Sensors now cycles through **three** sub-pages
       (SENSORS nav icon's indicator: "1/3"/"2/3"/"3/3").
-    - **Sensors / Levelling** (`page_sensors_levelling`, now sub-page 3) -
+    - **Sensors / Levelling** (`page_sensors_levelling`, sub-page 3 at the
+      time - moved to sub-page 1 shortly after, see the newer entry
+      below) -
       ported from `m5dial_fram/page_levelling.yaml` verbatim
       (bubble-in-target-rings metaphor, worst-corner-wins bubble color,
       same still-open item there: the four corner cm sensors read 0 until
@@ -695,11 +697,41 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       palette's existing "neutral active" blue (`0x4A9EFF`). Values come
       from `draw_status_bar` (already computing the same time/IN/OUT-temp
       figures every second for the top status bar) rather than a second,
-      separately-timed script. One side effect worth flagging: the
-      status bar's AUTO/DAY/NIGHT toggle had no other consumer of its
-      `set_night_mode()` call - it's left in place (still highlights its
-      own popup buttons correctly) but currently has no visible effect
-      anywhere else; see `docs/pages.md` §4's own note.
+      separately-timed script. One side effect at the time: the status
+      bar's AUTO/DAY/NIGHT toggle had lost its only consumer
+      (`set_night_mode()`) - see the newer entry below for what replaced
+      it.
+- [x] **AUTO/DAY/NIGHT now sets a standard backlight dim level** - Day
+      100%, Night 60% (repo-owner's own numbers), AUTO unchanged
+      (`sun.sun`). Gives the toggle above a real job again: `apply_daynight`
+      sets `g_backlight_pct` and runs it through `apply_backlight` - the
+      exact same I2C write (`set_panel_backlight_raw`, `0x45`/`0x86`) the
+      brightness slider itself uses, so this is the real hardware
+      backlight, not a cosmetic overlay. A mode change or a sunrise/
+      sunset while in AUTO overwrites whatever level was set before, by
+      design; the slider still works for fine-tuning in between. See
+      `docs/pages.md` §4's own note.
+- [x] **Home page's digital clock widened + made bold** (round 2,
+      repo-owner: "die Daten sind viel zu klein! dürfen breiter sein als
+      der Alarmo Button darunter. Die Uhr sogar BOLT!"). The clock's own
+      box grew 320px -> 460px wide, re-centered on the same horizontal
+      midpoint so it overhangs `btn_tile_alarm` below on both sides, not
+      just one. `HH:MM` is now a dedicated 72px **bold** font
+      (`font_ui_72_bold`, `gfonts://Montserrat@bold` - the only bold
+      weight anywhere in this project); the date and OUT/IN temperature
+      lines moved from `font_ui_20` to the already-shared `font_ui_40`
+      (bigger, not bold - only the time itself was asked to be bold).
+      Label x/y offsets are a first pass, not measured against the
+      compiled subset font's real glyph metrics - refine once seen on
+      real hardware, same as every other pixel position in this file.
+- [x] **Sensors sub-page order reversed for Levelling** (repo-owner:
+      "3 (Libelle und Hubstuetzen) soll auf Pos. 1 und die anderen 2 und
+      3"). Levelling (`page_sensors_levelling`) moved from sub-page 3 to
+      sub-page 1 - shown first when tapping the SENSORS nav icon;
+      Fenster/Türen and Klappen keep their own relative order, shifted
+      down to sub-pages 2/3. Only the order in `nav_show_sensors`'s
+      if/else chain changed (main device file) - none of the three page
+      files' own content or layout changed.
 
 ## Building & Flashing
 

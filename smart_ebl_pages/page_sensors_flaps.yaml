@@ -1,9 +1,12 @@
 # =============================================================================
-#  smart_ebl_pages/page_sensors_flaps.yaml -- page: Sensors, sub-page 2 (Klappen)
+#  smart_ebl_pages/page_sensors_flaps.yaml -- page: Sensors, sub-page 3 (Klappen)
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
-# docs/pages.md §5/§7: Sensors section's sub-page 2. Companion to
-# page_sensors_windows.yaml (sub-page 1, Fenster/Türen) - see that file's
+# docs/pages.md §5/§7: Sensors section's sub-page 3 (was sub-page 2 until
+# Levelling moved ahead of both this page and page_sensors_windows.yaml,
+# 2026-09-19 round 2 - see nav_show_sensors's own comment in the device
+# file; only the nav ORDER changed, nothing in this file). Companion to
+# page_sensors_windows.yaml (sub-page 2, Fenster/Türen) - see that file's
 # own header for the full "why two pages instead of one" reasoning, the
 # shared entity-naming convention, and the "last seen" caveat; both apply
 # here unchanged, not repeated in full.
@@ -366,7 +369,7 @@ esphome:
 lvgl:
   pages:
     # =========================================================================
-    # Sensors, sub-page 2 (page_sensors_flaps) - see this file's own
+    # Sensors, sub-page 3 (page_sensors_flaps) - see this file's own
     # header for the grid math and the 7 real entities behind it.
     - id: page_sensors_flaps
       bg_color: 0x000000
