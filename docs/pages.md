@@ -158,26 +158,27 @@ einer weniger HW intensiven digital Uhr", `design_rules.md` §4's own open
 item having flagged that canvas as a real, confirmed contributor to the
 PSRAM-bus pressure behind the recurring DSI underrun/blue-flash symptom).
 Plain LVGL labels instead — no canvas, no PSRAM allocation, no per-frame
-redraw. Sizes below are round 3 (see README's changelog for rounds 1/2) —
-box grew from the old clock's bounding box to 590×437, y moved up to 70
-so it deliberately overlaps the switch tiles' own top edge (repo-owner:
-"darf oben über die Boxen von ICEEX hinausragen"), bottom edge (507) kept
-fixed so the 20px gap above the Alarmo tile is unchanged. Content, top to
-bottom, all in the palette's "neutral active" blue (`0x4A9EFF`):
+redraw. Sizes below are round 4 (see README's changelog for rounds 1-3) —
+box is 590×437, y at 70 so it deliberately overlaps the switch tiles' own
+top edge (repo-owner, round 3: "darf oben über die Boxen von ICEEX
+hinausragen"), bottom edge (507) kept fixed so the 20px gap above the
+Alarmo tile is unchanged. Content, top to bottom, all in the palette's
+"neutral active" blue (`0x4A9EFF`):
 
-- `HH:MM` — a dedicated 88px bold font (`font_ui_88_bold`)
-- `DDD DD.MM.YY` — `font_ui_72_bold`, the same font object the clock
-  itself used one round earlier (repo-owner: "ruhig die 72px Schrift von
-  der Uhr", bold included, not a same-size lookalike); `DDD` is the
-  German 2-letter day abbreviation (Mo/Di/Mi/Do/Fr/Sa/So — repo-owner's
-  own pick over the 3/4-letter alternatives; ESP-IDF's `strftime` has no
-  German locale, so `draw_status_bar` looks it up from a small fixed
-  table instead of using `%a`)
-- `OUT` then `IN` temperature, each its own row, same `font_ui_72_bold`
-  size as the date line ("wie Uhr Datum") — stacked rather than side by
-  side now, since two labels this wide no longer fit next to each other
-  within the available screen width. Same values the status bar (§4)
-  already shows, just also rendered here; each drops to the
+- `HH:MM` — a dedicated 128px bold font (`font_ui_128_bold`; round 3's
+  88px `font_ui_88_bold` was removed outright, not kept alongside it)
+- `DDD DD.MM.YY` — `font_ui_72_bold` (unchanged since round 3 — the same
+  font object the clock itself used one round before that, bold
+  included); `DDD` is the German 2-letter day abbreviation
+  (Mo/Di/Mi/Do/Fr/Sa/So — repo-owner's own pick over the 3/4-letter
+  alternatives; ESP-IDF's `strftime` has no German locale, so
+  `draw_status_bar` looks it up from a small fixed table instead of
+  using `%a`)
+- `OUT`/`IN` temperature, side by side on one row again (round 4,
+  repo-owner: "zurück auf die vorherige Schrift grösse und auf eine
+  Linie") — back to `font_ui_40` and round 2's side-by-side layout,
+  after round 3's brief stacked-and-72px detour. Same values the status
+  bar (§4) already shows, just also rendered here; each drops to the
   invalid-value gray independently of the other when its own source is
   stale, per `design_rules.md` §2
 

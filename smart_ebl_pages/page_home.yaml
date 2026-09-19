@@ -327,41 +327,32 @@ lvgl:
         # this page is even the one on screen (see `draw_status_bar`'s
         # own comment in the device file for the gating).
         #
-        # Widened + rescaled, round 3 (2026-09-19, repo-owner: "Datum
-        # darf ruhig die 72px schrift von der Uhr erhalten. Die Uhr
-        # nochmals viel grösser! Und darf oben über die Boxen von ICEEX
-        # hinausragen! ... Temp und Datum muss grösser werden - wie Uhr
-        # Datum"): every line grew again -
-        #   - HH:MM: font_ui_72_bold -> a dedicated font_ui_88_bold
-        #   - Date: font_ui_40 -> font_ui_72_bold (the SAME font object
-        #     the clock used before, bold included - repo-owner's own
-        #     "ruhig die 72px Schrift von der Uhr", not a lookalike copy)
-        #   - OUT/IN temp: font_ui_40 -> font_ui_72_bold too ("wie Uhr
-        #     Datum" - matching the now-72px date line)
-        # Two knock-on layout changes this size jump forces:
-        #   1. OUT/IN no longer fit side by side at this size within any
-        #      width that still leaves room for the switch tiles and the
-        #      screen edge (each label is roughly as wide alone as the
-        #      whole old 460px box) - stacked into their own rows
-        #      instead, keeping the OUT-above-IN reading order the
-        #      side-by-side layout already had.
-        #   2. Four stacked 72-88px rows no longer fit in the old 320px
-        #      height without either shrinking or growing upward - grown
-        #      upward (y 187 -> 70, right up against the status bar's own
-        #      64px, repo-owner explicitly OK'd overlapping ICEEX/LIGHT's
-        #      own top edge for this). Bottom edge (507, the fixed 20px
-        #      gap above the Alarmo tile - "Abstand Alarm-Temp ist ok",
-        #      i.e. don't touch it) is UNCHANGED: height grew from
-        #      507-187=320 to 507-70=437, all of it added at the top.
-        # Box re-centered on the same horizontal midpoint the Alarmo tile
-        # below uses (815+160=975, so 975-295=680) rather than growing
-        # one edge - 590 wide leaves 15px to the switch tiles' own right
-        # edge (665) and 10px to the screen edge (1280), both tight on
-        # purpose per the "darf hinausragen" request. Exact label x/y
-        # offsets below are a first pass, not measured against real
-        # glyph metrics from the compiled subset font (design_rules.md's
-        # own "decided by looking at the actual device" reasoning) -
-        # refine once seen on real hardware.
+        # Rescaled, round 4 (2026-09-19, repo-owner: "Temperaturen (out
+        # und in) zurück auf die vorherige schrift grösse und auf eine
+        # linie. Uhr noch grösser") - partial rollback + one more jump:
+        #   - HH:MM: font_ui_88_bold -> a dedicated font_ui_128_bold
+        #     (font_ui_88_bold removed outright, nothing else used it)
+        #   - Date: unchanged, still font_ui_72_bold (not mentioned this
+        #     round)
+        #   - OUT/IN temp: font_ui_72_bold -> back to font_ui_40 (round
+        #     2's size, "die vorherige Schrift grösse"), and back to ONE
+        #     row side by side ("auf eine Linie") instead of round 3's
+        #     stacked rows - same x offsets (±115) round 2 used.
+        # Box itself (x680/y70/width590/height437 - grown upward past
+        # the switch tiles' own top edge, bottom fixed 20px above the
+        # Alarmo tile) is UNCHANGED; going back to one shorter temp row
+        # freed up vertical room, spent here on the bigger clock instead
+        # of shrinking the box back down (repo-owner asked for bigger,
+        # not smaller). Row y-offsets recomputed below to keep the
+        # temp row's own bottom margin close to round 3's (~37-63px
+        # before the box's own bottom edge, i.e. before the Alarmo gap)
+        # rather than just left-aligned at the old y values, which would
+        # have opened a much bigger, unrequested gap above Alarmo now
+        # that only one shorter row sits at the bottom instead of two.
+        # Exact label x/y offsets are still a first pass, not measured
+        # against real glyph metrics from the compiled subset font
+        # (design_rules.md's own "decided by looking at the actual
+        # device" reasoning) - refine once seen on real hardware.
         - obj:
             id: obj_home_clock
             align: TOP_LEFT
@@ -379,9 +370,9 @@ lvgl:
               - label:
                   id: lbl_home_clock_time
                   align: TOP_MID
-                  y: 10
+                  y: 60
                   text: "--:--"
-                  text_font: font_ui_88_bold
+                  text_font: font_ui_128_bold
                   text_color: 0x4A9EFF
               # DDD DD.MM.YY - German 2-letter day (Mo/Di/Mi/Do/Fr/Sa/So,
               # repo-owner's own pick over the 3/4-letter alternatives -
@@ -391,13 +382,12 @@ lvgl:
               - label:
                   id: lbl_home_clock_date
                   align: TOP_MID
-                  y: 126
+                  y: 228
                   text: "-- --.--.--"
                   text_font: font_ui_72_bold
                   text_color: 0x4A9EFF
-              # OUT / IN temp - own row each now (see this widget's own
-              # header comment for why), OUT above IN keeping the same
-              # reading order the old side-by-side layout had. Still two
+              # OUT / IN temp - back on one line, round 2's size/offsets
+              # (see this widget's own header comment for why). Still two
               # separate labels so each can independently drop to the
               # design_rules.md §2 invalid-value gray when its own source
               # is stale/down, exactly like the status bar's own
@@ -407,15 +397,17 @@ lvgl:
               - label:
                   id: lbl_home_clock_temp_out
                   align: TOP_MID
-                  y: 220
-                  text_font: font_ui_72_bold
+                  x: -115
+                  y: 326
+                  text_font: font_ui_40
                   text: "OUT ---°C"
                   text_color: 0x555555
               - label:
                   id: lbl_home_clock_temp_in
                   align: TOP_MID
-                  y: 314
-                  text_font: font_ui_72_bold
+                  x: 115
+                  y: 326
+                  text_font: font_ui_40
                   text: "IN ---°C"
                   text_color: 0x555555
 

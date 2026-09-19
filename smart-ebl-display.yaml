@@ -515,12 +515,13 @@ font:
     id: font_ui_72_bold
     size: 72
     glyphs: *ui_glyphs
-  # HH:MM only, bigger again (round 3, repo-owner: "Die Uhr nochmals
-  # viel grösser!") - now the only thing at this size, since
-  # font_ui_72_bold above moved on to also cover date/temp.
+  # HH:MM only, bigger again each round (round 3: 88px, repo-owner "Die
+  # Uhr nochmals viel grösser!"; round 4: 128px, repo-owner "Uhr noch
+  # grösser" - font_ui_88_bold above is gone, superseded outright by
+  # this one, not kept alongside it - nothing else ever used 88px).
   - file: "gfonts://Montserrat@bold"
-    id: font_ui_88_bold
-    size: 88
+    id: font_ui_128_bold
+    size: 128
     glyphs: *ui_glyphs
 
 # ---- Day/night for the clock face (pages.md §4's brightness/day-night
