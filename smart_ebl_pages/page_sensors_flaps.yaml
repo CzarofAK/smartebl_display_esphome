@@ -1,0 +1,496 @@
+# =============================================================================
+#  smart_ebl_pages/page_sensors_flaps.yaml -- page: Sensors, sub-page 2 (Klappen)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5/§7: Sensors section's sub-page 2. Companion to
+# page_sensors_windows.yaml (sub-page 1, Fenster/Türen) - see that file's
+# own header for the full "why two pages instead of one" reasoning, the
+# shared entity-naming convention, and the "last seen" caveat; both apply
+# here unchanged, not repeated in full.
+#
+# 7 flap/hatch contacts, same entity shape as the windows page:
+# binary_sensor.<name>_contact (device_class door/window ASSUMED) +
+# sensor.<name>_battery (%) + sensor.<name>_voltage (V) +
+# sensor.<name>_device_temperature (°C) + sensor.<name>_last_seen.
+#
+# Grid: 3 columns x 3 rows (9 cells, 7 used - trailing 2 cells in the
+# last row simply not drawn, same precedent). Cells are TALLER than the
+# windows page's (220px vs 168px) since there's more spare vertical room
+# to give 7 items across 3 rows than 11 across 4 - same per-card content
+# either way (cap+dot / state / battery+voltage+temp / last-seen), just
+# more breathing room. Columns unchanged: 3x340px + 2x30px gaps = 1080px,
+# centered in the 1150px content area -> 35px side margin -> x165/535/905.
+# Rows: 3x220px + 2x20px gaps = 700px, centered in the 736px content
+# height -> 18px top/bottom margin -> y82/322/562.
+# =============================================================================
+
+globals:
+  - id: g_gasflaschenklappe_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_garagenklappe_hinten_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_garagenklappe_rechts_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_serviceklappe_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_schuhklappe_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_katzenkloklappe_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_wascheklappe_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+
+binary_sensor:
+  # ---- Klappen contacts (page_sensors_flaps) - device_class door/window
+  # ASSUMED, same convention as page_sensors_windows.yaml.
+  - platform: homeassistant
+    id: s_gasflaschenklappe_contact
+    entity_id: binary_sensor.gasflaschenklappe_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_hinten_contact
+    entity_id: binary_sensor.garagenklappe_hinten_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_rechts_contact
+    entity_id: binary_sensor.garagenklappe_rechts_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_serviceklappe_contact
+    entity_id: binary_sensor.serviceklappe_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_schuhklappe_contact
+    entity_id: binary_sensor.schuhklappe_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_katzenkloklappe_contact
+    entity_id: binary_sensor.katzenkloklappe_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_wascheklappe_contact
+    entity_id: binary_sensor.wascheklappe_contact
+    on_state:
+      - script.execute: draw_sensors_flaps
+
+sensor:
+  # ---- Battery / Voltage / Device temperature - per-contact Zigbee-style
+  # diagnostics, same pattern as page_sensors_windows.yaml.
+  - platform: homeassistant
+    id: s_gasflaschenklappe_battery
+    entity_id: sensor.gasflaschenklappe_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_gasflaschenklappe_voltage
+    entity_id: sensor.gasflaschenklappe_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_gasflaschenklappe_device_temperature
+    entity_id: sensor.gasflaschenklappe_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_hinten_battery
+    entity_id: sensor.garagenklappe_hinten_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_hinten_voltage
+    entity_id: sensor.garagenklappe_hinten_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_hinten_device_temperature
+    entity_id: sensor.garagenklappe_hinten_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_rechts_battery
+    entity_id: sensor.garagenklappe_rechts_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_rechts_voltage
+    entity_id: sensor.garagenklappe_rechts_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_rechts_device_temperature
+    entity_id: sensor.garagenklappe_rechts_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_serviceklappe_battery
+    entity_id: sensor.serviceklappe_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_serviceklappe_voltage
+    entity_id: sensor.serviceklappe_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_serviceklappe_device_temperature
+    entity_id: sensor.serviceklappe_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_schuhklappe_battery
+    entity_id: sensor.schuhklappe_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_schuhklappe_voltage
+    entity_id: sensor.schuhklappe_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_schuhklappe_device_temperature
+    entity_id: sensor.schuhklappe_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_katzenkloklappe_battery
+    entity_id: sensor.katzenkloklappe_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_katzenkloklappe_voltage
+    entity_id: sensor.katzenkloklappe_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_katzenkloklappe_device_temperature
+    entity_id: sensor.katzenkloklappe_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_wascheklappe_battery
+    entity_id: sensor.wascheklappe_battery
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_wascheklappe_voltage
+    entity_id: sensor.wascheklappe_voltage
+    on_value:
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_wascheklappe_device_temperature
+    entity_id: sensor.wascheklappe_device_temperature
+    on_value:
+      - script.execute: draw_sensors_flaps
+
+text_sensor:
+  # ---- Last seen - only its ARRIVAL time is tracked, not the raw
+  # timestamp value - see page_sensors_windows.yaml's own header.
+  - platform: homeassistant
+    id: s_gasflaschenklappe_last_seen
+    entity_id: sensor.gasflaschenklappe_last_seen
+    on_value:
+      - lambda: |-
+          id(g_gasflaschenklappe_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_hinten_last_seen
+    entity_id: sensor.garagenklappe_hinten_last_seen
+    on_value:
+      - lambda: |-
+          id(g_garagenklappe_hinten_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_garagenklappe_rechts_last_seen
+    entity_id: sensor.garagenklappe_rechts_last_seen
+    on_value:
+      - lambda: |-
+          id(g_garagenklappe_rechts_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_serviceklappe_last_seen
+    entity_id: sensor.serviceklappe_last_seen
+    on_value:
+      - lambda: |-
+          id(g_serviceklappe_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_schuhklappe_last_seen
+    entity_id: sensor.schuhklappe_last_seen
+    on_value:
+      - lambda: |-
+          id(g_schuhklappe_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_katzenkloklappe_last_seen
+    entity_id: sensor.katzenkloklappe_last_seen
+    on_value:
+      - lambda: |-
+          id(g_katzenkloklappe_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+  - platform: homeassistant
+    id: s_wascheklappe_last_seen
+    entity_id: sensor.wascheklappe_last_seen
+    on_value:
+      - lambda: |-
+          id(g_wascheklappe_last_seen_ms) = millis();
+      - script.execute: draw_sensors_flaps
+
+script:
+  # ---- draw_sensors_flaps (page_sensors_flaps) - identical shape to
+  # page_sensors_windows.yaml's draw_sensors_windows (same set_contact()/
+  # fmt_seen() logic, duplicated per-page rather than shared across a
+  # packages: boundary - see design_rules.md §5's own anchor-scoping note,
+  # same reasoning applies to a lambda-local helper as to a YAML anchor).
+  - id: draw_sensors_flaps
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          uint32_t now = millis();
+
+          auto fmt_seen = [&](uint32_t seen_ms) -> std::string {
+            if (seen_ms == 0) return "--";
+            uint32_t d = (now - seen_ms) / 1000;
+            if (d < 60) return "vor <1 Min";
+            uint32_t m = d / 60;
+            if (m < 60) { char b[16]; snprintf(b, sizeof(b), "vor %u Min", m); return b; }
+            uint32_t h = m / 60; m = m % 60;
+            char b[24]; snprintf(b, sizeof(b), "vor %uh %um", h, m); return b;
+          };
+
+          auto set_contact = [&](lv_obj_t *dot, lv_obj_t *lbl_state, lv_obj_t *lbl_vals, lv_obj_t *lbl_seen,
+                                  bool has_contact, bool open,
+                                  bool has_batt, float batt,
+                                  bool has_volt, float volt,
+                                  bool has_temp, float temp,
+                                  uint32_t seen_ms) {
+            uint32_t col;
+            if (!has_contact) {
+              col = 0x555555;
+              lv_label_set_text(lbl_state, "---");
+            } else if (open) {
+              col = 0xF39C12;
+              lv_label_set_text(lbl_state, "OFFEN");
+            } else {
+              col = 0x2ECC71;
+              lv_label_set_text(lbl_state, "GESCHLOSSEN");
+            }
+            lv_obj_set_style_text_color(lbl_state, lv_color_hex(col), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+
+            char bbuf[8], vbuf[8], tbuf[8], vals[40];
+            if (has_batt) snprintf(bbuf, sizeof(bbuf), "%.0f%%", batt); else snprintf(bbuf, sizeof(bbuf), "--%%");
+            if (has_volt) snprintf(vbuf, sizeof(vbuf), "%.2fV", volt); else snprintf(vbuf, sizeof(vbuf), "--V");
+            if (has_temp) snprintf(tbuf, sizeof(tbuf), "%.0f°C", temp); else snprintf(tbuf, sizeof(tbuf), "--°C");
+            snprintf(vals, sizeof(vals), "%s / %s / %s", bbuf, vbuf, tbuf);
+            lv_label_set_text(lbl_vals, vals);
+            lv_obj_set_style_text_color(lbl_vals, lv_color_hex((has_batt || has_volt || has_temp) ? 0xBDC1C6 : 0x555555), 0);
+
+            lv_label_set_text(lbl_seen, fmt_seen(seen_ms).c_str());
+            lv_obj_set_style_text_color(lbl_seen, lv_color_hex(seen_ms == 0 ? 0x555555 : 0x707070), 0);
+          };
+
+          set_contact(id(dot_gasflaschenklappe), id(lbl_gasflaschenklappe_state), id(lbl_gasflaschenklappe_vals), id(lbl_gasflaschenklappe_seen),
+              api_ok && id(s_gasflaschenklappe_contact).has_state(), id(s_gasflaschenklappe_contact).state,
+              api_ok && id(s_gasflaschenklappe_battery).has_state(), id(s_gasflaschenklappe_battery).state,
+              api_ok && id(s_gasflaschenklappe_voltage).has_state(), id(s_gasflaschenklappe_voltage).state,
+              api_ok && id(s_gasflaschenklappe_device_temperature).has_state(), id(s_gasflaschenklappe_device_temperature).state,
+              id(g_gasflaschenklappe_last_seen_ms));
+          set_contact(id(dot_garagenklappe_hinten), id(lbl_garagenklappe_hinten_state), id(lbl_garagenklappe_hinten_vals), id(lbl_garagenklappe_hinten_seen),
+              api_ok && id(s_garagenklappe_hinten_contact).has_state(), id(s_garagenklappe_hinten_contact).state,
+              api_ok && id(s_garagenklappe_hinten_battery).has_state(), id(s_garagenklappe_hinten_battery).state,
+              api_ok && id(s_garagenklappe_hinten_voltage).has_state(), id(s_garagenklappe_hinten_voltage).state,
+              api_ok && id(s_garagenklappe_hinten_device_temperature).has_state(), id(s_garagenklappe_hinten_device_temperature).state,
+              id(g_garagenklappe_hinten_last_seen_ms));
+          set_contact(id(dot_garagenklappe_rechts), id(lbl_garagenklappe_rechts_state), id(lbl_garagenklappe_rechts_vals), id(lbl_garagenklappe_rechts_seen),
+              api_ok && id(s_garagenklappe_rechts_contact).has_state(), id(s_garagenklappe_rechts_contact).state,
+              api_ok && id(s_garagenklappe_rechts_battery).has_state(), id(s_garagenklappe_rechts_battery).state,
+              api_ok && id(s_garagenklappe_rechts_voltage).has_state(), id(s_garagenklappe_rechts_voltage).state,
+              api_ok && id(s_garagenklappe_rechts_device_temperature).has_state(), id(s_garagenklappe_rechts_device_temperature).state,
+              id(g_garagenklappe_rechts_last_seen_ms));
+          set_contact(id(dot_serviceklappe), id(lbl_serviceklappe_state), id(lbl_serviceklappe_vals), id(lbl_serviceklappe_seen),
+              api_ok && id(s_serviceklappe_contact).has_state(), id(s_serviceklappe_contact).state,
+              api_ok && id(s_serviceklappe_battery).has_state(), id(s_serviceklappe_battery).state,
+              api_ok && id(s_serviceklappe_voltage).has_state(), id(s_serviceklappe_voltage).state,
+              api_ok && id(s_serviceklappe_device_temperature).has_state(), id(s_serviceklappe_device_temperature).state,
+              id(g_serviceklappe_last_seen_ms));
+          set_contact(id(dot_schuhklappe), id(lbl_schuhklappe_state), id(lbl_schuhklappe_vals), id(lbl_schuhklappe_seen),
+              api_ok && id(s_schuhklappe_contact).has_state(), id(s_schuhklappe_contact).state,
+              api_ok && id(s_schuhklappe_battery).has_state(), id(s_schuhklappe_battery).state,
+              api_ok && id(s_schuhklappe_voltage).has_state(), id(s_schuhklappe_voltage).state,
+              api_ok && id(s_schuhklappe_device_temperature).has_state(), id(s_schuhklappe_device_temperature).state,
+              id(g_schuhklappe_last_seen_ms));
+          set_contact(id(dot_katzenkloklappe), id(lbl_katzenkloklappe_state), id(lbl_katzenkloklappe_vals), id(lbl_katzenkloklappe_seen),
+              api_ok && id(s_katzenkloklappe_contact).has_state(), id(s_katzenkloklappe_contact).state,
+              api_ok && id(s_katzenkloklappe_battery).has_state(), id(s_katzenkloklappe_battery).state,
+              api_ok && id(s_katzenkloklappe_voltage).has_state(), id(s_katzenkloklappe_voltage).state,
+              api_ok && id(s_katzenkloklappe_device_temperature).has_state(), id(s_katzenkloklappe_device_temperature).state,
+              id(g_katzenkloklappe_last_seen_ms));
+          set_contact(id(dot_wascheklappe), id(lbl_wascheklappe_state), id(lbl_wascheklappe_vals), id(lbl_wascheklappe_seen),
+              api_ok && id(s_wascheklappe_contact).has_state(), id(s_wascheklappe_contact).state,
+              api_ok && id(s_wascheklappe_battery).has_state(), id(s_wascheklappe_battery).state,
+              api_ok && id(s_wascheklappe_voltage).has_state(), id(s_wascheklappe_voltage).state,
+              api_ok && id(s_wascheklappe_device_temperature).has_state(), id(s_wascheklappe_device_temperature).state,
+              id(g_wascheklappe_last_seen_ms));
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_sensors_flaps
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Sensors, sub-page 2 (page_sensors_flaps) - see this file's own
+    # header for the grid math and the 7 real entities behind it.
+    - id: page_sensors_flaps
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - obj: &contact_cell
+            id: obj_gasflaschenklappe
+            align: TOP_LEFT
+            x: 165
+            y: 82
+            width: 340
+            height: 220
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            pad_all: 0
+            widgets:
+              - label: &contact_cap
+                  align: TOP_LEFT
+                  x: 16
+                  y: 14
+                  text: "GASFLASCHENKLAPPE"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - obj: &contact_dot
+                  id: dot_gasflaschenklappe
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 16
+                  width: 18
+                  height: 18
+                  radius: 9
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+              - label: &contact_state
+                  id: lbl_gasflaschenklappe_state
+                  align: TOP_LEFT
+                  x: 16
+                  y: 46
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label: &contact_vals
+                  id: lbl_gasflaschenklappe_vals
+                  align: TOP_LEFT
+                  x: 16
+                  y: 90
+                  text: "-- / --V / --°C"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label: &contact_seen
+                  id: lbl_gasflaschenklappe_seen
+                  align: TOP_LEFT
+                  x: 16
+                  y: 118
+                  text: "--"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+        - obj:
+            <<: *contact_cell
+            id: obj_garagenklappe_hinten
+            x: 535
+            y: 82
+            widgets:
+              - label: {<<: *contact_cap, text: "GARAGENKLAPPE HINTEN"}
+              - obj: {<<: *contact_dot, id: dot_garagenklappe_hinten}
+              - label: {<<: *contact_state, id: lbl_garagenklappe_hinten_state}
+              - label: {<<: *contact_vals, id: lbl_garagenklappe_hinten_vals}
+              - label: {<<: *contact_seen, id: lbl_garagenklappe_hinten_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_garagenklappe_rechts
+            x: 905
+            y: 82
+            widgets:
+              - label: {<<: *contact_cap, text: "GARAGENKLAPPE RECHTS"}
+              - obj: {<<: *contact_dot, id: dot_garagenklappe_rechts}
+              - label: {<<: *contact_state, id: lbl_garagenklappe_rechts_state}
+              - label: {<<: *contact_vals, id: lbl_garagenklappe_rechts_vals}
+              - label: {<<: *contact_seen, id: lbl_garagenklappe_rechts_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_serviceklappe
+            x: 165
+            y: 322
+            widgets:
+              - label: {<<: *contact_cap, text: "SERVICEKLAPPE"}
+              - obj: {<<: *contact_dot, id: dot_serviceklappe}
+              - label: {<<: *contact_state, id: lbl_serviceklappe_state}
+              - label: {<<: *contact_vals, id: lbl_serviceklappe_vals}
+              - label: {<<: *contact_seen, id: lbl_serviceklappe_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_schuhklappe
+            x: 535
+            y: 322
+            widgets:
+              - label: {<<: *contact_cap, text: "SCHUHKLAPPE"}
+              - obj: {<<: *contact_dot, id: dot_schuhklappe}
+              - label: {<<: *contact_state, id: lbl_schuhklappe_state}
+              - label: {<<: *contact_vals, id: lbl_schuhklappe_vals}
+              - label: {<<: *contact_seen, id: lbl_schuhklappe_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_katzenkloklappe
+            x: 905
+            y: 322
+            widgets:
+              - label: {<<: *contact_cap, text: "KATZENKLOKLAPPE"}
+              - obj: {<<: *contact_dot, id: dot_katzenkloklappe}
+              - label: {<<: *contact_state, id: lbl_katzenkloklappe_state}
+              - label: {<<: *contact_vals, id: lbl_katzenkloklappe_vals}
+              - label: {<<: *contact_seen, id: lbl_katzenkloklappe_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_wascheklappe
+            x: 165
+            y: 562
+            widgets:
+              - label: {<<: *contact_cap, text: "WÄSCHEKLAPPE"}
+              - obj: {<<: *contact_dot, id: dot_wascheklappe}
+              - label: {<<: *contact_state, id: lbl_wascheklappe_state}
+              - label: {<<: *contact_vals, id: lbl_wascheklappe_vals}
+              - label: {<<: *contact_seen, id: lbl_wascheklappe_seen}

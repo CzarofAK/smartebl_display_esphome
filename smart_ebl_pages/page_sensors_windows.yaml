@@ -1,0 +1,729 @@
+# =============================================================================
+#  smart_ebl_pages/page_sensors_windows.yaml -- page: Sensors, sub-page 1 (Fenster/Türen)
+#  Smart EBL Display (ESP32-P4) - page package
+# =============================================================================
+# docs/pages.md §5/§7: Sensors section's sub-page 1. Real entity list
+# confirmed by the repo owner (2026-09-19), replacing the honest
+# placeholder grid page_sensors_overview.yaml used to be (see that file's
+# own git history) - Sensors now has THREE sub-pages instead of two:
+# 1 Fenster/Türen (this file), 2 Klappen (page_sensors_flaps.yaml), 3
+# Levelling (page_sensors_levelling.yaml, unchanged) - repo-owner call,
+# splitting the single door/window/flap category into two pages rather
+# than cramming all 18 contacts onto one, since each card here shows five
+# values (state/battery/voltage/temperature/last-seen), not just the
+# dot+cap+state the old placeholder mocked up. nav_show_sensors/draw_nav
+# (main device file) updated for the 1/3-2/3-3/3 cycle.
+#
+# 11 door/window contacts, all Home Assistant-fed (Zigbee-style per-device
+# diagnostics: battery %, voltage, device temperature, last_seen - same
+# entity-naming pattern for every one of the 18 contacts across both
+# pages, repo-owner-confirmed): binary_sensor.<name>_contact (device_class
+# door/window - ASSUMED standard HA convention, "on" = open, "off" =
+# closed, not separately confirmed per-entity) + sensor.<name>_battery
+# (%) + sensor.<name>_voltage (V) + sensor.<name>_device_temperature (°C)
+# + sensor.<name>_last_seen (HA timestamp string, device_class timestamp).
+#
+# Grid: 3 columns x 4 rows (12 cells, 11 used - last cell simply not
+# drawn, same "leave the trailing slot empty" precedent as
+# page_sensors_flaps.yaml's own 9-cell/7-used grid) - 3x340px cells +
+# 2x30px gaps = 1080px, centered in the 1150px content area -> 35px side
+# margin -> columns x165/535/905 (same column x's the old placeholder
+# already used - kept rather than re-derived). 4x168px rows + 3x16px gaps
+# = 736px = exactly the content area height -> rows y72/256/440/624 (8px
+# top/bottom margin). Same dot+cap+state cell shape as
+# page_electric_fuses.yaml's fuse grid, extended with two more lines
+# (battery/voltage/temp combined, last-seen) since this card carries more
+# values per entity than a fuse does.
+#
+# "Last seen" - NOT a timezone-converted read of the HA entity's own raw
+# UTC ISO8601 string (no confirmed local-timezone parsing exists anywhere
+# else in this codebase to reuse, and getting that wrong silently would
+# be worse than not showing it precisely - design_rules.md's own "don't
+# invent precision this display doesn't have" reasoning). Instead this
+# tracks, in millis(), when THIS DISPLAY last observed the entity's
+# last_seen value change and shows elapsed time since then ("vor Xm"/"vor
+# Xh Ym") - a good proxy for "how stale is this reading" in practice,
+# since a Zigbee-style last_seen entity only changes when the physical
+# sensor actually reports. Known limitation, stated honestly: right after
+# this display reboots, every card reads "vor <1 Min" until each
+# entity's next real update, even if the underlying sensor's last
+# genuine report was hours ago - accepted trade-off, not silently
+# claimed otherwise.
+# =============================================================================
+
+globals:
+  - id: g_beifahrerture_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_fahrerture_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_eingangsture_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_kuchenfenster_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_tischfenster_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_bettfenster_links_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_bettfenster_rechts_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_miniheki_links_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_miniheki_rechts_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_midiheki_vorne_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  - id: g_heki3_hinten_last_seen_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+
+binary_sensor:
+  # ---- Fenster/Türen contacts (page_sensors_windows) - device_class
+  # door/window ASSUMED (see this file's own header) - "on" = OFFEN,
+  # "off" = GESCHLOSSEN, per standard HA convention for that device_class,
+  # not separately confirmed per-entity.
+  - platform: homeassistant
+    id: s_beifahrerture_contact
+    entity_id: binary_sensor.beifahrerture_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_fahrerture_contact
+    entity_id: binary_sensor.fahrerture_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_eingangsture_contact
+    entity_id: binary_sensor.eingangsture_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_kuchenfenster_contact
+    entity_id: binary_sensor.kuchenfenster_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_tischfenster_contact
+    entity_id: binary_sensor.tischfenster_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_links_contact
+    entity_id: binary_sensor.bettfenster_links_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_rechts_contact
+    entity_id: binary_sensor.bettfenster_rechts_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_links_contact
+    entity_id: binary_sensor.miniheki_links_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_rechts_contact
+    entity_id: binary_sensor.miniheki_rechts_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_midiheki_vorne_contact
+    entity_id: binary_sensor.midiheki_vorne_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_heki3_hinten_contact
+    entity_id: binary_sensor.heki3_hinten_contact
+    on_state:
+      - script.execute: draw_sensors_windows
+
+sensor:
+  # ---- Battery / Voltage / Device temperature - per-contact Zigbee-style
+  # diagnostics, same three-entity pattern for every one of the 11
+  # contacts on this page (see this file's own header for the naming
+  # convention).
+  - platform: homeassistant
+    id: s_beifahrerture_battery
+    entity_id: sensor.beifahrerture_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_beifahrerture_voltage
+    entity_id: sensor.beifahrerture_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_beifahrerture_device_temperature
+    entity_id: sensor.beifahrerture_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_fahrerture_battery
+    entity_id: sensor.fahrerture_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_fahrerture_voltage
+    entity_id: sensor.fahrerture_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_fahrerture_device_temperature
+    entity_id: sensor.fahrerture_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_eingangsture_battery
+    entity_id: sensor.eingangsture_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_eingangsture_voltage
+    entity_id: sensor.eingangsture_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_eingangsture_device_temperature
+    entity_id: sensor.eingangsture_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_kuchenfenster_battery
+    entity_id: sensor.kuchenfenster_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_kuchenfenster_voltage
+    entity_id: sensor.kuchenfenster_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_kuchenfenster_device_temperature
+    entity_id: sensor.kuchenfenster_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_tischfenster_battery
+    entity_id: sensor.tischfenster_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_tischfenster_voltage
+    entity_id: sensor.tischfenster_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_tischfenster_device_temperature
+    entity_id: sensor.tischfenster_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_links_battery
+    entity_id: sensor.bettfenster_links_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_links_voltage
+    entity_id: sensor.bettfenster_links_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_links_device_temperature
+    entity_id: sensor.bettfenster_links_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_rechts_battery
+    entity_id: sensor.bettfenster_rechts_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_rechts_voltage
+    entity_id: sensor.bettfenster_rechts_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_rechts_device_temperature
+    entity_id: sensor.bettfenster_rechts_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_links_battery
+    entity_id: sensor.miniheki_links_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_links_voltage
+    entity_id: sensor.miniheki_links_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_links_device_temperature
+    entity_id: sensor.miniheki_links_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_rechts_battery
+    entity_id: sensor.miniheki_rechts_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_rechts_voltage
+    entity_id: sensor.miniheki_rechts_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_rechts_device_temperature
+    entity_id: sensor.miniheki_rechts_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_midiheki_vorne_battery
+    entity_id: sensor.midiheki_vorne_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_midiheki_vorne_voltage
+    entity_id: sensor.midiheki_vorne_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_midiheki_vorne_device_temperature
+    entity_id: sensor.midiheki_vorne_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_heki3_hinten_battery
+    entity_id: sensor.heki3_hinten_battery
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_heki3_hinten_voltage
+    entity_id: sensor.heki3_hinten_voltage
+    on_value:
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_heki3_hinten_device_temperature
+    entity_id: sensor.heki3_hinten_device_temperature
+    on_value:
+      - script.execute: draw_sensors_windows
+
+text_sensor:
+  # ---- Last seen - HA timestamp string per contact; only its ARRIVAL
+  # time (millis(), into the matching g_<name>_last_seen_ms global above)
+  # is used, not the raw string's own value - see this file's own header
+  # for why.
+  - platform: homeassistant
+    id: s_beifahrerture_last_seen
+    entity_id: sensor.beifahrerture_last_seen
+    on_value:
+      - lambda: |-
+          id(g_beifahrerture_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_fahrerture_last_seen
+    entity_id: sensor.fahrerture_last_seen
+    on_value:
+      - lambda: |-
+          id(g_fahrerture_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_eingangsture_last_seen
+    entity_id: sensor.eingangsture_last_seen
+    on_value:
+      - lambda: |-
+          id(g_eingangsture_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_kuchenfenster_last_seen
+    entity_id: sensor.kuchenfenster_last_seen
+    on_value:
+      - lambda: |-
+          id(g_kuchenfenster_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_tischfenster_last_seen
+    entity_id: sensor.tischfenster_last_seen
+    on_value:
+      - lambda: |-
+          id(g_tischfenster_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_links_last_seen
+    entity_id: sensor.bettfenster_links_last_seen
+    on_value:
+      - lambda: |-
+          id(g_bettfenster_links_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_bettfenster_rechts_last_seen
+    entity_id: sensor.bettfenster_rechts_last_seen
+    on_value:
+      - lambda: |-
+          id(g_bettfenster_rechts_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_links_last_seen
+    entity_id: sensor.miniheki_links_last_seen
+    on_value:
+      - lambda: |-
+          id(g_miniheki_links_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_miniheki_rechts_last_seen
+    entity_id: sensor.miniheki_rechts_last_seen
+    on_value:
+      - lambda: |-
+          id(g_miniheki_rechts_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_midiheki_vorne_last_seen
+    entity_id: sensor.midiheki_vorne_last_seen
+    on_value:
+      - lambda: |-
+          id(g_midiheki_vorne_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+  - platform: homeassistant
+    id: s_heki3_hinten_last_seen
+    entity_id: sensor.heki3_hinten_last_seen
+    on_value:
+      - lambda: |-
+          id(g_heki3_hinten_last_seen_ms) = millis();
+      - script.execute: draw_sensors_windows
+
+script:
+  # ---- draw_sensors_windows (page_sensors_windows) - one shared
+  # set_contact() lambda per card, same "one drawing script per page"
+  # rule as design_rules.md §2's §9 reference - called from every
+  # contact/battery/voltage/temp/last_seen entity's own on_value/on_state
+  # above, plus esphome:on_boot below.
+  - id: draw_sensors_windows
+    mode: restart
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          bool api_ok = api_is_connected();
+          #else
+          bool api_ok = true;
+          #endif
+          uint32_t now = millis();
+
+          auto fmt_seen = [&](uint32_t seen_ms) -> std::string {
+            if (seen_ms == 0) return "--";
+            uint32_t d = (now - seen_ms) / 1000;
+            if (d < 60) return "vor <1 Min";
+            uint32_t m = d / 60;
+            if (m < 60) { char b[16]; snprintf(b, sizeof(b), "vor %u Min", m); return b; }
+            uint32_t h = m / 60; m = m % 60;
+            char b[24]; snprintf(b, sizeof(b), "vor %uh %um", h, m); return b;
+          };
+
+          // has_contact/open - device_class door/window ASSUMED (this
+          // file's own header) - open = OFFEN (warning-orange, matches
+          // pages.md §7's "worth attention, not yet an alarm" framing for
+          // an open contact outside a driving context), closed =
+          // GESCHLOSSEN (good-green). has_contact/has_batt/has_volt/
+          // has_temp are each gated independently (api_ok + has_state())
+          // rather than off one combined flag - design_rules.md §2's
+          // invalid-value rule is per VALUE, not per device.
+          auto set_contact = [&](lv_obj_t *dot, lv_obj_t *lbl_state, lv_obj_t *lbl_vals, lv_obj_t *lbl_seen,
+                                  bool has_contact, bool open,
+                                  bool has_batt, float batt,
+                                  bool has_volt, float volt,
+                                  bool has_temp, float temp,
+                                  uint32_t seen_ms) {
+            uint32_t col;
+            if (!has_contact) {
+              col = 0x555555;
+              lv_label_set_text(lbl_state, "---");
+            } else if (open) {
+              col = 0xF39C12;
+              lv_label_set_text(lbl_state, "OFFEN");
+            } else {
+              col = 0x2ECC71;
+              lv_label_set_text(lbl_state, "GESCHLOSSEN");
+            }
+            lv_obj_set_style_text_color(lbl_state, lv_color_hex(col), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
+
+            char bbuf[8], vbuf[8], tbuf[8], vals[40];
+            if (has_batt) snprintf(bbuf, sizeof(bbuf), "%.0f%%", batt); else snprintf(bbuf, sizeof(bbuf), "--%%");
+            if (has_volt) snprintf(vbuf, sizeof(vbuf), "%.2fV", volt); else snprintf(vbuf, sizeof(vbuf), "--V");
+            if (has_temp) snprintf(tbuf, sizeof(tbuf), "%.0f°C", temp); else snprintf(tbuf, sizeof(tbuf), "--°C");
+            snprintf(vals, sizeof(vals), "%s / %s / %s", bbuf, vbuf, tbuf);
+            lv_label_set_text(lbl_vals, vals);
+            lv_obj_set_style_text_color(lbl_vals, lv_color_hex((has_batt || has_volt || has_temp) ? 0xBDC1C6 : 0x555555), 0);
+
+            lv_label_set_text(lbl_seen, fmt_seen(seen_ms).c_str());
+            lv_obj_set_style_text_color(lbl_seen, lv_color_hex(seen_ms == 0 ? 0x555555 : 0x707070), 0);
+          };
+
+          set_contact(id(dot_beifahrerture), id(lbl_beifahrerture_state), id(lbl_beifahrerture_vals), id(lbl_beifahrerture_seen),
+              api_ok && id(s_beifahrerture_contact).has_state(), id(s_beifahrerture_contact).state,
+              api_ok && id(s_beifahrerture_battery).has_state(), id(s_beifahrerture_battery).state,
+              api_ok && id(s_beifahrerture_voltage).has_state(), id(s_beifahrerture_voltage).state,
+              api_ok && id(s_beifahrerture_device_temperature).has_state(), id(s_beifahrerture_device_temperature).state,
+              id(g_beifahrerture_last_seen_ms));
+          set_contact(id(dot_fahrerture), id(lbl_fahrerture_state), id(lbl_fahrerture_vals), id(lbl_fahrerture_seen),
+              api_ok && id(s_fahrerture_contact).has_state(), id(s_fahrerture_contact).state,
+              api_ok && id(s_fahrerture_battery).has_state(), id(s_fahrerture_battery).state,
+              api_ok && id(s_fahrerture_voltage).has_state(), id(s_fahrerture_voltage).state,
+              api_ok && id(s_fahrerture_device_temperature).has_state(), id(s_fahrerture_device_temperature).state,
+              id(g_fahrerture_last_seen_ms));
+          set_contact(id(dot_eingangsture), id(lbl_eingangsture_state), id(lbl_eingangsture_vals), id(lbl_eingangsture_seen),
+              api_ok && id(s_eingangsture_contact).has_state(), id(s_eingangsture_contact).state,
+              api_ok && id(s_eingangsture_battery).has_state(), id(s_eingangsture_battery).state,
+              api_ok && id(s_eingangsture_voltage).has_state(), id(s_eingangsture_voltage).state,
+              api_ok && id(s_eingangsture_device_temperature).has_state(), id(s_eingangsture_device_temperature).state,
+              id(g_eingangsture_last_seen_ms));
+          set_contact(id(dot_kuchenfenster), id(lbl_kuchenfenster_state), id(lbl_kuchenfenster_vals), id(lbl_kuchenfenster_seen),
+              api_ok && id(s_kuchenfenster_contact).has_state(), id(s_kuchenfenster_contact).state,
+              api_ok && id(s_kuchenfenster_battery).has_state(), id(s_kuchenfenster_battery).state,
+              api_ok && id(s_kuchenfenster_voltage).has_state(), id(s_kuchenfenster_voltage).state,
+              api_ok && id(s_kuchenfenster_device_temperature).has_state(), id(s_kuchenfenster_device_temperature).state,
+              id(g_kuchenfenster_last_seen_ms));
+          set_contact(id(dot_tischfenster), id(lbl_tischfenster_state), id(lbl_tischfenster_vals), id(lbl_tischfenster_seen),
+              api_ok && id(s_tischfenster_contact).has_state(), id(s_tischfenster_contact).state,
+              api_ok && id(s_tischfenster_battery).has_state(), id(s_tischfenster_battery).state,
+              api_ok && id(s_tischfenster_voltage).has_state(), id(s_tischfenster_voltage).state,
+              api_ok && id(s_tischfenster_device_temperature).has_state(), id(s_tischfenster_device_temperature).state,
+              id(g_tischfenster_last_seen_ms));
+          set_contact(id(dot_bettfenster_links), id(lbl_bettfenster_links_state), id(lbl_bettfenster_links_vals), id(lbl_bettfenster_links_seen),
+              api_ok && id(s_bettfenster_links_contact).has_state(), id(s_bettfenster_links_contact).state,
+              api_ok && id(s_bettfenster_links_battery).has_state(), id(s_bettfenster_links_battery).state,
+              api_ok && id(s_bettfenster_links_voltage).has_state(), id(s_bettfenster_links_voltage).state,
+              api_ok && id(s_bettfenster_links_device_temperature).has_state(), id(s_bettfenster_links_device_temperature).state,
+              id(g_bettfenster_links_last_seen_ms));
+          set_contact(id(dot_bettfenster_rechts), id(lbl_bettfenster_rechts_state), id(lbl_bettfenster_rechts_vals), id(lbl_bettfenster_rechts_seen),
+              api_ok && id(s_bettfenster_rechts_contact).has_state(), id(s_bettfenster_rechts_contact).state,
+              api_ok && id(s_bettfenster_rechts_battery).has_state(), id(s_bettfenster_rechts_battery).state,
+              api_ok && id(s_bettfenster_rechts_voltage).has_state(), id(s_bettfenster_rechts_voltage).state,
+              api_ok && id(s_bettfenster_rechts_device_temperature).has_state(), id(s_bettfenster_rechts_device_temperature).state,
+              id(g_bettfenster_rechts_last_seen_ms));
+          set_contact(id(dot_miniheki_links), id(lbl_miniheki_links_state), id(lbl_miniheki_links_vals), id(lbl_miniheki_links_seen),
+              api_ok && id(s_miniheki_links_contact).has_state(), id(s_miniheki_links_contact).state,
+              api_ok && id(s_miniheki_links_battery).has_state(), id(s_miniheki_links_battery).state,
+              api_ok && id(s_miniheki_links_voltage).has_state(), id(s_miniheki_links_voltage).state,
+              api_ok && id(s_miniheki_links_device_temperature).has_state(), id(s_miniheki_links_device_temperature).state,
+              id(g_miniheki_links_last_seen_ms));
+          set_contact(id(dot_miniheki_rechts), id(lbl_miniheki_rechts_state), id(lbl_miniheki_rechts_vals), id(lbl_miniheki_rechts_seen),
+              api_ok && id(s_miniheki_rechts_contact).has_state(), id(s_miniheki_rechts_contact).state,
+              api_ok && id(s_miniheki_rechts_battery).has_state(), id(s_miniheki_rechts_battery).state,
+              api_ok && id(s_miniheki_rechts_voltage).has_state(), id(s_miniheki_rechts_voltage).state,
+              api_ok && id(s_miniheki_rechts_device_temperature).has_state(), id(s_miniheki_rechts_device_temperature).state,
+              id(g_miniheki_rechts_last_seen_ms));
+          set_contact(id(dot_midiheki_vorne), id(lbl_midiheki_vorne_state), id(lbl_midiheki_vorne_vals), id(lbl_midiheki_vorne_seen),
+              api_ok && id(s_midiheki_vorne_contact).has_state(), id(s_midiheki_vorne_contact).state,
+              api_ok && id(s_midiheki_vorne_battery).has_state(), id(s_midiheki_vorne_battery).state,
+              api_ok && id(s_midiheki_vorne_voltage).has_state(), id(s_midiheki_vorne_voltage).state,
+              api_ok && id(s_midiheki_vorne_device_temperature).has_state(), id(s_midiheki_vorne_device_temperature).state,
+              id(g_midiheki_vorne_last_seen_ms));
+          set_contact(id(dot_heki3_hinten), id(lbl_heki3_hinten_state), id(lbl_heki3_hinten_vals), id(lbl_heki3_hinten_seen),
+              api_ok && id(s_heki3_hinten_contact).has_state(), id(s_heki3_hinten_contact).state,
+              api_ok && id(s_heki3_hinten_battery).has_state(), id(s_heki3_hinten_battery).state,
+              api_ok && id(s_heki3_hinten_voltage).has_state(), id(s_heki3_hinten_voltage).state,
+              api_ok && id(s_heki3_hinten_device_temperature).has_state(), id(s_heki3_hinten_device_temperature).state,
+              id(g_heki3_hinten_last_seen_ms));
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: draw_sensors_windows
+
+lvgl:
+  pages:
+    # =========================================================================
+    # Sensors, sub-page 1 (page_sensors_windows) - see this file's own
+    # header for the grid math and the 11 real entities behind it.
+    - id: page_sensors_windows
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - obj: &contact_cell
+            id: obj_beifahrerture
+            align: TOP_LEFT
+            x: 165
+            y: 72
+            width: 340
+            height: 168
+            radius: 12
+            bg_color: 0x202124
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x3C4043
+            pad_all: 0
+            widgets:
+              - label: &contact_cap
+                  align: TOP_LEFT
+                  x: 16
+                  y: 14
+                  text: "BEIFAHRERTÜR"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+              - obj: &contact_dot
+                  id: dot_beifahrerture
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 16
+                  width: 18
+                  height: 18
+                  radius: 9
+                  bg_color: 0x555555
+                  bg_opa: COVER
+                  border_width: 0
+              - label: &contact_state
+                  id: lbl_beifahrerture_state
+                  align: TOP_LEFT
+                  x: 16
+                  y: 46
+                  text: "---"
+                  text_font: font_ui_24
+                  text_color: 0x555555
+              - label: &contact_vals
+                  id: lbl_beifahrerture_vals
+                  align: TOP_LEFT
+                  x: 16
+                  y: 90
+                  text: "-- / --V / --°C"
+                  text_font: font_ui_16
+                  text_color: 0x555555
+              - label: &contact_seen
+                  id: lbl_beifahrerture_seen
+                  align: TOP_LEFT
+                  x: 16
+                  y: 118
+                  text: "--"
+                  text_font: font_ui_16
+                  text_color: 0x707070
+        - obj:
+            <<: *contact_cell
+            id: obj_fahrerture
+            x: 535
+            y: 72
+            widgets:
+              - label: {<<: *contact_cap, text: "FAHRERTÜR"}
+              - obj: {<<: *contact_dot, id: dot_fahrerture}
+              - label: {<<: *contact_state, id: lbl_fahrerture_state}
+              - label: {<<: *contact_vals, id: lbl_fahrerture_vals}
+              - label: {<<: *contact_seen, id: lbl_fahrerture_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_eingangsture
+            x: 905
+            y: 72
+            widgets:
+              - label: {<<: *contact_cap, text: "EINGANGSTÜR"}
+              - obj: {<<: *contact_dot, id: dot_eingangsture}
+              - label: {<<: *contact_state, id: lbl_eingangsture_state}
+              - label: {<<: *contact_vals, id: lbl_eingangsture_vals}
+              - label: {<<: *contact_seen, id: lbl_eingangsture_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_kuchenfenster
+            x: 165
+            y: 256
+            widgets:
+              - label: {<<: *contact_cap, text: "KÜCHENFENSTER"}
+              - obj: {<<: *contact_dot, id: dot_kuchenfenster}
+              - label: {<<: *contact_state, id: lbl_kuchenfenster_state}
+              - label: {<<: *contact_vals, id: lbl_kuchenfenster_vals}
+              - label: {<<: *contact_seen, id: lbl_kuchenfenster_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_tischfenster
+            x: 535
+            y: 256
+            widgets:
+              - label: {<<: *contact_cap, text: "TISCHFENSTER"}
+              - obj: {<<: *contact_dot, id: dot_tischfenster}
+              - label: {<<: *contact_state, id: lbl_tischfenster_state}
+              - label: {<<: *contact_vals, id: lbl_tischfenster_vals}
+              - label: {<<: *contact_seen, id: lbl_tischfenster_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_bettfenster_links
+            x: 905
+            y: 256
+            widgets:
+              - label: {<<: *contact_cap, text: "BETTFENSTER LINKS"}
+              - obj: {<<: *contact_dot, id: dot_bettfenster_links}
+              - label: {<<: *contact_state, id: lbl_bettfenster_links_state}
+              - label: {<<: *contact_vals, id: lbl_bettfenster_links_vals}
+              - label: {<<: *contact_seen, id: lbl_bettfenster_links_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_bettfenster_rechts
+            x: 165
+            y: 440
+            widgets:
+              - label: {<<: *contact_cap, text: "BETTFENSTER RECHTS"}
+              - obj: {<<: *contact_dot, id: dot_bettfenster_rechts}
+              - label: {<<: *contact_state, id: lbl_bettfenster_rechts_state}
+              - label: {<<: *contact_vals, id: lbl_bettfenster_rechts_vals}
+              - label: {<<: *contact_seen, id: lbl_bettfenster_rechts_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_miniheki_links
+            x: 535
+            y: 440
+            widgets:
+              - label: {<<: *contact_cap, text: "MINIHEKI LINKS"}
+              - obj: {<<: *contact_dot, id: dot_miniheki_links}
+              - label: {<<: *contact_state, id: lbl_miniheki_links_state}
+              - label: {<<: *contact_vals, id: lbl_miniheki_links_vals}
+              - label: {<<: *contact_seen, id: lbl_miniheki_links_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_miniheki_rechts
+            x: 905
+            y: 440
+            widgets:
+              - label: {<<: *contact_cap, text: "MINIHEKI RECHTS"}
+              - obj: {<<: *contact_dot, id: dot_miniheki_rechts}
+              - label: {<<: *contact_state, id: lbl_miniheki_rechts_state}
+              - label: {<<: *contact_vals, id: lbl_miniheki_rechts_vals}
+              - label: {<<: *contact_seen, id: lbl_miniheki_rechts_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_midiheki_vorne
+            x: 165
+            y: 624
+            widgets:
+              - label: {<<: *contact_cap, text: "MIDIHEKI VORNE"}
+              - obj: {<<: *contact_dot, id: dot_midiheki_vorne}
+              - label: {<<: *contact_state, id: lbl_midiheki_vorne_state}
+              - label: {<<: *contact_vals, id: lbl_midiheki_vorne_vals}
+              - label: {<<: *contact_seen, id: lbl_midiheki_vorne_seen}
+        - obj:
+            <<: *contact_cell
+            id: obj_heki3_hinten
+            x: 535
+            y: 624
+            widgets:
+              - label: {<<: *contact_cap, text: "HEKI 3 HINTEN"}
+              - obj: {<<: *contact_dot, id: dot_heki3_hinten}
+              - label: {<<: *contact_state, id: lbl_heki3_hinten_state}
+              - label: {<<: *contact_vals, id: lbl_heki3_hinten_vals}
+              - label: {<<: *contact_seen, id: lbl_heki3_hinten_seen}
