@@ -397,13 +397,18 @@ touchscreen:
       - script.execute: on_touch_activity
 
 # =============================================================================
-# External components - both git, matching the user's other Smart
-# EBL/FRAM devices
+# External components - matching the user's other Smart EBL/FRAM devices
 # =============================================================================
-# SBB clock widget (Mainscreen), reused verbatim from m5dial_clock_sbb -
-# pages.md §6: "the widget scales by width/height alone ... no changes
-# needed to reuse it here at a much larger size than the M5Dial's
-# 240x240".
+# The Mainscreen's round `sbb_clock` canvas widget (pulled from
+# m5dial_clock_sbb) is GONE (2026-09-19, repo-owner: wants a version
+# "ohne SBB clock, aber mit einer weniger HW intensiven digital Uhr" -
+# design_rules.md §4's own open item flags this exact canvas as a real,
+# confirmed contributor to the PSRAM-bus pressure behind the recurring
+# DSI underrun/blue-flash symptom). Replaced by plain LVGL labels
+# (`page_home.yaml`'s "Right half: digital clock" widget block) - no
+# canvas, no PSRAM allocation, no per-frame redraw cost, just text set
+# once a second from `draw_status_bar` below (the same values that
+# script already computes for the status bar).
 #
 # panel_power_init (see the section above, right before `display:`) -
 # originally local to this repo (`custom_components/`), moved into its
@@ -415,33 +420,9 @@ touchscreen:
 external_components:
   - source:
       type: git
-      url: https://github.com/CzarofAK/m5dial_clock_sbb
-      ref: main
-    components: [sbb_clock]
-  - source:
-      type: git
       url: https://github.com/CzarofAK/panel_power_init
       ref: main
     components: [panel_power_init]
-
-sbb_clock: # marker key - without it ESPHome won't load the component
-
-color:
-  - id: col_clock_ink
-    hex: FFFFFF
-  - id: col_clock_bg
-    hex: "000000"
-  - id: col_clock_second
-    hex: E74C3C
-  # Every page's own bg_color (see the `pages:` block below) - a
-  # SEPARATE id from col_clock_bg above even though it happens to be
-  # the same hex, since the two mean different things (that one is the
-  # clock's own "ink" color by day; this one is corner_color, the fixed
-  # color the clock's square canvas corners disappear into - see that
-  # widget property's own comment). Keeping them distinct means a future
-  # change to one can never silently break the other by coincidence.
-  - id: col_page_bg
-    hex: "000000"
 
 # =============================================================================
 # UI fonts - custom glyph set, NOT ESPHome/LVGL's bare `montserrat_NN`
@@ -536,6 +517,11 @@ text_sensor:
     entity_id: sun.sun
     on_value:
       - script.execute: apply_daynight
+      # Keeps the brightness popup's own slider live if it happens to be
+      # open right as AUTO crosses sunrise/sunset (act_daynight_set_mode
+      # already does the same after a manual mode tap) - draw_daynight_popup
+      # re-reads g_backlight_pct, which apply_daynight above just changed.
+      - script.execute: draw_daynight_popup
 
 # =============================================================================
 # RS232 link to the Smart EBL main unit (docs/protocol.md)
@@ -867,16 +853,38 @@ script:
           snprintf(hex, sizeof(hex), "%02X", chk);
           id(link_uart)->write_str((payload + "*" + std::string(hex) + "\n").c_str());
 
-  # ---- Day/night + brightness popup (see the sbb_clock section above) --
+  # ---- Day/night + brightness popup --------------------------------------
   # g_daynight: 0 AUTO (follows s_sun, HA's own source - same one
   # m5dial_fram's clock page reads via is_below_horizon()) / 1 DAY /
   # 2 NIGHT, manual override. pages.md §4's popup ("a brightness slider +
   # an AUTO/DAY/NIGHT selector") is now built (obj_daynight_popup_panel,
   # top_layer) - tapping the status bar's small AUTO/DAY/NIGHT button
   # opens it instead of cycling in place.
+  #
+  # No longer touches a `night` bool for a clock face (the round
+  # `sbb_clock` widget this used to call `set_night_mode()` on is gone,
+  # see the external_components section's own comment) - the digital
+  # clock that replaced it is plain blue text on the page's always-black
+  # background, nothing to invert.
+  #
+  # Drives the REAL backlight instead now (2026-09-19, repo-owner: "Auto/
+  # Day/Night könntest du mit standard dim level machen - Day 100%,
+  # Night 60%") - AUTO/DAY/NIGHT sets `g_backlight_pct` to one of two
+  # fixed levels and runs it straight through `apply_backlight` below,
+  # which is the exact same I2C write (`set_panel_backlight_raw`,
+  # address `0x45`, register `0x86`) the brightness slider itself uses -
+  # so yes, this is the real hardware backlight, not a cosmetic overlay.
+  # AUTO's day/night split is unchanged (`s_sun`, HA's `sun.sun`); a
+  # mode change (or a sunrise/sunset while in AUTO) overwrites whatever
+  # level was set before, by design - the slider is still there
+  # afterward for fine-tuning between transitions, it just no longer
+  # "remembers" a custom level across the next mode/sun change.
   - id: apply_daynight
     then:
       - lambda: |-
+          const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
+          lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+
           bool night;
           int m = id(g_daynight);
           if (m == 1) {
@@ -886,10 +894,8 @@ script:
           } else {
             night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
           }
-          id(clock_face).set_night_mode(night);
-      - lambda: |-
-          const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
-          lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
+          id(g_backlight_pct) = night ? 60 : 100;
+      - script.execute: apply_backlight
 
   - id: act_daynight_set_mode
     parameters:
@@ -1194,6 +1200,13 @@ script:
   # Cross-category alarm ranking (pages.md §4/§7) is NOT implemented
   # yet - deliberately left as that document's own open item; this bar
   # only ever shows time/date + link status for this release.
+  #
+  # Also drives page_home's own digital clock now (2026-09-19, replaced
+  # the round `sbb_clock` canvas - see that page's own comment): time,
+  # IN temp, and OUT temp are the exact same values this script already
+  # computes every second for the status bar, just also written to that
+  # page's own labels - cheaper and less to keep in sync than a second
+  # once-a-second script re-deriving the same t/tbuf.
   - id: draw_status_bar
     mode: restart
     then:
@@ -1227,6 +1240,30 @@ script:
             lv_label_set_text(id(lbl_status_date), "--.--.----");
           }
 
+          // ---- page_home's own digital clock (replaced the round
+          // `sbb_clock` canvas, 2026-09-19 - see that page's own comment)
+          // - same time source, updated from here rather than a second
+          // once-a-second script since it's the exact same t already
+          // fetched above. HH:MM only (no seconds - repo-owner didn't
+          // ask for them here, and it's one less redraw-relevant digit
+          // to reflow). day_of_week is ESPHome's own 1=Sunday..7=Saturday
+          // ESPTime field - no strftime("%a") here, ESP-IDF's C locale
+          // only has English day names and the repo owner wants the
+          // German 2-letter form (repo-owner's own pick: "Mo/Di/Mi/Do/
+          // Fr/Sa/So", not the 3/4-letter alternatives).
+          if (t.is_valid()) {
+            static const char *const day_de[8] =
+                {"--", "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+            const char *day = t.day_of_week <= 7 ? day_de[t.day_of_week] : "--";
+            char dbuf[16];
+            snprintf(dbuf, sizeof(dbuf), "%s %s", day, t.strftime("%d.%m.%y").c_str());
+            lv_label_set_text(id(lbl_home_clock_time), t.strftime("%H:%M").c_str());
+            lv_label_set_text(id(lbl_home_clock_date), dbuf);
+          } else {
+            lv_label_set_text(id(lbl_home_clock_time), "--:--");
+            lv_label_set_text(id(lbl_home_clock_date), "-- --.--.--");
+          }
+
           // ---- Inside temperature - HA-fed (Truma room sensor via
           // page_climate's own s_climate_room_temp), so it DOES need
           // api_is_connected() like every other HA value in this file.
@@ -1240,9 +1277,16 @@ script:
             snprintf(tbuf, sizeof(tbuf), "IN %.0f°C", id(s_climate_room_temp).state);
             lv_label_set_text(id(lbl_status_temp_in), tbuf);
             lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0xBDC1C6), 0);
+            // page_home's own IN label - same value, "standard blue"
+            // instead of the status bar's secondary-line gray (repo-
+            // owner's own color pick for this widget).
+            lv_label_set_text(id(lbl_home_clock_temp_in), tbuf);
+            lv_obj_set_style_text_color(id(lbl_home_clock_temp_in), lv_color_hex(0x4A9EFF), 0);
           } else {
             lv_label_set_text(id(lbl_status_temp_in), "IN ---°C");
             lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_home_clock_temp_in), "IN ---°C");
+            lv_obj_set_style_text_color(id(lbl_home_clock_temp_in), lv_color_hex(0x555555), 0);
           }
 
           // ---- Outside temperature - LOCAL NTC sensor (adc_temp_outside/
@@ -1254,9 +1298,13 @@ script:
             snprintf(tbuf, sizeof(tbuf), "OUT %.0f°C", id(s_temp_outside).state);
             lv_label_set_text(id(lbl_status_temp_out), tbuf);
             lv_obj_set_style_text_color(id(lbl_status_temp_out), lv_color_hex(0xBDC1C6), 0);
+            lv_label_set_text(id(lbl_home_clock_temp_out), tbuf);
+            lv_obj_set_style_text_color(id(lbl_home_clock_temp_out), lv_color_hex(0x4A9EFF), 0);
           } else {
             lv_label_set_text(id(lbl_status_temp_out), "OUT ---°C");
             lv_obj_set_style_text_color(id(lbl_status_temp_out), lv_color_hex(0x555555), 0);
+            lv_label_set_text(id(lbl_home_clock_temp_out), "OUT ---°C");
+            lv_obj_set_style_text_color(id(lbl_home_clock_temp_out), lv_color_hex(0x555555), 0);
           }
 
 # =============================================================================

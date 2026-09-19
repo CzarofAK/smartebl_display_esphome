@@ -2,12 +2,13 @@
 #  smart_ebl_pages/page_home.yaml -- page: Home (Mainscreen)
 #  Smart EBL Display (ESP32-P4) - page package
 # =============================================================================
-# docs/pages.md §6: SBB clock (right half) + 5 switch tiles in a 2x3
-# grid (Fridge slot reserved, not wired yet - see that section's own
-# table). The 5 switches here mirror smartebl's own relay groups over
-# the RS232 link (docs/protocol.md groups 2/4), not Home Assistant -
-# same reason page_electric's link-fed values don't need an api_ok guard
-# either.
+# docs/pages.md §6: digital clock (right half, see that section's own
+# note - replaced the round `sbb_clock` widget 2026-09-19) + 5 switch
+# tiles in a 2x3 grid (Fridge slot reserved, not wired yet - see that
+# section's own table). The 5 switches here mirror smartebl's own relay
+# groups over the RS232 link (docs/protocol.md groups 2/4), not Home
+# Assistant - same reason page_electric's link-fed values don't need an
+# api_ok guard either.
 #
 # ---- Alarmo (2026-09-06, repo-owner: "koennen wir noch irgendwo die
 # Alarmanlage integrieren?") -------------------------------------------
@@ -314,80 +315,80 @@ lvgl:
       bg_color: 0x000000
       bg_opa: COVER
       widgets:
-        # ---- Right half: SBB clock --------------------------------------
-        - sbb_clock:
-            id: clock_face
-            time_id: homeassistant_time
-            # 450 -> 320 (2026-09-06, round 3, confirmed on real
-            # hardware): even after corner_color (below) dropped this
-            # canvas from ARGB8888 to plain RGB565 (810112 -> 405120
-            # bytes), the boot log still showed it landing in PSRAM
-            # (`alloc_canvas_buf()`'s own warning). The static linker
-            # report this file's comments used to cite (~432KB free
-            # internal RAM) is a compile-time bss/data budget, not the
-            # ACTUAL free heap left over at runtime once Wi-Fi/esp_hosted/
-            # LVGL's own (much larger) display buffer have all already
-            # claimed their share by the time this widget's setup() runs
-            # - that real number is smaller and wasn't knowable without
-            # flashing real hardware. 320x320 (204800 bytes, exactly half
-            # of the previous size) leaves enough headroom below whatever
-            # that real ceiling turns out to be. No more "took a long
-            # time" warnings for sbb_clock on the real device at this
-            # size - see m5dial_clock_sbb's README for the full writeup.
+        # ---- Right half: digital clock -----------------------------------
+        # Replaces the round `sbb_clock` canvas widget (2026-09-19,
+        # repo-owner: wants a version "ohne SBB clock, aber mit einer
+        # weniger HW intensiven digital Uhr" - design_rules.md §4's own
+        # open item names that canvas as a real, confirmed contributor to
+        # the PSRAM-bus pressure behind the recurring DSI underrun/blue-
+        # flash symptom). Plain LVGL labels instead of a canvas: no
+        # PSRAM allocation, no per-frame redraw, no external_component -
+        # just four `lv_label_set_text` calls a second, and only while
+        # this page is even the one on screen (see `draw_status_bar`'s
+        # own comment in the device file for the gating). Same bounding
+        # box the clock used to occupy (x815-1135/y187-507, see that
+        # widget's own old comments for why: flush with LIGHT/ICEEX to
+        # its left, bottom edge 20px above the Alarmo tile below) so
+        # nothing else on this page had to move.
+        - obj:
+            id: obj_home_clock
+            align: TOP_LEFT
+            x: 815
+            y: 187
             width: 320
             height: 320
-            align: TOP_LEFT
-            x: 815 # keeps the same center point as the old 450x450 at (750,200)
-            # y:187 (was 265) - repo-owner, 2026-09-06: "Uhr oben bündig
-            # mit den Schaltern links machen (ICEEX und LIGHT) ... Abstand
-            # zwischen Uhr und Alarmanlage gleich wie zwischen den
-            # Schaltern". LIGHT/ICEEX (below) start at y:187 - clock top
-            # now matches exactly. This 320px height already lands the
-            # clock's bottom edge (187+320=507) exactly 20px above the
-            # Alarmo tile's own new y:527 (see that widget's own comment)
-            # - the same 20px gap the three switch rows use between each
-            # other - so no resize was actually needed to satisfy the
-            # gap-matching half of that request, only this move.
-            y: 187
-            # Round, not square (bug reported on real hardware): a
-            # canvas is inherently rectangular, so without something
-            # making the corners disappear it rendered as a plain filled
-            # square. show_face draws the actual round dial; corner_color
-            # (below) makes the square's own corners disappear into the
-            # page's real background - together they're what makes it
-            # read as a circle rather than a block.
-            show_face: true
-            # `corner_color`, not `transparent: true` (real bug fixed,
-            # round 2 - see m5dial_clock_sbb's README "Fixed" section for
-            # the full writeup): this page's background is always the
-            # same fixed solid color, so true alpha transparency was
-            # never actually needed for the square canvas's corners to
-            # disappear into it - only matching that fixed color opaquely
-            # was, which needs a plain RGB565 canvas instead of ARGB8888.
-            corner_color: col_page_bg
-            # Real SBB clock look (design_rules.md §6's documented
-            # exception, m5dial_fram's clock page uses the same
-            # colors): WHITE face, BLACK hands by day - background/
-            # foreground here are the DAY baseline; set_night_mode()
-            # (apply_daynight, below) swaps them at runtime for BLACK
-            # face for BLACK, WHITE hands at night. Previously had
-            # these backwards (white ink on a black square, no face) -
-            # that's the other half of the original bug report.
-            # corner_color above is DELIBERATELY not swapped by
-            # night_mode - the page behind the clock stays the same
-            # black regardless of day/night, so the corners have to
-            # match that fixed color either way, not invert with the
-            # face.
-            background: col_clock_ink   # white face by day
-            foreground: col_clock_bg    # black hands/ticks/text by day
-            second_hand_color: col_clock_second
-            # show_date: false (the default) - repo owner doesn't want
-            # the date/day shown.
-            #
-            # render_interval left at the component's own 100ms default -
-            # the whole point of the corner_color fix above is that this
-            # canvas no longer has an unusual per-frame cost to work
-            # around.
+            bg_opa: TRANSP
+            border_width: 0
+            shadow_width: 0
+            widgets:
+              # HH:MM - large, "standard blue" (design_rules.md §2's
+              # palette calls 0x4A9EFF "neutral active"; reused here
+              # verbatim rather than a new color, same "don't invent a
+              # second one of these" reasoning as everywhere else in this
+              # file). font_ui_40 - already the shared main-value size
+              # (Electric's boxes), no new font needed.
+              - label:
+                  id: lbl_home_clock_time
+                  align: TOP_MID
+                  y: 90
+                  text: "--:--"
+                  text_font: font_ui_40
+                  text_color: 0x4A9EFF
+              # DDD DD.MM.YY - German 2-letter day (Mo/Di/Mi/Do/Fr/Sa/So,
+              # repo-owner's own pick over the 3/4-letter alternatives -
+              # ESP-IDF's strftime has no German locale to draw "%a" from,
+              # so `draw_status_bar` looks this up from a small fixed
+              # table instead) + 2-digit year, smaller, same blue.
+              - label:
+                  id: lbl_home_clock_date
+                  align: TOP_MID
+                  y: 150
+                  text: "-- --.--.--"
+                  text_font: font_ui_20
+                  text_color: 0x4A9EFF
+              # OUT / IN temp - same size as the date line above, same
+              # blue. Two separate labels (not one combined string) so
+              # each can independently drop to the design_rules.md §2
+              # invalid-value gray when its own source is stale/down,
+              # exactly like the status bar's own lbl_status_temp_in/out
+              # this mirrors (`draw_status_bar` updates all four labels
+              # from the one already-computed t/tbuf, see that script).
+              - label:
+                  id: lbl_home_clock_temp_out
+                  align: TOP_MID
+                  x: -70
+                  y: 185
+                  text_font: font_ui_20
+                  text: "OUT ---°C"
+                  text_color: 0x555555
+              - label:
+                  id: lbl_home_clock_temp_in
+                  align: TOP_MID
+                  x: 70
+                  y: 185
+                  text_font: font_ui_20
+                  text: "IN ---°C"
+                  text_color: 0x555555
 
         # ---- Left half: one tile per switch (pages.md §6) ---------------
         # Fridge is reserved regardless of outcome (pages.md §6: "user is
