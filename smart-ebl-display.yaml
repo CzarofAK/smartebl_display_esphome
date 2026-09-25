@@ -329,19 +329,24 @@ esp_ldo:
 # `on_boot:` action: the hang happens inside display.mipi_dsi's own
 # setup(), before any on_boot automation could ever run.
 #
-# ⚠ STILL UNCONFIRMED WHETHER THIS FIX ACTUALLY APPLIES HERE: this
-# board's `bus_touch` I2C bus runs `scan: true` (see the `i2c:` block
-# above), and was checked at `logger: level: VERY_VERBOSE` on the exact
-# crashing boot - but showed NO i2c.idf scan output at all (no "Scanning
-# for devices" line, no "Found device at address 0x.." line for 0x45 or
-# anything else). That's inconclusive, not a clean "0x45 absent" result -
-# why the scan itself isn't logging anything is still an open question,
-# not yet root-caused. Until that's resolved, treat this fix as
-# plausible-but-unverified on this specific board, not confirmed. If the
-# crash persists after flashing this, chasing why the i2c scan never
-# logs anything (wrong log tag? scan running before logger init? bus
-# genuinely silent?) is the next real debugging step, not just re-reading
-# the same register values.
+# RESOLVED 2026-09-25 - `0x45` IS REALLY THERE. This comment used to
+# flag the fix as plausible-but-unverified because an earlier
+# VERY_VERBOSE boot showed no i2c scan output at all (no "Scanning for
+# devices", no "Found device at address 0x.."), which left "is 0x45 even
+# on this bus?" open. A clean boot log now answers it:
+#
+#   [C][i2c:113]: Results from bus scan:
+#   [C][i2c:119]: Found device at address 0x18
+#   [C][i2c:119]: Found device at address 0x45
+#   [C][i2c:119]: Found device at address 0x5D
+#
+# So: `0x45` (panel PMIC / backlight) and `0x5D` (GT9271 touch) are both
+# present and ACKing, plus an unidentified `0x18` (not used by this
+# config - likely an onboard sensor or codec; unclaimed, not a problem).
+# The earlier silent scan was a logging artifact of that crashing boot,
+# not a silent bus. Backlight writes to this same address now come back
+# `err=0` (see `apply_backlight`), which is independent confirmation that
+# the device answers.
 
 panel_power_init:
   i2c_id: bus_touch
@@ -683,6 +688,63 @@ sensor:
       - script.execute: draw_status_bar
 
 # =============================================================================
+# Remote backlight control - Home Assistant / web server entity
+# =============================================================================
+# Added 2026-09-25 (repo owner: "Ich kann aber nicht versuchen zu dimmen,
+# remotely, oder?"). Until now the ONLY way to change brightness was the
+# LVGL slider in the day/night popup on the panel itself, i.e. standing in
+# front of the van. The 0x96 fix's first flash proved the I2C write path
+# works (`[backlight] 0x45 reg 0x96 <- 0xFF, err=0`) but every logged write
+# was 0xFF, so actual dimming was still untested - this entity is what makes
+# that testable (and useful) from anywhere.
+#
+# Shows up both in Home Assistant (`number.smart_ebl_display_display_
+# brightness`) and in the board's own web server (10.10.80.201, port 80 -
+# see .basics.yaml), so it works with or without HA in the loop.
+#
+# Loop safety, since this now writes the same state from three directions
+# (panel slider, day/night mode, this entity):
+#   - `set_action` calls `act_backlight_set` (global + apply_backlight) and
+#     then syncs the LVGL slider so the panel shows the remote change.
+#   - `apply_backlight` publishes back to this entity with
+#     `publish_state()`, which does NOT re-enter `control()` - so a change
+#     from the panel updates HA without bouncing back.
+# The one edge is the slider's own `on_value` re-firing from that sync and
+# calling `act_backlight_set` a second time with the SAME value: idempotent
+# (one extra identical I2C write), and it terminates there because nothing
+# in that path touches the slider again.
+#
+# min_value 10 matches the panel slider deliberately - full-off is sleep
+# mode's job (`enter_sleep`, which writes a raw 0 without touching
+# `g_backlight_pct`), not something to reach by dragging a brightness
+# control to the bottom and then wondering why the screen is black.
+
+number:
+  - platform: template
+    id: num_backlight
+    name: "Display Brightness"
+    icon: "mdi:brightness-6"
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 10
+    max_value: 100
+    step: 5
+    optimistic: true
+    # Without this, ESPHome's template number defaults its initial value to
+    # min_value (10) and publishes THAT at setup - the entity would read 10%
+    # for the fraction of a second until apply_backlight's publish_state
+    # corrects it. 100 is the honest pre-apply_backlight state: that's what
+    # panel_power_init already put in 0x96 (`0xFF`) during boot.
+    initial_value: 100
+    set_action:
+      - script.execute:
+          id: act_backlight_set
+          pct: !lambda "return (int) x;"
+      - lvgl.slider.update:
+          id: sld_backlight
+          value: !lambda "return (int) x;"
+
+# =============================================================================
 # Link reader - parses protocol.md §3 telemetry frames off link_uart
 # =============================================================================
 # Plain byte-accumulate-until-'\n' lambda, no custom component (protocol.md
@@ -980,6 +1042,11 @@ script:
           snprintf(buf, sizeof(buf), "%d%%", pct);
           lv_label_set_text(id(lbl_backlight_pct), buf);
           id(set_panel_backlight_raw).execute((uint8_t) ((pct * 255 + 50) / 100));
+          // Keeps the HA/web_server `Display Brightness` number in step with
+          // whatever set the level (panel slider, day/night, or the entity
+          // itself). publish_state() never calls control(), so this cannot
+          // bounce back into set_action - see the `number:` block's comment.
+          id(num_backlight).publish_state(pct);
 
   - id: act_backlight_set
     parameters:

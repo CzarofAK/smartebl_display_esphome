@@ -241,6 +241,14 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
+- [x] **Backlight also controllable remotely** (2026-09-25). `Display
+      Brightness` number entity (10-100%, step 5) drives the same
+      `act_backlight_set` script the panel slider uses, exposed to Home
+      Assistant and the board's web server. Added because the 0x96 flash
+      proved the write path works (`err=0`) but every logged write was
+      `0xFF` - dimming itself could not be tested without walking up to
+      the panel. The same boot also settled the old "i2c scan logs
+      nothing" question: the scan now lists 0x18, 0x45 and 0x5D.
 - [x] **Real backlight control found and wired - no GPIO at all, I2C.**
       Repo owner, 2026-09-12, correctly pushed back that the brightness
       slider/night mode's black LVGL overlay wasn't good enough (an
