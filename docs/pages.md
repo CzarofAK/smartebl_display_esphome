@@ -95,6 +95,14 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
   level across the next mode/sun change. The popup's AUTO/DAY/NIGHT
   selector (`act_daynight_set_mode`) overrides the mode per user choice,
   persisted (`g_daynight`, `restore_value: true`).
+- **Brightness is also remote now** (2026-09-25, repo owner: "Ich kann
+  aber nicht versuchen zu dimmen, remotely, oder?"). A `Display
+  Brightness` number entity (10-100%, step 5) exposes the same
+  `act_backlight_set` path to Home Assistant and to the board's own web
+  server, so the level can be changed without standing at the panel; the
+  panel slider and the entity stay in sync both ways. Full-off stays
+  sleep mode's job, hence the 10% floor. See `smart-ebl-display.yaml`'s
+  `number:` block for the loop-safety reasoning.
 - **Brightness slider drives the real backlight now** (2026-09-12,
   superseding this section's own earlier "nothing real to drive" text):
   not a GPIO/PWM pin at all — Waveshare's own wiki for this panel

@@ -225,12 +225,20 @@ write `0x96` directly with a plain `i2c::I2CBus::write()` call on
 `panel_power_init`'s multi-register wake sequence — and log the write
 plus its I2C `ErrorCode` at DEBUG under the `backlight` tag.
 
-**Confidence: high, still not flash-tested with `0x96`.** If the next
-flash logs `err=0` and brightness *still* doesn't move, the next thing
-to try is re-sending the `0x95` preamble (`0x11`, `0x17`) immediately
-before the `0x96` write — `panel_power_init` sends it once at boot and
-this assumes that state persists. Check that against the real chip,
-don't assume — same
+**Flash-tested 2026-09-25 — the write path works.** The boot log shows
+`[D][backlight]: 0x45 reg 0x96 <- 0xFF, err=0`, i.e. the I2C transfer is
+accepted by the device, and the same boot's bus scan now lists `0x18`,
+`0x45` and `0x5D` (so `0x45` is really present, closing the older "the
+scan logs nothing at all" open question). **What is still unconfirmed is
+dimming itself**: every logged write so far carried `0xFF`, because
+nothing had changed the level away from 100%. The `Display Brightness`
+number entity added the same day (HA + the board's own web server) exists
+to test exactly that without standing in front of the panel. If a write
+of, say, `0x1A` also logs `err=0` and the panel stays bright, the next
+thing to try is re-sending the `0x95` preamble (`0x11`, `0x17`)
+immediately before the `0x96` write — `panel_power_init` sends it once at
+boot and this assumes that state persists. Check that against the real
+chip, don't assume — same
 caution this repo already applies to `panel_power_init`'s own register
 values.
 
