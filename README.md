@@ -241,6 +241,12 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
+- [x] **Backlight fully confirmed on hardware** (2026-09-25). Dimming
+      works (75% -> `0xBF`, panel visibly darker) and sleep mode now
+      really blanks the panel instead of only covering the UI in black.
+      The `0x95`-preamble-per-write fallback documented in
+      `docs/hardware.md` turned out not to be needed:
+      `panel_power_init`'s single boot-time `0x95` is enough.
 - [x] **Backlight also controllable remotely** (2026-09-25). `Display
       Brightness` number entity (10-100%, step 5) drives the same
       `act_backlight_set` script the panel slider uses, exposed to Home
