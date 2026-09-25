@@ -1023,12 +1023,18 @@ script:
   # Plain `i2c::I2CBus::write()` on `bus_touch` (no new component needed
   # - ESPHome's own IDFI2CBus already gives us this from a lambda). The
   # write is logged at DEBUG (`[backlight]` tag, includes the I2C
-  # ErrorCode) so the next flash can tell "register wrong" apart from
-  # "write never reached the chip". `0x95` is deliberately NOT re-sent
-  # here: `panel_power_init` runs it once at boot, before `display:`'s
-  # own setup, and that state persists - if the log shows err=0 but
-  # brightness still doesn't move, re-sending the `0x95` preamble right
-  # before the `0x96` write is the next thing to try.
+  # ErrorCode).
+  #
+  # CONFIRMED ON REAL HARDWARE 2026-09-25, no caveats left: setting 75%
+  # logged `0x45 reg 0x96 <- 0xBF, err=0` and the panel visibly dimmed
+  # (repo owner: "dimmen läuft auch super"), and sleep mode's raw `0`
+  # now blanks the panel for real instead of only covering the UI
+  # ("nun ist sleep wirklich schwarz"). `0x95` is deliberately NOT
+  # re-sent per write, and does not need to be: `panel_power_init` runs
+  # it once at boot, before `display:`'s own setup, and that state
+  # persists for the rest of the session. (Re-sending it per write was
+  # the documented fallback if `err=0` had ever come with an unchanged
+  # panel - not needed, not implemented.)
   #
   # `obj_brightness_dim_overlay` (the old fake-dimming black rectangle)
   # is removed along with its top_layer widget - see this file's git

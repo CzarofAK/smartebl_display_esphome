@@ -113,8 +113,9 @@ top_layer) with a brightness slider + an AUTO/DAY/NIGHT selector.
   ESP32-P4-NANO pairing and does nothing on this board, which is why
   the slider was inert on the first flash; `panel_power_init`'s own
   boot sequence writing `0x96`=`0x00`/`0xFF` confirms `0x96` is the
-  backlight. See `docs/hardware.md`'s own section for the full
-  write-up and confidence level.
+  backlight. **Confirmed on real hardware 2026-09-25**: 75% wrote
+  `0xBF` and the panel visibly dimmed. See `docs/hardware.md`'s own
+  section for the full write-up.
 
 ### Sleep mode
 
@@ -128,7 +129,10 @@ top_layer, drawn last so it also catches the waking tap itself) stays as
 the click target that wakes the display and covers the last frame for the
 instant before brightness is restored - real backlight-off now runs
 alongside it too (2026-09-12, see the brightness slider entry above),
-not simulated by the overlay alone any more.
+not simulated by the overlay alone any more. **Confirmed on hardware
+2026-09-25** once the register was corrected to `0x96` (repo owner: "nun
+ist sleep wirklich schwarz") - before that the overlay really was doing
+all the work, exactly the cosmetic dimming this was meant to replace.
 
 ## 5. Page catalog
 
