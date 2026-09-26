@@ -1040,6 +1040,36 @@ script:
   # is removed along with its top_layer widget - see this file's git
   # history if the overlay approach is ever needed again for something
   # else.
+  #
+  # SLEEP GUARD, added 2026-09-26 - REAL BUG, reported by the repo owner:
+  # "sleep ist nur overlay - DER BUTTON STIMMT! - aber die automatisierung
+  # called das falsche". Both paths actually call the same `enter_sleep`,
+  # and it does write a raw `0`. The bug was that nothing kept the panel
+  # dark afterwards: EVERY caller of `apply_backlight` re-lit it while
+  # `obj_sleep_overlay` was still up, which looks exactly like "sleep is
+  # only the overlay" - black screen, backlight plainly on, and at
+  # whatever level the user last set (hence the reported "20%").
+  #
+  # Why it only ever showed up on the automatic sleep: the manual moon
+  # button is watched happening, and nothing calls `apply_backlight` in
+  # that second. Automatic sleep runs unattended for hours, and several
+  # things call `apply_backlight` in that window:
+  #   - `apply_daynight` via `s_sun`'s `on_value` - which fires not only
+  #     at sunrise (07:xx is INSIDE the 22:00-08:00 sleep window) but on
+  #     every Home Assistant reconnect, because ESPHome re-subscribes and
+  #     gets the current state pushed again each time.
+  #   - `draw_daynight_popup` (same `on_value`), whose `lvgl.slider.update`
+  #     re-fires the slider's own `on_value` -> `act_backlight_set`.
+  #   - the `Display Brightness` entity, from HA or the web server.
+  # So the panel came back on by itself overnight, every night.
+  #
+  # Fix: while `g_sleep_active`, update everything EXCEPT the hardware -
+  # label, `g_backlight_pct` (already set by the caller) and the HA entity
+  # still track the level the user picked, the panel stays dark. Waking is
+  # unchanged and needs no special case: `wake_from_sleep` clears
+  # `g_sleep_active` BEFORE it calls this script, so the very next run
+  # writes the level for real. `enter_sleep`'s own `0` is unaffected - it
+  # goes through `set_panel_backlight_raw` directly, below this guard.
   - id: apply_backlight
     then:
       - lambda: |-
@@ -1047,11 +1077,17 @@ script:
           char buf[8];
           snprintf(buf, sizeof(buf), "%d%%", pct);
           lv_label_set_text(id(lbl_backlight_pct), buf);
-          id(set_panel_backlight_raw).execute((uint8_t) ((pct * 255 + 50) / 100));
+          if (!id(g_sleep_active)) {
+            id(set_panel_backlight_raw).execute((uint8_t) ((pct * 255 + 50) / 100));
+          } else {
+            ESP_LOGD("backlight", "asleep - level %d%% stored, panel stays dark", pct);
+          }
           // Keeps the HA/web_server `Display Brightness` number in step with
           // whatever set the level (panel slider, day/night, or the entity
           // itself). publish_state() never calls control(), so this cannot
           // bounce back into set_action - see the `number:` block's comment.
+          // Deliberately OUTSIDE the sleep guard: the entity should show the
+          // level that will be restored on wake, not 0.
           id(num_backlight).publish_state(pct);
 
   - id: act_backlight_set

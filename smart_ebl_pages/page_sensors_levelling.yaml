@@ -40,10 +40,13 @@
 #     repo's own invented guess at the UI shape, not something the
 #     repo owner actually asked for.
 #
-#     What's here instead is a genuinely reserved placeholder - same
-#     "reserve the slot regardless of outcome, permanently-invalid
-#     style, no live entity, no on_click" treatment as the Home page's
-#     own Fridge tile - sized and laid out for the FUTURE control the
+#     What's here instead is a genuinely reserved placeholder -
+#     "permanently-invalid style, no live entity, no on_click", the
+#     treatment the Home page's Fridge tile used to get too (that one is
+#     commented out since 2026-09-26: the vehicle has no fridge switch,
+#     so there was nothing left to reserve. The jacks are different - the
+#     repo owner does intend to install them) - sized and laid out for
+#     the FUTURE control the
 #     repo owner actually described once the hardware exists: one ON/OFF
 #     switch, one AUTOLEVEL button, and a status indicator that's green
 #     when retracted / red when extended ("maybe others" - the repo
@@ -390,9 +393,12 @@ lvgl:
         # ---- RIGHT half: Huebstuetzen (leveling jacks) - RESERVED, not
         # installed yet (this file's own header) - a mockup of the
         # future control, permanently in the invalid/grey style, no
-        # live entity, no on_click, same treatment as the Home page's
-        # Fridge tile. Sized so wiring it for real later is "swap these
-        # widgets for live ones", not "invent the layout".
+        # live entity, no on_click - the treatment the Home page's
+        # Fridge tile used to get as well (commented out since
+        # 2026-09-26, no fridge switch in this vehicle; the jacks are
+        # still genuinely planned, hence still reserved here). Sized so
+        # wiring it for real later is "swap these widgets for live ones",
+        # not "invent the layout".
         #
         # y:182 (was 110), height:500 unchanged (repo-owner, 2026-09-06:
         # "Hubstützen Übersicht weiter runter, vertikal einmitten") -

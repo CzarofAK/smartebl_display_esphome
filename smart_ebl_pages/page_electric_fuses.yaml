@@ -150,7 +150,9 @@ script:
   # (vehicle/D+-controlled) and F10 (fridge D+/programmable) have no
   # switch mirror on this display to check against - shown read-only,
   # never alarmed, same "don't claim precision this display doesn't
-  # have" reasoning as the Home page's Fridge tile.
+  # have" reasoning that the Home page's Fridge tile followed (that tile
+  # is commented out since 2026-09-26 - no fridge switch in this
+  # vehicle - but F10 stays listed here: the fuse exists either way).
   - id: draw_fuses
     mode: restart
     then:
