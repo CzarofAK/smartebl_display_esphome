@@ -241,6 +241,16 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
+- [x] **Fridge tile commented out** (2026-09-26). Repo owner: "Fridge
+      switch habe ich nicht, bitte auskommentieren" - this vehicle has no
+      controllable fridge line, which closes `docs/pages.md` §6's
+      long-open "still checking" question with a NO. The tile is
+      commented out rather than deleted (`smartebl` itself supports
+      F9/F10, so another vehicle or a rewire could want it back; the
+      block keeps its indentation, so re-enabling the placeholder is a
+      pure uncomment). The middle-right grid slot is simply empty - every
+      tile has absolute x/y, so nothing shifted, which was the only
+      reason §6 wanted the slot reserved.
 - [x] **Backlight fully confirmed on hardware** (2026-09-25). Dimming
       works (75% -> `0xBF`, panel visibly darker) and sleep mode now
       really blanks the panel instead of only covering the UI in black.
@@ -295,7 +305,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       (see `docs/hardware.md`'s "Reusing the existing OEM 6-pin harness")
 - [x] **First release: three real pages built.** Mainscreen/Home (SBB
       clock — reused as-is from `m5dial_clock_sbb` — + 5 switch tiles +
-      a permanently-reserved Fridge tile), Electric (Victron-style
+      a reserved Fridge tile, since commented out, see below), Electric (Victron-style
       overview: Shore/Battery/AC-charger-voltage wired to real link
       data; AC Loads, Solar Yield and DC Loads render invalid on
       purpose — `smartebl` has no current-sense hardware to back a
@@ -401,7 +411,8 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       own `fan_mode` attribute (off/low/medium/high, confirmed real),
       not a separate `select.*` entity as first assumed.
 - [x] **Home page tiles rearranged and centered** per repo-owner spec:
-      2×3 grid (LIGHT/ICE-EX top, AUX/FRIDGE middle, POWER/PUMP bottom),
+      2×3 grid (LIGHT/ICE-EX top, AUX/FRIDGE middle - the FRIDGE slot
+      is empty since 2026-09-26, see below - POWER/PUMP bottom),
       vertically centered in the content area and horizontally centered
       between the nav rail and the clock - previously just placed at
       fixed coordinates, not actually centered or in the requested order.
@@ -589,7 +600,9 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       D+-controlled) and F10 (fridge D+/programmable) have no switch
       mirror here to check against - shown read-only, never alarmed,
       same "don't claim precision this display doesn't have" reasoning
-      as the Home page's Fridge tile.
+      that the Home page's Fridge tile followed (that tile is commented
+      out since 2026-09-26; F10 stays listed here - the fuse exists
+      whether or not a fridge hangs off it).
     - **Fans** (`page_fans`) - same two entities `m5dial_fram/
       page_fans.yaml` uses (FANBOARD, HVAC), touch-adapted the same way
       Climate/Boiler's +/- buttons already were (no rotary-encoder "arm"

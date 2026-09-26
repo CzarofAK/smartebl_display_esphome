@@ -4,8 +4,9 @@
 # =============================================================================
 # docs/pages.md §6: digital clock (right half, see that section's own
 # note - replaced the round `sbb_clock` widget 2026-09-19) + 5 switch
-# tiles in a 2x3 grid (Fridge slot reserved, not wired yet - see that
-# section's own table). The 5 switches here mirror smartebl's own relay
+# tiles in a 2x3 grid (the Fridge slot is commented out as of
+# 2026-09-26 - this vehicle has no fridge switch, see that tile's own
+# comment below). The 5 switches here mirror smartebl's own relay
 # groups over the RS232 link (docs/protocol.md groups 2/4), not Home
 # Assistant - same reason page_electric's link-fed values don't need an
 # api_ok guard either.
@@ -412,13 +413,13 @@ lvgl:
                   text_color: 0x555555
 
         # ---- Left half: one tile per switch (pages.md §6) ---------------
-        # Fridge is reserved regardless of outcome (pages.md §6: "user is
-        # still checking whether this vehicle wires the fridge to its own
-        # controllable line ... render the tile in the invalid-value
-        # style permanently rather than removing it, so the layout
-        # doesn't shift later"). Alarmo is NOT included - pages.md §6
-        # itself marks its entity_id as still TBD, and there's nothing
-        # real to wire a PIN popup to yet.
+        # Fridge WAS reserved here under pages.md §6's "reserve the slot
+        # regardless of outcome" rule - that outcome came back NO on
+        # 2026-09-26 (this vehicle has no fridge switch), so the tile is
+        # commented out further down; see its own comment there. Alarmo
+        # is NOT included - pages.md §6 itself marks its entity_id as
+        # still TBD, and there's nothing real to wire a PIN popup to
+        # yet.
         - button:
             id: btn_tile_12v
             align: TOP_LEFT
@@ -584,34 +585,60 @@ lvgl:
                   key: "eisex_output"
                   value: !lambda 'return id(sw_eisex_mirror).state ? "1" : "0";'
 
-        # Reserved slot - permanently invalid style, no on_click. See
-        # header comment above.
-        - button:
-            id: btn_tile_fridge
-            align: TOP_LEFT
-            x: 455 # middle-right
-            y: 357
-            width: 210
-            height: 150
-            radius: 12
-            bg_color: 0x202124
-            border_width: 1
-            border_color: 0x3C4043
-            shadow_width: 0
-            widgets:
-              - label:
-                  align: TOP_MID
-                  y: 14
-                  text: "FRIDGE"
-                  text_font: font_ui_16
-                  text_color: 0x707070
-              - label:
-                  id: lbl_tile_fridge
-                  align: CENTER
-                  y: 8
-                  text: "---"
-                  text_font: font_ui_24
-                  text_color: 0x555555
+        # ---- FRIDGE tile - COMMENTED OUT 2026-09-26 ---------------------
+        # Repo owner, definitively: "Fridge switch habe ich nicht, bitte
+        # auskommentieren." That closes pages.md §6's long-open "user is
+        # still checking whether this vehicle wires the fridge to its own
+        # controllable line" question with a NO - this motorhome doesn't
+        # have one, so there is nothing to wire and no slot worth
+        # reserving for it either.
+        #
+        # Commented out rather than deleted, deliberately: `smartebl`
+        # itself supports a fridge line (F9/F10, docs/protocol.md's
+        # planned `fridge_control`), so a different vehicle - or this one
+        # after a rewire - could want it back. The block below keeps its
+        # original indentation under the `# ` prefix, so re-enabling the
+        # placeholder is a pure uncomment; wiring it for real
+        # additionally needs an `sw_fridge_mirror` switch, the link key,
+        # and an `on_click` like ICEEX's right above.
+        #
+        # The middle-right slot (x455-665 / y357-507) is simply empty
+        # now. Nothing else moves: every tile here has absolute x/y, so
+        # removing one cannot shift the others - which was pages.md §6's
+        # only reason for reserving the slot in the first place.
+        #
+        # `btn_tile_fridge` / `lbl_tile_fridge` are referenced NOWHERE
+        # else (no draw_* script ever touched them - it was a static
+        # placeholder), so this needs no other change in this file or
+        # any other.
+        # # Reserved slot - permanently invalid style, no on_click. See
+        # # header comment above.
+        # - button:
+        #     id: btn_tile_fridge
+        #     align: TOP_LEFT
+        #     x: 455 # middle-right
+        #     y: 357
+        #     width: 210
+        #     height: 150
+        #     radius: 12
+        #     bg_color: 0x202124
+        #     border_width: 1
+        #     border_color: 0x3C4043
+        #     shadow_width: 0
+        #     widgets:
+        #       - label:
+        #           align: TOP_MID
+        #           y: 14
+        #           text: "FRIDGE"
+        #           text_font: font_ui_16
+        #           text_color: 0x707070
+        #       - label:
+        #           id: lbl_tile_fridge
+        #           align: CENTER
+        #           y: 8
+        #           text: "---"
+        #           text_font: font_ui_24
+        #           text_color: 0x555555
 
         # ---- Alarmo - see this file's own header comment for why it's
         # placed here (below the clock) rather than in the 2x3 switch
