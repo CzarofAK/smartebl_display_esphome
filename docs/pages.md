@@ -134,6 +134,24 @@ not simulated by the overlay alone any more. **Confirmed on hardware
 ist sleep wirklich schwarz") - before that the overlay really was doing
 all the work, exactly the cosmetic dimming this was meant to replace.
 
+**Bug fixed 2026-09-26: sleep stayed dark only while nothing else touched
+the brightness.** Reported as "sleep ist nur overlay - DER BUTTON STIMMT!
+- aber die automatisierung called das falsche". Both paths do call the
+same `enter_sleep`, and it does write a raw `0` - but every caller of
+`apply_backlight` used to re-light the panel behind the still-visible
+overlay, at whatever level was last set. That is why only the *automatic*
+sleep looked broken: the manual button is watched happening, while
+automatic sleep runs unattended for hours, and in that window
+`apply_daynight` fires from `s_sun`'s `on_value` - at sunrise (07:xx is
+inside the 22:00-08:00 window) and on every Home Assistant reconnect,
+since ESPHome re-subscribes and gets the state pushed again - plus
+`draw_daynight_popup`'s slider sync and the `Display Brightness` entity.
+`apply_backlight` now skips the hardware write while `g_sleep_active`,
+keeping label, level and HA entity in step so waking restores exactly
+what the user had. Changing brightness remotely while the panel sleeps
+therefore does **not** wake it, by design; a touch or the moon button
+does.
+
 ## 5. Page catalog
 
 Order is provisional (unlike `m5dial_fram`, there's no rotary encoder

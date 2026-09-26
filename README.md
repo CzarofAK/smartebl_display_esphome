@@ -241,6 +241,19 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       §4's navigation and alarm-precedence open items at the concept
       level (pixel layout is still open, per that document's own
       reasoning)
+- [x] **Sleep mode bug fixed: the panel lit itself back up overnight**
+      (2026-09-26). Repo-owner report: "sleep ist nur overlay - DER BUTTON
+      STIMMT! - aber die automatisierung called das falsche". Both paths
+      do call the same `enter_sleep`, which does write a raw `0`; what was
+      missing was a guard keeping it dark. Every `apply_backlight` caller
+      re-lit the panel behind the still-visible black overlay, at the last
+      level set (hence the reported ~20%) - and only the automatic sleep
+      showed it, because that one runs unattended while `s_sun`'s
+      `on_value` fires (sunrise falls inside the 22:00-08:00 window, and
+      every HA reconnect re-pushes the state), plus the popup's slider
+      sync and the `Display Brightness` entity. `apply_backlight` now
+      skips the hardware write while `g_sleep_active` and only tracks the
+      level, so waking restores exactly what was set.
 - [x] **Fridge tile commented out** (2026-09-26). Repo owner: "Fridge
       switch habe ich nicht, bitte auskommentieren" - this vehicle has no
       controllable fridge line, which closes `docs/pages.md` §6's
