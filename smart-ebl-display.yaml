@@ -231,6 +231,9 @@ packages:
   p6: !include smart_ebl_pages/page_sensors_windows.yaml
   p6b: !include smart_ebl_pages/page_sensors_flaps.yaml
   p7: !include smart_ebl_pages/page_sensors_levelling.yaml
+  # Hardware modules (not pages) - smart_ebl_modules/. Audio = onboard
+  # ES8311 + NS4150B speaker path, pre-alarm tones (YouTrack FRA-98).
+  m_audio: !include smart_ebl_modules/audio.yaml
 
 # =============================================================================
 # Ethernet - REMOVED per repo-owner decision (2026-09-06): "brauchen wir

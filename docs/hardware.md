@@ -252,6 +252,28 @@ the entity's `set_action` writes once, then its LVGL-slider sync makes
 the slider's own `on_value` write the same value again. Idempotent, and
 it terminates there.
 
+## Confirmed — from Waveshare's schematic: audio (ES8311 codec + NS4150B amp)
+
+Source: `ESP32-P4-WIFI6-POE-ETH-Schematic.pdf` (Waveshare, Resources &
+Documents page), page 1, blocks "Codec" and "PA&SPEAKER&MIC" — read
+directly from the drawing, so this is the primary source. Used by
+`smart_ebl_modules/audio.yaml` (YouTrack FRA-98, 2026-10-01).
+
+| Signal | GPIO / value | Notes |
+|---|---|---|
+| ES8311 CCLK / CDATA (control I²C) | GPIO8 / GPIO7 | Net `ESP_I2C_SCL/SDA` — the **same bus as touch** (`bus_touch`) |
+| ES8311 I²C address | `0x18` | CE pin to AGND via R53 10k |
+| I2S MCLK | GPIO13 | |
+| I2S SCLK (BCLK) | GPIO12 | |
+| I2S LRCK | GPIO10 | |
+| I2S DSDIN (P4 → codec, speaker) | GPIO9 | |
+| I2S ASDOUT (codec → P4, mic) | GPIO11 | Not used yet |
+| NS4150B CTRL (amp enable) | GPIO53 | Via R71 0R, R74 10k **pull-down** → amp off unless driven high |
+| Speaker | J8 | Mono, `PA_OUTL+/-` through ferrites L3/L4 |
+
+The amp is switched on only while the media player announces
+(`on_announcement` / `on_idle`), so it doesn't hiss or draw current at idle.
+
 ## Not confirmed — placeholders, must be verified before flashing
 
 **RS232 link UART pins — confirmed bad (GPIO37/38), moved to GPIO21/20.**

@@ -37,6 +37,29 @@ text_sensor:
     entity_id: alarm_control_panel.alarmo
     on_value:
       - script.execute: draw_alarm_tile
+      - script.execute: handle_alarm_state
+
+# ---- Pre-alarm (YouTrack FRA-98, step 2) ------------------------------
+# Alarmo publishes the running entry/exit delay as the `delay` attribute
+# (seconds) while `pending`. Used only to set the countdown's end; the
+# countdown itself runs locally on millis() so it keeps ticking even if
+# HA stops pushing updates mid-delay.
+sensor:
+  - platform: homeassistant
+    id: s_alarmo_delay
+    entity_id: alarm_control_panel.alarmo
+    attribute: delay
+    internal: true
+    on_value:
+      - lambda: |-
+          if (id(g_prealarm_active) && !std::isnan(x) && x > 0) {
+            id(g_prealarm_end_ms) = id(g_prealarm_start_ms) + (uint32_t) (x * 1000.0f);
+          }
+
+interval:
+  - interval: 1s
+    then:
+      - script.execute: prealarm_tick
 
 globals:
   # PIN entry buffer for the arm/disarm keypad popup below - cleared on
@@ -46,6 +69,20 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
+  # Pre-alarm state (FRA-98) - all volatile on purpose: after a reboot the
+  # next `pending`/`triggered` push from HA re-arms it from scratch.
+  - id: g_prealarm_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: g_prealarm_start_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: g_prealarm_end_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
 
 switch:
   # Optimistic local mirrors of smartebl's switches - reflect the
@@ -219,8 +256,16 @@ script:
   - id: close_alarm_popup
     then:
       - script.execute: alarm_pin_clear
-      - lvgl.widget.update: {id: obj_alarm_popup_backdrop, hidden: true}
-      - lvgl.widget.update: {id: obj_alarm_popup_panel, hidden: true}
+      # During a pre-alarm the popup must stay up: a wrong PIN, a tap on
+      # the backdrop or SCHLIESSEN must not hide the countdown while
+      # Alarmo is still pending/triggered. Only stop_prealarm (driven by
+      # the confirmed state from HA) hides it.
+      - if:
+          condition:
+            lambda: "return !id(g_prealarm_active);"
+          then:
+            - lvgl.widget.update: {id: obj_alarm_popup_backdrop, hidden: true}
+            - lvgl.widget.update: {id: obj_alarm_popup_panel, hidden: true}
 
   # ---- Arm/disarm - THREE separate actions, not one generic "OK"
   # (repo-owner: "ich nutze nur Armed home, Armed away und Disarmed") -
@@ -271,10 +316,12 @@ script:
       - script.execute: close_alarm_popup
 
   # ---- Popup button visibility - ARM HOME/ARM AWAY while disarmed
-  # (or unknown), DISARM while any armed_* state. Called from
-  # show_alarm_popup (so it's never stale when the popup opens) AND
-  # from draw_alarm_tile (so it stays correct if the state changes
-  # while the popup happens to be open already).
+  # (or unknown), DISARM while any armed_* state - and also while
+  # pending/triggered (FRA-98: before, `pending` fell into the else
+  # branch and offered ARM buttons during a running entry delay).
+  # Called from show_alarm_popup (so it's never stale when the popup
+  # opens) AND from draw_alarm_tile (so it stays correct if the state
+  # changes while the popup happens to be open already).
   - id: draw_alarm_popup_buttons
     then:
       - if:
@@ -285,8 +332,9 @@ script:
               #else
               bool api_ok = true;
               #endif
-              return api_ok && id(s_alarmo_state).has_state() &&
-                  id(s_alarmo_state).state.rfind("armed", 0) == 0;
+              if (!api_ok || !id(s_alarmo_state).has_state()) return false;
+              const std::string &s = id(s_alarmo_state).state;
+              return s.rfind("armed", 0) == 0 || s == "pending" || s == "triggered";
           then:
             - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: true}
             - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: true}
@@ -295,6 +343,106 @@ script:
             - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: false}
             - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: false}
             - lvgl.widget.update: {id: btn_alarm_disarm, hidden: true}
+
+  # ---- Pre-alarm (YouTrack FRA-98, step 2) ----------------------------
+  # Alarmo `pending` (entry delay running) or `triggered` -> force the
+  # PIN popup up on page_home, wake the display, show a countdown in the
+  # popup title and loop the pre-alarm tone. Any other confirmed state
+  # (disarmed / armed_* after a successful DISARM or a timeout reset)
+  # tears it all down again. The horn itself is NOT driven from here -
+  # HA/Alarmo triggers the Shelly script; this panel is indoor warning +
+  # disarm only.
+  - id: handle_alarm_state
+    mode: queued
+    then:
+      - lambda: |-
+          bool alarm = id(s_alarmo_state).has_state() &&
+              (id(s_alarmo_state).state == "pending" ||
+               id(s_alarmo_state).state == "triggered");
+          if (alarm && !id(g_prealarm_active)) {
+            id(start_prealarm).execute();
+          } else if (!alarm && id(g_prealarm_active)) {
+            id(stop_prealarm).execute();
+          }
+
+  - id: start_prealarm
+    then:
+      - lambda: |-
+          id(g_prealarm_active) = true;
+          id(g_prealarm_start_ms) = millis();
+          // Alarmo's `delay` attribute if HA already pushed it, else the
+          // planned 120 s - corrected by s_alarmo_delay's on_value as
+          // soon as the real value arrives.
+          float d = id(s_alarmo_delay).has_state() ? id(s_alarmo_delay).state : NAN;
+          uint32_t secs = (!std::isnan(d) && d > 0) ? (uint32_t) d : 120;
+          id(g_prealarm_end_ms) = id(g_prealarm_start_ms) + secs * 1000UL;
+          id(g_last_touch_ms) = millis();
+      - script.execute: wake_from_sleep
+      - lvgl.page.show: page_home
+      - script.execute: show_alarm_popup
+      - lvgl.widget.update: {id: btn_alarm_popup_close, hidden: true}
+      - lambda: |-
+          lv_obj_set_style_border_color(id(obj_alarm_popup_panel), lv_color_hex(0xE74C3C), 0);
+          lv_obj_set_style_text_color(id(lbl_alarm_popup_title), lv_color_hex(0xE74C3C), 0);
+      - media_player.volume_set:
+          id: mp_onboard
+          volume: 100%
+      - script.execute: prealarm_tick
+
+  - id: stop_prealarm
+    then:
+      - globals.set: {id: g_prealarm_active, value: "false"}
+      - media_player.stop:
+          id: mp_onboard
+          announcement: true
+      - lambda: |-
+          lv_obj_set_style_border_color(id(obj_alarm_popup_panel), lv_color_hex(0x4A9EFF), 0);
+          lv_obj_set_style_text_color(id(lbl_alarm_popup_title), lv_color_hex(0xBDC1C6), 0);
+          lv_label_set_text(id(lbl_alarm_popup_title), "ALARMANLAGE");
+      - lvgl.widget.update: {id: btn_alarm_popup_close, hidden: false}
+      - script.execute: close_alarm_popup
+
+  # Once a second (interval in this file) - countdown text, keeps the
+  # display from going back to sleep, and restarts the tone whenever the
+  # previous loop finished. Last 30 s and `triggered` use the more urgent
+  # voralarm_final.wav.
+  - id: prealarm_tick
+    then:
+      - if:
+          condition:
+            lambda: "return id(g_prealarm_active);"
+          then:
+            - lambda: |-
+                id(g_last_touch_ms) = millis();
+                bool triggered = id(s_alarmo_state).state == "triggered";
+                int32_t remain_ms = (int32_t) (id(g_prealarm_end_ms) - millis());
+                int remain = remain_ms > 0 ? (remain_ms + 999) / 1000 : 0;
+                if (triggered || remain == 0) {
+                  lv_label_set_text(id(lbl_alarm_popup_title), "ALARM");
+                } else {
+                  lv_label_set_text(id(lbl_alarm_popup_title),
+                      str_sprintf("VORALARM  %d:%02d", remain / 60, remain % 60).c_str());
+                }
+            - if:
+                condition:
+                  not:
+                    media_player.is_announcing: mp_onboard
+                then:
+                  - if:
+                      condition:
+                        lambda: |-
+                          int32_t remain_ms = (int32_t) (id(g_prealarm_end_ms) - millis());
+                          return id(s_alarmo_state).state == "triggered" || remain_ms <= 30000;
+                      then:
+                        - media_player.speaker.play_on_device_media_file:
+                            id: mp_onboard
+                            media_file: snd_voralarm_final
+                            announcement: true
+                      else:
+                        - media_player.speaker.play_on_device_media_file:
+                            id: mp_onboard
+                            media_file: snd_voralarm
+                            announcement: true
 
 esphome:
   on_boot:
@@ -721,6 +869,9 @@ lvgl:
             hidden: true
             widgets:
               - label:
+                  # id added for FRA-98: becomes "VORALARM m:ss" / "ALARM"
+                  # (red) during a pre-alarm, see prealarm_tick.
+                  id: lbl_alarm_popup_title
                   align: TOP_MID
                   y: 20
                   text: "ALARMANLAGE"
