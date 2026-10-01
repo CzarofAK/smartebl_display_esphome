@@ -404,8 +404,9 @@ script:
 
   # Once a second (interval in this file) - countdown text, keeps the
   # display from going back to sleep, and restarts the tone whenever the
-  # previous loop finished. Last 30 s and `triggered` use the more urgent
-  # voralarm_final.wav.
+  # previous loop finished. sound1 (gong) while counting down; last 30 s
+  # and `triggered` use the more urgent sound2 - see the media_player's
+  # sound slot list in smart-ebl-display.yaml.
   - id: prealarm_tick
     then:
       - if:
@@ -436,12 +437,12 @@ script:
                       then:
                         - media_player.speaker.play_on_device_media_file:
                             id: mp_onboard
-                            media_file: snd_voralarm_final
+                            media_file: sound2
                             announcement: true
                       else:
                         - media_player.speaker.play_on_device_media_file:
                             id: mp_onboard
-                            media_file: snd_voralarm
+                            media_file: sound1
                             announcement: true
 
 esphome:

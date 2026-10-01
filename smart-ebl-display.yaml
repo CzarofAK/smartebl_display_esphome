@@ -231,9 +231,6 @@ packages:
   p6: !include smart_ebl_pages/page_sensors_windows.yaml
   p6b: !include smart_ebl_pages/page_sensors_flaps.yaml
   p7: !include smart_ebl_pages/page_sensors_levelling.yaml
-  # Hardware modules (not pages) - smart_ebl_modules/. Audio = onboard
-  # ES8311 + NS4150B speaker path, pre-alarm tones (YouTrack FRA-98).
-  m_audio: !include smart_ebl_modules/audio.yaml
 
 # =============================================================================
 # Ethernet - REMOVED per repo-owner decision (2026-09-06): "brauchen wir
@@ -292,6 +289,99 @@ i2c:
     sda: GPIO7
     scl: GPIO8
     scan: true
+
+# =============================================================================
+# Audio - onboard ES8311 codec + NS4150B class-D amp (YouTrack FRA-98)
+# =============================================================================
+# Hardware, so it lives here with display/touch/backlight - not as a
+# package (packages: is for pages only). Wiring read from Waveshare's own
+# schematic, see docs/hardware.md "audio": ES8311 control on bus_touch
+# (GPIO7/8, address 0x18), I2S MCLK13/BCLK12/LRCK10/DOUT9, NS4150B amp
+# enable GPIO53 (10k pull-down -> off unless driven high). Same structure
+# as the esphome.io es8311 example, only the GPIOs differ.
+#
+# The amp is switched on only while the media player announces, so it
+# neither hisses nor draws current from the house battery at idle.
+
+i2s_audio:
+  - id: i2s_bus_audio
+    i2s_mclk_pin: GPIO13
+    i2s_bclk_pin: GPIO12
+    i2s_lrclk_pin: GPIO10
+
+audio_dac:
+  - platform: es8311
+    id: dac_es8311
+    i2c_id: bus_touch
+    address: 0x18
+    bits_per_sample: 16bit
+    sample_rate: 16000
+    use_mclk: true
+
+speaker:
+  - platform: i2s_audio
+    id: spk_onboard
+    i2s_audio_id: i2s_bus_audio
+    i2s_dout_pin: GPIO9
+    dac_type: external
+    audio_dac: dac_es8311
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: left  # ES8311 is a mono DAC reading the left slot
+    buffer_duration: 100ms
+
+switch:
+  - platform: gpio
+    id: sw_audio_amp
+    name: "Audio Verstaerker"
+    pin: GPIO53
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+media_player:
+  - platform: speaker
+    id: mp_onboard
+    name: "Lautsprecher"
+    announcement_pipeline:
+      speaker: spk_onboard
+      format: WAV
+      sample_rate: 16000
+      num_channels: 1
+    volume_initial: 0.8
+    volume_min: 0.3
+    volume_max: 1.0
+    # ---- Six generic sound slots, embedded in the firmware ----------------
+    # Neutral names on purpose: the slot number says nothing about what a
+    # sound is FOR, so anyone can swap a file or reuse a slot for their own
+    # purpose without renaming ids. Fetched from this repo at compile time
+    # (ESPHome downloads web files once and caches them under .esphome/) -
+    # nothing to copy into /config/esphome. To use your own sound, replace
+    # the URL with your own URL or a local path (e.g. `file: sounds/my.wav`,
+    # relative to this file). Format: WAV, 16 kHz, mono, 16 bit.
+    #
+    #   sound1  pre-alarm gong, loopable          (page_home: Alarmo pending)
+    #   sound2  urgent pre-alarm, loopable        (page_home: last 30 s / triggered)
+    #   sound3  info ding-dong                    (unused, spare)
+    #   sound4  confirm / OK, short rising        (unused, spare)
+    #   sound5  error / rejected, low falling     (unused, spare)
+    #   sound6  caution triple chime              (unused, spare)
+    files:
+      - id: sound1
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound1.wav
+      - id: sound2
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound2.wav
+      - id: sound3
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound3.wav
+      - id: sound4
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound4.wav
+      - id: sound5
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound5.wav
+      - id: sound6
+        file: https://raw.githubusercontent.com/CzarofAK/smartebl_display_esphome/main/sounds/sound6.wav
+    on_announcement:
+      - switch.turn_on: sw_audio_amp
+    on_idle:
+      - switch.turn_off: sw_audio_amp
 
 # =============================================================================
 # LDO - powers the MIPI DSI PHY (required by display.mipi_dsi below)

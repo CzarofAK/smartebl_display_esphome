@@ -149,6 +149,9 @@ smartebl_display_esphome/
 │   ├── page_sensors_levelling.yaml   # Sensors, sub-page 1: spirit level
 │   ├── page_sensors_windows.yaml     # Sensors, sub-page 2: 11 door/window contacts
 │   └── page_sensors_flaps.yaml       # Sensors, sub-page 3: 7 flap/hatch contacts
+├── sounds/                      # sound1-6.wav, generic slots (16 kHz mono) -
+│                                #   fetched by URL at compile time, see the
+│                                #   media_player block in smart-ebl-display.yaml
 └── docs/                        # hardware.md, protocol.md, pages.md, design_rules.md
 ```
 
