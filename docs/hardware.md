@@ -257,7 +257,7 @@ it terminates there.
 Source: `ESP32-P4-WIFI6-POE-ETH-Schematic.pdf` (Waveshare, Resources &
 Documents page), page 1, blocks "Codec" and "PA&SPEAKER&MIC" — read
 directly from the drawing, so this is the primary source. Used by
-`smart_ebl_modules/audio.yaml` (YouTrack FRA-98, 2026-10-01).
+the audio block in `smart-ebl-display.yaml` (YouTrack FRA-98, 2026-10-01).
 
 | Signal | GPIO / value | Notes |
 |---|---|---|
