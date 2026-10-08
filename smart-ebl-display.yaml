@@ -280,14 +280,28 @@ update:
     name: "C6 Firmware"
 
 # =============================================================================
-# I2C - Touch controller only (the DSI panel itself is configured over
-# its own DSI command channel, not I2C - see the display: block below)
+# I2C - two buses
 # =============================================================================
+# bus_touch: onboard only - touch (0x5D), backlight PMIC (0x45), ES8311
+#   (0x18). The DSI panel itself is configured over its own DSI command
+#   channel, not I2C - see the display: block below.
+# bus_sens (YouTrack FR-67): external sensor panel at the windscreen,
+#   BH1750 (0x23) + BME280 (0x76/0x77) on ~1 m of Dupont cable. Kept on
+#   its OWN bus on purpose: a long external cable on bus_touch would put
+#   touch AND backlight control at risk if it ever hangs the bus.
+#   Header GPIO4 = SDA, GPIO5 = SCL, VCC from 3V3 (never 5V - the modules'
+#   pull-ups would then pull SDA/SCL to 5V). 50 kHz for the cable length;
+#   the modules' own pull-ups (parallel ~3.2 kOhm) are sufficient.
 
 i2c:
   - id: bus_touch
     sda: GPIO7
     scl: GPIO8
+    scan: true
+  - id: bus_sens
+    sda: GPIO4
+    scl: GPIO5
+    frequency: 50kHz
     scan: true
 
 # =============================================================================
@@ -779,6 +793,43 @@ sensor:
     name: "Outside Temperature"
     on_value:
       - script.execute: draw_status_bar
+
+  # ---- Windscreen sensor panel (YouTrack FR-67) - bus_sens -------------
+  # Step 1: readings only, to verify wiring and plausibility. Automatic
+  # backlight dimming from s_lux comes in a separate step once the lux
+  # range at the windscreen (night / overcast / sun) is known.
+  # Recorder: throttled at the source (delta / slow interval), per the
+  # FRAM rule in KB FR-A-15.
+  - platform: bh1750
+    i2c_id: bus_sens
+    id: s_lux
+    name: "Ambient Light"
+    address: 0x23
+    update_interval: 5s
+    filters:
+      - delta: 10%
+
+  # Address: most purple BME280 breakouts are 0x76 (SDO to GND), some are
+  # 0x77. If the boot log's bus_sens scan shows 0x77, change it here.
+  - platform: bme280_i2c
+    i2c_id: bus_sens
+    address: 0x76
+    update_interval: 60s
+    temperature:
+      id: s_bme_temp
+      name: "Panel Temperature"
+      filters:
+        - delta: 0.2
+    humidity:
+      id: s_bme_hum
+      name: "Panel Humidity"
+      filters:
+        - delta: 1.0
+    pressure:
+      id: s_bme_press
+      name: "Panel Pressure"
+      filters:
+        - delta: 0.5
 
 # =============================================================================
 # Remote backlight control - Home Assistant / web server entity
