@@ -33,6 +33,20 @@ substitutions:
   name: smart-ebl-display
   friendly_name: Smart EBL Display
 
+  # ---- Automatic dimming from the windscreen light sensor (FR-67) -----
+  # Only in AUTO mode and only while s_lux delivers values (sensor panel
+  # connected); otherwise AUTO falls back to sun.sun 100/60 % as before.
+  # Log-linear: lux at or below dim_lux_min -> dim_pct_min, at or above
+  # dim_lux_max -> 100 %. The brightness slider adds an OFFSET on top
+  # (repo owner 2026-10-09: "Sensor übersteuert und Slider dient als
+  # Offset"). Living-area display, so deliberately slow: EMA alpha
+  # dim_alpha on a 2 s reading (~20 s to settle), unlike the M5Dial in
+  # the driver's sightline. Tune after measuring night/day/sun lux.
+  dim_lux_min: "1.0"
+  dim_lux_max: "2000.0"
+  dim_pct_min: "30"
+  dim_alpha: "0.1"
+
   # ---- RS232 link to the Smart EBL main unit (docs/protocol.md) -------
   # Moved off GPIO37/GPIO38 (see docs/hardware.md's "Not confirmed"
   # section for why - real hardware showed those interleaved with the
@@ -712,6 +726,23 @@ globals:
     restore_value: true
     initial_value: "100"
 
+  # ---- Automatic dimming (FR-67, see apply_daynight) --------------------
+  # g_auto_lux: smoothed lux from s_lux, -1 = no sensor value (yet).
+  # g_bl_auto_pct: what the lux curve alone asks for, -1 = not in use.
+  # g_bl_offset: user's slider offset on top of the curve, persisted.
+  - id: g_auto_lux
+    type: float
+    restore_value: false
+    initial_value: "-1.0"
+  - id: g_bl_auto_pct
+    type: int
+    restore_value: false
+    initial_value: "-1"
+  - id: g_bl_offset
+    type: int
+    restore_value: true
+    initial_value: "0"
+
   # ---- Sleep mode (see check_sleep_idle/enter_sleep/wake_from_sleep) ----
   - id: g_last_touch_ms
     type: uint32_t
@@ -795,17 +826,29 @@ sensor:
       - script.execute: draw_status_bar
 
   # ---- Windscreen sensor panel (YouTrack FR-67) - bus_sens -------------
-  # Step 1: readings only, to verify wiring and plausibility. Automatic
-  # backlight dimming from s_lux comes in a separate step once the lux
-  # range at the windscreen (night / overcast / sun) is known.
-  # Recorder: throttled at the source (delta / slow interval), per the
-  # FRAM rule in KB FR-A-15.
+  # s_lux drives the automatic backlight dimming (apply_daynight, AUTO
+  # mode): internal, read every 2 s, smoothed with an EMA (alpha
+  # ${dim_alpha}, ~20 s to settle - living area, no need to chase every
+  # cloud). Home Assistant only gets the copy below, which publishes on a
+  # 10 % change, so the recorder stays small (FRAM rule, KB FR-A-15).
   - platform: bh1750
     i2c_id: bus_sens
     id: s_lux
-    name: "Ambient Light"
+    internal: true
     address: 0x23
-    update_interval: 5s
+    update_interval: 2s
+    filters:
+      - exponential_moving_average:
+          alpha: ${dim_alpha}
+          send_every: 1
+    on_value:
+      - lambda: |-
+          id(g_auto_lux) = std::isnan(x) ? -1.0f : x;
+      - script.execute: apply_daynight
+
+  - platform: copy
+    source_id: s_lux
+    name: "Ambient Light"
     filters:
       - delta: 10%
 
@@ -1105,29 +1148,67 @@ script:
   # level was set before, by design - the slider is still there
   # afterward for fine-tuning between transitions, it just no longer
   # "remembers" a custom level across the next mode/sun change.
+  #
+  # AUTOMATIC DIMMING, 2026-10-09 (FR-67): in AUTO, as long as the
+  # windscreen sensor delivers values (g_auto_lux >= 0), the level comes
+  # from the lux curve (substitutions dim_*) PLUS the user's slider offset
+  # (g_bl_offset, see act_backlight_set), clamped to 10-100 %. s_sun is
+  # then ignored. This now runs on every smoothed lux value (every 2 s),
+  # so in that path it only writes when the level moved by >= 2 % and
+  # syncs the slider via LVGL's own lv_slider_set_value() (no on_value
+  # event, so no loop back into act_backlight_set). Without a sensor
+  # value, AUTO behaves exactly as before (sun.sun -> 100/60 %).
   - id: apply_daynight
+    mode: restart
     then:
       - lambda: |-
           const char *labels[3] = {"AUTO", "DAY", "NIGHT"};
           lv_label_set_text(id(lbl_daynight_toggle), labels[id(g_daynight)]);
 
-          bool night;
           int m = id(g_daynight);
-          if (m == 1) {
-            night = false;
-          } else if (m == 2) {
-            night = true;
+          float lux = id(g_auto_lux);
+          if (m == 0 && lux >= 0.0f) {
+            const float lmin = ${dim_lux_min};
+            const float lmax = ${dim_lux_max};
+            const float pmin = ${dim_pct_min};
+            float l = std::min(std::max(lux, lmin), lmax);
+            float f = (log10f(l) - log10f(lmin)) / (log10f(lmax) - log10f(lmin));
+            int auto_pct = (int) lroundf(pmin + f * (100.0f - pmin));
+            id(g_bl_auto_pct) = auto_pct;
+            int target = std::min(100, std::max(10, auto_pct + id(g_bl_offset)));
+            if (abs(target - id(g_backlight_pct)) < 2) {
+              return;   // no visible change - skip the I2C write
+            }
+            id(g_backlight_pct) = target;
+            lv_slider_set_value(id(sld_backlight), target, LV_ANIM_OFF);
+            ESP_LOGD("backlight", "auto: %.1f lx -> curve %d%% + offset %d%% = %d%%",
+                     lux, auto_pct, id(g_bl_offset), target);
           } else {
-            night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+            id(g_bl_auto_pct) = -1;
+            bool night;
+            if (m == 1) {
+              night = false;
+            } else if (m == 2) {
+              night = true;
+            } else {
+              night = id(s_sun).has_state() && id(s_sun).state != "above_horizon";
+            }
+            id(g_backlight_pct) = night ? 60 : 100;
           }
-          id(g_backlight_pct) = night ? 60 : 100;
-      - script.execute: apply_backlight
+          id(apply_backlight).execute();
 
+  # Tapping AUTO explicitly resets the slider offset: "AUTO" then means the
+  # pure sensor curve again; the slider can shift it afterwards.
   - id: act_daynight_set_mode
     parameters:
       mode: int
     then:
       - globals.set: {id: g_daynight, value: !lambda "return mode;"}
+      - if:
+          condition:
+            lambda: "return mode == 0;"
+          then:
+            - globals.set: {id: g_bl_offset, value: "0"}
       - script.execute: apply_daynight
       - script.execute: draw_daynight_popup
 
@@ -1234,11 +1315,23 @@ script:
           // level that will be restored on wake, not 0.
           id(num_backlight).publish_state(pct);
 
+  # Slider / HA entity. In AUTO with an active lux curve the new level is
+  # stored as an OFFSET against the curve (FR-67), so the screen lands
+  # exactly where it was dragged and keeps that distance as the light
+  # changes. Only a real change counts: the programmatic slider syncs
+  # (draw_daynight_popup, the number entity's set_action) pass the current
+  # level again, which must not re-derive (and slowly drift) the offset.
   - id: act_backlight_set
     parameters:
       pct: int
     then:
-      - globals.set: {id: g_backlight_pct, value: !lambda "return pct;"}
+      - lambda: |-
+          if (id(g_daynight) == 0 && id(g_bl_auto_pct) >= 0 && pct != id(g_backlight_pct)) {
+            id(g_bl_offset) = pct - id(g_bl_auto_pct);
+            ESP_LOGD("backlight", "offset %d%% (curve %d%%, set %d%%)",
+                     id(g_bl_offset), id(g_bl_auto_pct), pct);
+          }
+          id(g_backlight_pct) = pct;
       - script.execute: apply_backlight
 
   # Raw I2C write, factored out of apply_backlight so sleep mode (below)
