@@ -1660,8 +1660,16 @@ script:
           bool api_ok = true;
           #endif
           char tbuf[16];
-          if (api_ok && id(s_climate_room_temp).has_state()) {
-            snprintf(tbuf, sizeof(tbuf), "IN %.0f°C", id(s_climate_room_temp).state);
+          // Fallback (FR-67): without HA/Truma the local BME280 on the
+          // windscreen panel stands in - works without Wi-Fi. Same text,
+          // the Truma room sensor stays the primary source (the panel
+          // sits at the glass, sun skews it).
+          bool in_truma = api_ok && id(s_climate_room_temp).has_state();
+          bool in_bme = !in_truma && id(s_bme_temp).has_state() &&
+                        !std::isnan(id(s_bme_temp).state);
+          if (in_truma || in_bme) {
+            snprintf(tbuf, sizeof(tbuf), "IN %.0f°C",
+                     in_truma ? id(s_climate_room_temp).state : id(s_bme_temp).state);
             lv_label_set_text(id(lbl_status_temp_in), tbuf);
             lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0xBDC1C6), 0);
             // page_home's own IN label - same value, "standard blue"
@@ -1674,6 +1682,17 @@ script:
             lv_obj_set_style_text_color(id(lbl_status_temp_in), lv_color_hex(0x555555), 0);
             lv_label_set_text(id(lbl_home_clock_temp_in), "IN ---°C");
             lv_obj_set_style_text_color(id(lbl_home_clock_temp_in), lv_color_hex(0x555555), 0);
+          }
+
+          // ---- Humidity - local BME280 (windscreen panel, FR-67), no
+          // api_ok guard (local hardware, same as OUT below).
+          if (id(s_bme_hum).has_state() && !std::isnan(id(s_bme_hum).state)) {
+            snprintf(tbuf, sizeof(tbuf), "RH %.0f%%", id(s_bme_hum).state);
+            lv_label_set_text(id(lbl_status_hum), tbuf);
+            lv_obj_set_style_text_color(id(lbl_status_hum), lv_color_hex(0xBDC1C6), 0);
+          } else {
+            lv_label_set_text(id(lbl_status_hum), "RH --%");
+            lv_obj_set_style_text_color(id(lbl_status_hum), lv_color_hex(0x555555), 0);
           }
 
           // ---- Outside temperature - LOCAL NTC sensor (adc_temp_outside/
@@ -1772,6 +1791,16 @@ lvgl:
           y: 22
           text_font: font_ui_16
           text: "OUT ---°C"
+          text_color: 0x555555
+      # Humidity from the windscreen BME280 (FR-67). Centre x +100 = 740 px,
+      # clear of OUT (~610) and the SLEEP button (870-960).
+      - label:
+          id: lbl_status_hum
+          align: TOP_MID
+          x: 100
+          y: 22
+          text_font: font_ui_16
+          text: "RH --%"
           text_color: 0x555555
       - button:
           id: btn_daynight_toggle
