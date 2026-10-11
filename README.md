@@ -423,7 +423,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       % of a defined range - 5-30°C room, 40-80°C water - same
       "always a percentage" rule `m5dial_fram/design_rules.md` §8
       uses). Fan level added and fully working (read AND write, tap-to-
-      cycle) - turned out to be `climate.womolin_controller_mqtt_truma_room`'s
+      cycle) - turned out to be `climate.smart_ebl_truma_heater`'s
       own `fan_mode` attribute (off/low/medium/high, confirmed real),
       not a separate `select.*` entity as first assumed.
 - [x] **Home page tiles rearranged and centered** per repo-owner spec:

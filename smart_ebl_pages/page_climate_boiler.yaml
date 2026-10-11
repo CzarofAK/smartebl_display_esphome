@@ -1,6 +1,10 @@
 # =============================================================================
 #  smart_ebl_pages/page_climate_boiler.yaml -- page: Truma (Climate + Boiler)
 #  Smart EBL Display (ESP32-P4) - page package
+# FR-71 (2026-10-11): Truma source switched from the womolin controller
+# (MQTT, womolin_controller_mqtt_*) to the Smart EBL's own truma_inetbox
+# entities (smart_ebl_truma_*). Same havanti component on both, so the
+# semantics are unchanged; mentions of womolin_controller below are history.
 # =============================================================================
 # docs/pages.md §5: ONE page for both sides of the repo owner's own Truma
 # Combi 4 (room heating "Climate" left half, water heating "Boiler" right
@@ -25,21 +29,21 @@ text_sensor:
   # the rest of this section used to be.
   - platform: homeassistant
     id: s_truma_operating_status
-    entity_id: sensor.womolin_controller_mqtt_operating_status
+    entity_id: sensor.smart_ebl_truma_status
     on_value:
       - script.execute: draw_climate
       - script.execute: draw_boiler
 
   - platform: homeassistant
     id: s_truma_heating_mode
-    entity_id: sensor.womolin_controller_mqtt_heating_mode
+    entity_id: sensor.smart_ebl_truma_heating_mode
     on_value:
       - script.execute: draw_climate
       - script.execute: draw_boiler
 
   - platform: homeassistant
     id: s_truma_error_code
-    entity_id: sensor.womolin_controller_mqtt_heater_error_code
+    entity_id: sensor.smart_ebl_truma_error_code
     on_value:
       - script.execute: draw_climate
       - script.execute: draw_boiler
@@ -54,7 +58,7 @@ text_sensor:
   # attribute off it.
   - platform: homeassistant
     id: s_climate_fan_mode
-    entity_id: climate.womolin_controller_mqtt_truma_room
+    entity_id: climate.smart_ebl_truma_heater
     attribute: fan_mode
     on_value:
       - script.execute: draw_climate
@@ -80,7 +84,7 @@ text_sensor:
   # `homeassistant` sensor source), just without the log spam.
   - platform: homeassistant
     id: s_climate_room_temp_raw
-    entity_id: climate.womolin_controller_mqtt_truma_room
+    entity_id: climate.smart_ebl_truma_heater
     attribute: current_temperature
     on_value:
       - lambda: |-
@@ -90,7 +94,7 @@ text_sensor:
 
   - platform: homeassistant
     id: s_climate_target_raw
-    entity_id: climate.womolin_controller_mqtt_truma_room
+    entity_id: climate.smart_ebl_truma_heater
     attribute: temperature
     on_value:
       - lambda: |-
@@ -100,7 +104,7 @@ text_sensor:
 
   - platform: homeassistant
     id: s_boiler_temp_raw
-    entity_id: climate.womolin_controller_mqtt_truma_water
+    entity_id: climate.smart_ebl_truma_water_heater
     attribute: current_temperature
     on_value:
       - lambda: |-
@@ -110,7 +114,7 @@ text_sensor:
 
   - platform: homeassistant
     id: s_boiler_target_raw
-    entity_id: climate.womolin_controller_mqtt_truma_water
+    entity_id: climate.smart_ebl_truma_water_heater
     attribute: temperature
     on_value:
       - lambda: |-
@@ -227,7 +231,7 @@ binary_sensor:
   # ---- Climate (page_climate) - HA-fed via womolin_controller ---------
   - platform: homeassistant
     id: s_climate_heater_on
-    entity_id: switch.womolin_controller_mqtt_activate_room_heater
+    entity_id: switch.smart_ebl_truma_activate_room_heater
     on_state:
       # Real state just arrived - stop trusting the optimistic guess.
       - globals.set:
@@ -238,7 +242,7 @@ binary_sensor:
   # ---- Boiler (page_boiler) - HA-fed via womolin_controller ------------
   - platform: homeassistant
     id: s_boiler_heater_on
-    entity_id: switch.womolin_controller_mqtt_activate_water_heater
+    entity_id: switch.smart_ebl_truma_activate_water_heater
     on_state:
       - globals.set:
           id: g_boiler_heater_optimistic_valid
@@ -252,13 +256,13 @@ binary_sensor:
   # secondary indicator, not instead of the button's own state.
   - platform: homeassistant
     id: s_climate_heater_active
-    entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+    entity_id: binary_sensor.smart_ebl_truma_room_heater_active
     on_state:
       - script.execute: draw_climate
 
   - platform: homeassistant
     id: s_boiler_heater_active
-    entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+    entity_id: binary_sensor.smart_ebl_truma_water_heater_active
     on_state:
       - script.execute: draw_boiler
 
@@ -266,14 +270,14 @@ binary_sensor:
   # block above for why there's no room/water split here.
   - platform: homeassistant
     id: s_truma_has_error
-    entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+    entity_id: binary_sensor.smart_ebl_truma_has_error
     on_state:
       - script.execute: draw_climate
       - script.execute: draw_boiler
 
   - platform: homeassistant
     id: s_truma_cp_plus_alive
-    entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+    entity_id: binary_sensor.smart_ebl_truma_cp_plus_connected
     on_state:
       - script.execute: draw_climate
       - script.execute: draw_boiler
@@ -296,15 +300,15 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: climate.womolin_controller_mqtt_truma_room
+            entity_id: climate.smart_ebl_truma_heater
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+            entity_id: switch.smart_ebl_truma_activate_room_heater
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: binary_sensor.womolin_controller_mqtt_room_heater_active
+            entity_id: binary_sensor.smart_ebl_truma_room_heater_active
       - script.execute: poll_truma_status
 
   # Shared Truma status/error - see sensor: block's header comment.
@@ -318,15 +322,15 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: binary_sensor.womolin_controller_mqtt_heater_has_error
+            entity_id: binary_sensor.smart_ebl_truma_has_error
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: binary_sensor.womolin_controller_mqtt_cp_plus_alive
+            entity_id: binary_sensor.smart_ebl_truma_cp_plus_connected
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.womolin_controller_mqtt_operating_status
+            entity_id: sensor.smart_ebl_truma_status
 
   - id: act_climate_heater
     then:
@@ -340,7 +344,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.womolin_controller_mqtt_activate_room_heater
+            entity_id: switch.smart_ebl_truma_activate_room_heater
 
   # 1°C step, clamped 5-30 - confirmed real (climate.womolin_controller_
   # mqtt_truma_room's own min_temp/max_temp/target_temp_step attributes,
@@ -370,7 +374,7 @@ script:
       - homeassistant.service:
           service: climate.set_temperature
           data:
-            entity_id: climate.womolin_controller_mqtt_truma_room
+            entity_id: climate.smart_ebl_truma_heater
           data_template:
             temperature: "{{ val }}"
           variables:
@@ -393,7 +397,7 @@ script:
       - homeassistant.service:
           service: climate.set_fan_mode
           data:
-            entity_id: climate.womolin_controller_mqtt_truma_room
+            entity_id: climate.smart_ebl_truma_heater
           data_template:
             fan_mode: "{{ mode }}"
           variables:
@@ -592,15 +596,15 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: climate.womolin_controller_mqtt_truma_water
+            entity_id: climate.smart_ebl_truma_water_heater
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+            entity_id: switch.smart_ebl_truma_activate_water_heater
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: binary_sensor.womolin_controller_mqtt_water_heater_active
+            entity_id: binary_sensor.smart_ebl_truma_water_heater_active
       - script.execute: poll_truma_status
 
   - id: act_boiler_heater
@@ -615,7 +619,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.womolin_controller_mqtt_activate_water_heater
+            entity_id: switch.smart_ebl_truma_activate_water_heater
 
   # Steps between exactly 40/60/80, never in between - sending a value
   # off this Truma's three real levels would either get silently
@@ -648,7 +652,7 @@ script:
       - homeassistant.service:
           service: climate.set_temperature
           data:
-            entity_id: climate.womolin_controller_mqtt_truma_water
+            entity_id: climate.smart_ebl_truma_water_heater
           data_template:
             temperature: "{{ val }}"
           variables:
