@@ -63,6 +63,16 @@ text_sensor:
     on_value:
       - script.execute: draw_climate
 
+  # ---- Heating fan (Heizungsfan, 2026-10-12) - a separate 12V fan on the
+  # Smart EBL's fridge relay K6 / JP7 (NOT the Truma's own fan). Mode
+  # select on the Smart EBL: "Auto" (mirrors the Truma fan as on/off),
+  # "Ein"/"Aus" (manual override). State = the option string.
+  - platform: homeassistant
+    id: s_heating_fan_mode
+    entity_id: select.smart_ebl_heating_fan_mode
+    on_value:
+      - script.execute: draw_climate
+
   # ---- Truma climate/boiler current+target temperature - read as TEXT,
   # not `sensor: platform: homeassistant`, and parsed by hand below.
   #
@@ -249,6 +259,14 @@ binary_sensor:
           value: "false"
       - script.execute: draw_boiler
 
+  # ---- Heating fan output actually on (whatever the mode) - see
+  # s_heating_fan_mode's comment.
+  - platform: homeassistant
+    id: s_heating_fan_running
+    entity_id: binary_sensor.smart_ebl_heating_fan_running
+    on_state:
+      - script.execute: draw_climate
+
   # ---- "Actually heating" vs. "activated" - the activate switch above
   # is the on/off gate the HEIZ/BOILER button toggles; these reflect
   # whether the Truma is actually running right now, which can lag the
@@ -309,6 +327,14 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: binary_sensor.smart_ebl_truma_room_heater_active
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: select.smart_ebl_heating_fan_mode
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: binary_sensor.smart_ebl_heating_fan_running
       - script.execute: poll_truma_status
 
   # Shared Truma status/error - see sensor: block's header comment.
@@ -407,6 +433,25 @@ script:
               if (m == "low") return std::string("medium");
               if (m == "medium") return std::string("high");
               return std::string("off");
+
+  # ---- Heating fan (Heizungsfan) - tap-to-cycle AUTO -> EIN -> AUS ->
+  # AUTO, same single-button-cycle shape as act_climate_fan_cycle. Option
+  # strings must match the Smart EBL's select exactly ("Auto"/"Ein"/"Aus").
+  # Unknown/unavailable state starts the cycle at AUTO.
+  - id: act_heating_fan_cycle
+    then:
+      - homeassistant.service:
+          service: select.select_option
+          data:
+            entity_id: select.smart_ebl_heating_fan_mode
+          data_template:
+            option: "{{ opt }}"
+          variables:
+            opt: !lambda |-
+              std::string m = id(s_heating_fan_mode).has_state() ? id(s_heating_fan_mode).state : "";
+              if (m == "Auto") return std::string("Ein");
+              if (m == "Ein") return std::string("Aus");
+              return std::string("Auto");
 
   - id: draw_climate
     mode: restart
@@ -555,6 +600,32 @@ script:
             lv_obj_set_style_text_color(id(lbl_climate_fan_mode),
                 lv_color_hex(m == "off" ? 0xBDC1C6 : 0x4A9EFF), 0);
           }
+
+      # ---- Heating fan (Heizungsfan) - "HEIZFAN <MODE> / AN|AUS".
+      # Text green while the fan runs, grey while off. Border orange while
+      # a manual override (EIN/AUS) is active - so a forgotten override is
+      # visible at a glance; normal grey border in AUTO.
+      - lambda: |-
+          bool valid = id(s_heating_fan_mode).has_state() && id(s_heating_fan_running).has_state();
+          std::string m = id(s_heating_fan_mode).has_state() ? id(s_heating_fan_mode).state : "";
+          if (m != "Auto" && m != "Ein" && m != "Aus") valid = false;  // unknown/unavailable
+          #ifdef USE_API
+          if (!api_is_connected()) valid = false;
+          #endif
+          if (!valid) {
+            lv_label_set_text(id(lbl_heating_fan), "HEIZFAN ---");
+            lv_obj_set_style_text_color(id(lbl_heating_fan), lv_color_hex(0x555555), 0);
+            lv_obj_set_style_border_color(id(btn_heating_fan), lv_color_hex(0x3C4043), 0);
+            return;
+          }
+          std::string disp = m;
+          for (auto &c : disp) c = ::toupper(c);
+          bool on = id(s_heating_fan_running).state;
+          // " / " not a middle dot - font_ui_16's glyph list has no "·"
+          lv_label_set_text(id(lbl_heating_fan), ("HEIZFAN " + disp + (on ? " / AN" : " / AUS")).c_str());
+          lv_obj_set_style_text_color(id(lbl_heating_fan), lv_color_hex(on ? 0x2ECC71 : 0xBDC1C6), 0);
+          lv_obj_set_style_border_color(id(btn_heating_fan),
+              lv_color_hex(m == "Auto" ? 0x3C4043 : 0xF39C12), 0);
 
       # ---- Truma status/error footer - shared unit, see sensor: block's
       # header comment. Priority: error > CP Plus not connected >
@@ -1019,6 +1090,32 @@ lvgl:
                         text_color: 0x555555
                   on_click:
                     - script.execute: act_climate_fan_cycle
+
+              # ---- Heating fan (Heizungsfan, Smart EBL JP7) - tap-to-cycle
+              # AUTO -> EIN -> AUS, see act_heating_fan_cycle. Same size and
+              # 12 px gap as the LÜFTER button above (500+44+12 = 556); ends
+              # at y 600, inside this half's 650 px height and above the
+              # shared footer.
+              - button:
+                  id: btn_heating_fan
+                  align: TOP_MID
+                  y: 556
+                  width: 200
+                  height: 44
+                  radius: 10
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  shadow_width: 0
+                  widgets:
+                    - label:
+                        id: lbl_heating_fan
+                        align: CENTER
+                        text_font: font_ui_16
+                        text: "HEIZFAN ---"
+                        text_color: 0x555555
+                  on_click:
+                    - script.execute: act_heating_fan_cycle
 
         # ---- Right half: Boiler (water) -----------------------------------
         - obj:
