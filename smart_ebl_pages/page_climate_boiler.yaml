@@ -63,10 +63,11 @@ text_sensor:
     on_value:
       - script.execute: draw_climate
 
-  # ---- Heating fan (Heizungsfan, 2026-10-12) - a separate 12V fan on the
-  # Smart EBL's fridge relay K6 / JP7 (NOT the Truma's own fan). Mode
-  # select on the Smart EBL: "Auto" (mirrors the Truma fan as on/off),
-  # "Ein"/"Aus" (manual override). State = the option string.
+  # ---- Heating fan (Heizungsfan, 2026-10-12) - a separate 12V fan
+  # (NOT the Truma's own fan), switched by a Shelly. Mode select lives on
+  # the Smart EBL: "Auto" (mirrors the Truma fan as on/off), "Ein"/"Aus"
+  # (manual override); the Smart EBL switches the Shelly accordingly.
+  # State = the option string.
   - platform: homeassistant
     id: s_heating_fan_mode
     entity_id: select.smart_ebl_heating_fan_mode
@@ -259,11 +260,14 @@ binary_sensor:
           value: "false"
       - script.execute: draw_boiler
 
-  # ---- Heating fan output actually on (whatever the mode) - see
-  # s_heating_fan_mode's comment.
+  # ---- Heating fan actually on - read straight from the Shelly's switch
+  # entity. PLACEHOLDER entity_id: the Shelly is not installed yet
+  # (2026-10-12) - keep it in sync with the Smart EBL's substitution
+  # heating_fan_entity once it exists. Until then this has no state and
+  # the button shows "---" for the running part only.
   - platform: homeassistant
     id: s_heating_fan_running
-    entity_id: binary_sensor.smart_ebl_heating_fan_running
+    entity_id: switch.shelly_heizungsfan
     on_state:
       - script.execute: draw_climate
 
@@ -334,7 +338,7 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: binary_sensor.smart_ebl_heating_fan_running
+            entity_id: switch.shelly_heizungsfan
       - script.execute: poll_truma_status
 
   # Shared Truma status/error - see sensor: block's header comment.
@@ -601,18 +605,19 @@ script:
                 lv_color_hex(m == "off" ? 0xBDC1C6 : 0x4A9EFF), 0);
           }
 
-      # ---- Heating fan (Heizungsfan) - "HEIZFAN <MODE> / AN|AUS".
-      # Text green while the fan runs, grey while off. Border orange while
-      # a manual override (EIN/AUS) is active - so a forgotten override is
+      # ---- Heating fan (Heizungsfan) - "HEIZFAN <MODE> / AN|AUS|---".
+      # Mode from the Smart EBL select, AN/AUS from the Shelly itself
+      # ("---" while the Shelly is unknown/not installed - the mode stays
+      # usable). Text green while the fan runs. Border orange while a
+      # manual override (EIN/AUS) is active, so a forgotten override is
       # visible at a glance; normal grey border in AUTO.
       - lambda: |-
-          bool valid = id(s_heating_fan_mode).has_state() && id(s_heating_fan_running).has_state();
           std::string m = id(s_heating_fan_mode).has_state() ? id(s_heating_fan_mode).state : "";
-          if (m != "Auto" && m != "Ein" && m != "Aus") valid = false;  // unknown/unavailable
+          bool mode_ok = (m == "Auto" || m == "Ein" || m == "Aus");
           #ifdef USE_API
-          if (!api_is_connected()) valid = false;
+          if (!api_is_connected()) mode_ok = false;
           #endif
-          if (!valid) {
+          if (!mode_ok) {
             lv_label_set_text(id(lbl_heating_fan), "HEIZFAN ---");
             lv_obj_set_style_text_color(id(lbl_heating_fan), lv_color_hex(0x555555), 0);
             lv_obj_set_style_border_color(id(btn_heating_fan), lv_color_hex(0x3C4043), 0);
@@ -620,9 +625,11 @@ script:
           }
           std::string disp = m;
           for (auto &c : disp) c = ::toupper(c);
-          bool on = id(s_heating_fan_running).state;
+          bool known = id(s_heating_fan_running).has_state();
+          bool on = known && id(s_heating_fan_running).state;
           // " / " not a middle dot - font_ui_16's glyph list has no "·"
-          lv_label_set_text(id(lbl_heating_fan), ("HEIZFAN " + disp + (on ? " / AN" : " / AUS")).c_str());
+          std::string run = !known ? " / ---" : (on ? " / AN" : " / AUS");
+          lv_label_set_text(id(lbl_heating_fan), ("HEIZFAN " + disp + run).c_str());
           lv_obj_set_style_text_color(id(lbl_heating_fan), lv_color_hex(on ? 0x2ECC71 : 0xBDC1C6), 0);
           lv_obj_set_style_border_color(id(btn_heating_fan),
               lv_color_hex(m == "Auto" ? 0x3C4043 : 0xF39C12), 0);
@@ -1091,7 +1098,7 @@ lvgl:
                   on_click:
                     - script.execute: act_climate_fan_cycle
 
-              # ---- Heating fan (Heizungsfan, Smart EBL JP7) - tap-to-cycle
+              # ---- Heating fan (Heizungsfan, Shelly) - tap-to-cycle
               # AUTO -> EIN -> AUS, see act_heating_fan_cycle. Same size and
               # 12 px gap as the LÜFTER button above (500+44+12 = 556); ends
               # at y 600, inside this half's 650 px height and above the
