@@ -261,13 +261,12 @@ binary_sensor:
       - script.execute: draw_boiler
 
   # ---- Heating fan actually on - read straight from the Shelly's switch
-  # entity. PLACEHOLDER entity_id: the Shelly is not installed yet
-  # (2026-10-12) - keep it in sync with the Smart EBL's substitution
-  # heating_fan_entity once it exists. Until then this has no state and
-  # the button shows "---" for the running part only.
+  # entity (FR-24). Keep it in sync with the Smart EBL's substitution
+  # heating_fan_entity. While it has no state (Shelly offline) the button
+  # shows "---" for the running part only.
   - platform: homeassistant
     id: s_heating_fan_running
-    entity_id: switch.shelly_heizungsfan
+    entity_id: switch.shelly_fan_heater_bed_fan_heater_bed
     on_state:
       - script.execute: draw_climate
 
@@ -338,7 +337,7 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.shelly_heizungsfan
+            entity_id: switch.shelly_fan_heater_bed_fan_heater_bed
       - script.execute: poll_truma_status
 
   # Shared Truma status/error - see sensor: block's header comment.
