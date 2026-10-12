@@ -7,6 +7,12 @@ driving a [10.1-DSI-TOUCH-A](https://www.waveshare.com/10.1-dsi-touch-a.htm)
 Nextion NX8048P070-011C used by the previous
 [smartebl_display](https://github.com/CzarofAK/smartebl_display) generation.
 
+> [!WARNING]
+> **Safety & liability / Sicherheit & Haftung** – Private hobby project, provided "as is" and used **at your own risk**.
+> This display switches the Smart EBL's 12 V load groups and controls a **gas heater (Truma)** – a wrong touch, a firmware bug or a wrong configuration can switch loads or the heater unexpectedly.
+> Displayed values (battery, tanks, fuses, levelling) can be wrong or stale. Do not rely on them for safety-relevant decisions.
+> See [DISCLAIMER.md](DISCLAIMER.md) (EN/DE).
+
 It talks to the [Smart EBL](https://github.com/CzarofAK/smartebl) main unit
 (ESP32-WROVER) over the **same RS232 wiring already in the vehicle** via a
 custom RS232-to-TTL interface board (not a standard Ethernet/LAN link,
@@ -860,3 +866,7 @@ Confirmed on this exact board (chip revision v1.3, the ES silicon `engineering_s
 [esphome/esphome#18876](https://github.com/esphome/esphome/pull/18876).
 
 Whether or not your installed ESPHome version already includes that fix, `esphome clean smart-ebl-display.yaml` before `compile` is the safe manual equivalent - cheap, and removes any doubt about whether a config change actually reached the flashed binary. Do this any time `psram:`, `esp32: framework:`, or anything else that isn't plain application logic changes - not just once.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Use at your own risk – see [DISCLAIMER.md](DISCLAIMER.md).
