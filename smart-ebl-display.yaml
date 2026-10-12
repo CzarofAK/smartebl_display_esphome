@@ -691,6 +691,11 @@ uart:
     data_bits: 8
     parity: NONE
     stop_bits: 1
+    # T1 (16 fuse voltages) is ~365 bytes. With a loop time of ~75 ms about
+    # 860 bytes arrive between two reads at 115200 baud - the default 256-byte
+    # RX buffer overflowed, T1 failed its checksum and the fuse values never
+    # arrived while the short T2-T4 frames did (FR-109, 2026-10-12).
+    rx_buffer_size: 2048
 
 globals:
   # Byte-accumulate buffer for the line reader below. Cleared on every
