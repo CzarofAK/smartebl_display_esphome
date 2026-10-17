@@ -497,8 +497,16 @@ script:
           // file's own header §2). Plain labels in the box_battery_extra
           // overlay (widgets: below), ids unchanged from page_electric.yaml.
           if (discharging && api_ok && id(s_battery_remaining_time).has_state()) {
-            int mins = (int) id(s_battery_remaining_time).state;
-            snprintf(buf, sizeof(buf), "NOCH %dh%02dm", mins / 60, mins % 60);
+            // sensor.smartshunt_verbleibende_zeit comes from the Victron
+            // GX integration in HOURS (device_class duration, unit h),
+            // not minutes - e.g. 54.95 = 54h57m. Convert, then show
+            // days+hours once it exceeds a day so it stays readable.
+            int mins = (int) lroundf(id(s_battery_remaining_time).state * 60.0f);
+            if (mins >= 24 * 60) {
+              snprintf(buf, sizeof(buf), "NOCH %dd %02dh", mins / 1440, (mins % 1440) / 60);
+            } else {
+              snprintf(buf, sizeof(buf), "NOCH %dh%02dm", mins / 60, mins % 60);
+            }
             lv_label_set_text(id(lbl_electric_batt_time), buf);
             lv_obj_set_style_text_color(id(lbl_electric_batt_time), lv_color_hex(0xBDC1C6), 0);
           } else {
