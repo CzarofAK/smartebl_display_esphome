@@ -114,6 +114,14 @@ text_sensor:
     on_value:
       - script.execute: draw_electric
 
+  # ---- Shore state line (FR-114) - see page_electric.yaml's own
+  # s_fram_shore_power comment, identical binding.
+  - platform: homeassistant
+    id: s_fram_shore_power
+    entity_id: binary_sensor.fram_shore_power
+    on_value:
+      - script.execute: draw_electric
+
   - platform: homeassistant
     id: s_mppt_zustand
     entity_id: sensor.mppt_190w_zustand
@@ -314,9 +322,8 @@ script:
           auto col = [](uint32_t hex) { return Color(hex >> 16, hex >> 8, hex); };
 
           // ---- Shore - main = input power, sub-left/right = input
-          // voltage/frequency. No state-line write (row_state stays
-          // blank) - same as page_electric.yaml, see that file's own
-          // comment on why the CONNECTED/DISCONNECTED line was removed.
+          // voltage/frequency. State line: see "Shore state line (FR-114)"
+          // below, same as page_electric.yaml.
           if (!api_ok || !id(s_multiplus_in_w).has_state()) {
             id(box_shore).set_main("--- W", col(0x555555));
           } else {
@@ -330,6 +337,20 @@ script:
             if (!api_ok || !id(s_multiplus_in_hz).has_state()) snprintf(hzbuf, sizeof(hzbuf), "---Hz");
             else snprintf(hzbuf, sizeof(hzbuf), "%.1fHz", id(s_multiplus_in_hz).state);
             id(box_shore).set_sub(vbuf, hzbuf, col(0xBDC1C6));
+          }
+
+          // ---- Shore state line (FR-114): CONNECTED / DISCONNECTED from
+          // binary_sensor.fram_shore_power, "---" while HA has no value or
+          // the MultiPlus can't evaluate its input (off / inverter only).
+          {
+            const char *st = "---";
+            uint32_t stc = 0x555555;
+            if (api_ok && id(s_fram_shore_power).has_state()) {
+              const std::string &v = id(s_fram_shore_power).state;
+              if (v == "on") { st = "CONNECTED"; stc = 0x2ECC71; }
+              else if (v == "off") { st = "DISCONNECTED"; stc = 0x707070; }
+            }
+            id(box_shore).set_state(st, col(stc));
           }
 
           // ---- Inverter/Charger (tap target: btn_electric_charger_tap,
