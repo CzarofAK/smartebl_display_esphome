@@ -36,6 +36,18 @@ text_sensor:
     on_value:
       - script.execute: draw_electric
 
+  # ---- Shore state line (FR-114) - binary_sensor.fram_shore_power from
+  # HA (MultiPlus active AC input, delay_off 2 min), read as a text
+  # sensor so "unavailable" (MultiPlus off / inverter only) stays
+  # distinct from "off". Replaces the removed smartebl-link reading
+  # (s_shore_power_connected) - same source as the W/V/Hz above it now,
+  # so the two can no longer disagree.
+  - platform: homeassistant
+    id: s_fram_shore_power
+    entity_id: binary_sensor.fram_shore_power
+    on_value:
+      - script.execute: draw_electric
+
   # ---- Solar (MPPT) status - shares the Charger box's "main value +
   # humanized state" pattern, see draw_electric.
   - platform: homeassistant
@@ -299,8 +311,11 @@ script:
           // = input power, sub-left/right = input voltage/frequency
           // (repo-owner spec, replacing the old W+A sub-line).
           //
-          // The CONNECTED/DISCONNECTED status line (smartebl's own
-          // physical shore-sense input) that used to sit here is GONE
+          // 2026-11-05 (FR-114): the state line is back, now fed from HA
+          // (binary_sensor.fram_shore_power, see below) - same MultiPlus
+          // source as the W/V/Hz values, so it agrees with them. History:
+          // the CONNECTED/DISCONNECTED status line (smartebl's own
+          // physical shore-sense input) that used to sit here was REMOVED
           // (repo-owner, 2026-09-07: "'Disconnected' steht immer noch
           // beim Shore block. Der Text block kann weg.") - it never
           // agreed with the real W reading next to it (see the removed
@@ -308,7 +323,7 @@ script:
           // 2026-09-06 - correct in principle, two independent sensors,
           // but confusing enough in practice that the repo owner wants it
           // gone rather than explained again). lbl_electric_shore_status
-          // itself stays declared, just permanently blank - it's also the
+          // is written again since FR-114 - it's also the
           // `&row_state` anchor every other box's own state line merges
           // in (Charger/Solar/Battery/DC Loads), so removing the widget
           // outright would take their state lines down with it.
@@ -331,6 +346,21 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "%.1fHz", id(s_multiplus_in_hz).state);
             lv_label_set_text(id(lbl_electric_shore_sub_r), buf);
+          }
+
+          // ---- Shore state line (FR-114): CONNECTED / DISCONNECTED from
+          // binary_sensor.fram_shore_power, "---" while HA has no value or
+          // the MultiPlus can't evaluate its input (off / inverter only).
+          {
+            const char *st = "---";
+            uint32_t stc = 0x555555;
+            if (api_ok && id(s_fram_shore_power).has_state()) {
+              const std::string &v = id(s_fram_shore_power).state;
+              if (v == "on") { st = "CONNECTED"; stc = 0x2ECC71; }
+              else if (v == "off") { st = "DISCONNECTED"; stc = 0x707070; }
+            }
+            lv_label_set_text(id(lbl_electric_shore_status), st);
+            lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(stc), 0);
           }
 
           // ---- Inverter/Charger (now a button - tap opens the mode/
@@ -1082,11 +1112,9 @@ lvgl:
               # Shared state/secondary-line slot every box on this page
               # uses except AC Loads (its former duplicate %-of-1600W
               # line was removed outright, not reflowed - see that box's
-              # own comment). Shore's own use of this slot (the
-              # smartebl-link CONNECTED/DISCONNECTED reading) is gone
-              # (draw_electric's own comment explains why) - text stays
-              # permanently blank here, never written by draw_electric
-              # any more; this widget only still exists to carry the
+              # own comment). Shore's state line: CONNECTED/DISCONNECTED
+              # from binary_sensor.fram_shore_power (FR-114, written by
+              # draw_electric). This widget also carries the
               # `&row_state` anchor's position/font for the other boxes'
               # `<<: *row_state` merges (Charger/Solar/Battery/DC Loads).
               - label: &row_state
