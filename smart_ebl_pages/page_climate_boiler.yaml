@@ -266,7 +266,7 @@ binary_sensor:
   # shows "---" for the running part only.
   - platform: homeassistant
     id: s_heating_fan_running
-    entity_id: switch.shelly_fan_heater_bed_fan_heater_bed
+    entity_id: switch.fan_heater_bed
     on_state:
       - script.execute: draw_climate
 
@@ -337,7 +337,7 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.shelly_fan_heater_bed_fan_heater_bed
+            entity_id: switch.fan_heater_bed
       - script.execute: poll_truma_status
 
   # Shared Truma status/error - see sensor: block's header comment.
