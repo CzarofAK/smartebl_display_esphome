@@ -66,6 +66,14 @@ globals:
     restore_value: false
     initial_value: "0"
 
+  # FR-114 (2026-11-07): true from the first -/+ tap until the debounced
+  # write has been sent - drives the amber label and blocks the resync
+  # from HA while the user is still stepping.
+  - id: g_multiplus_limit_editing
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
   # ---- Electric page (page_electric) - Solar Yield popup, same shape as
   # g_multiplus_limit_pending above.
   - id: g_mppt_limit_pending
@@ -224,7 +232,14 @@ sensor:
           // g_climate_temp_pending - but this popup has no separate
           // armed/disarmed state, so only resync while the popup is
           // closed (hidden) - nobody can be mid-edit if it's not open.
-          if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
+          // FR-114 (2026-11-07): adopt HA's value whenever no edit is in
+          // flight (popup closed, or open but no -/+ tap waiting to be
+          // sent). The MultiPlus/Cerbo may report back a different
+          // limit than the one written (seen: set 4A -> reads 6A, set 5A
+          // -> reads 7A ~30-45s later); the popup then shows that real
+          // value instead of staying amber forever on the requested one.
+          if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)
+              || !id(g_multiplus_limit_editing)) {
             id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
           }
       - script.execute: draw_electric
@@ -721,9 +736,11 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_multiplus_limit_pending));
             lv_label_set_text(id(lbl_multiplus_limit), buf);
-            // Amber while the edit is not yet confirmed by HA (pending write
-            // or MultiPlus did not accept it), neutral once in sync.
-            bool dirty = fabsf(id(g_multiplus_limit_pending) - id(s_multiplus_limit).state) > 0.25f;
+            // FR-114 (2026-11-07): amber only while the 1s debounce is
+            // running (value not yet sent). Afterwards the label follows
+            // HA's reported value (see s_multiplus_limit on_value), so a
+            // value the MultiPlus overrides no longer leaves it amber.
+            bool dirty = id(g_multiplus_limit_editing);
             lv_obj_set_style_text_color(id(lbl_multiplus_limit),
                 lv_color_hex(dirty ? 0xF39C12 : 0xBDC1C6), 0);
           }
@@ -826,6 +843,7 @@ script:
       - lambda: |-
           id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
               ? id(s_multiplus_limit).state : 0.0f;
+          id(g_multiplus_limit_editing) = false;
       - script.execute: draw_electric
       - lvgl.widget.update:
           id: obj_electric_popup_backdrop
@@ -867,6 +885,7 @@ script:
   - id: act_multiplus_limit_up
     then:
       - lambda: |-
+          id(g_multiplus_limit_editing) = true;
           float v = id(g_multiplus_limit_pending) + 1.0f;
           if (v > 16.0f) v = 16.0f;
           id(g_multiplus_limit_pending) = v;
@@ -876,6 +895,7 @@ script:
   - id: act_multiplus_limit_down
     then:
       - lambda: |-
+          id(g_multiplus_limit_editing) = true;
           float v = id(g_multiplus_limit_pending) - 1.0f;
           if (v < 0.0f) v = 0.0f;
           id(g_multiplus_limit_pending) = v;
@@ -903,6 +923,8 @@ script:
     then:
       - delay: 1s
       - script.execute: multiplus_limit_write_now
+      - lambda: "id(g_multiplus_limit_editing) = false;"
+      - script.execute: draw_electric
 
   # ---- Solar Yield popup (obj_solar_popup_panel) - ON/OFF (switch.
   # mppt_190w) + charge-current limit (number.mppt_190w_stromstarke),
