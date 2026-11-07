@@ -193,9 +193,10 @@ script:
             return;
           }
           // Repo owner: "ich nutze nur Armed home, Armed away und
-          // Disarmed" - those three get their own short tags; the
-          // three Alarmo modes this installation doesn't use
-          // (armed_night/armed_vacation/armed_custom_bypass) still get
+          // Disarmed" - those three get their own short tags, plus
+          // armed_custom_bypass as "PRIVACY" (FR-8, 07.11.2026); the
+          // two Alarmo modes this installation doesn't use
+          // (armed_night/armed_vacation) still get
           // a sane fallback rather than silently reading as "---".
           std::string s = id(s_alarmo_state).state;
           std::string text; uint32_t col;
@@ -209,6 +210,10 @@ script:
             text = "SCHARF H"; col = 0xE74C3C;
           } else if (s == "armed_away") {
             text = "SCHARF A"; col = 0xE74C3C;
+          } else if (s == "armed_custom_bypass") {
+            // Alarmo "Custom bypass" is used as mode "Privacy" (FR-8):
+            // armed, camera privacy shutter closed (fram-homeassistant).
+            text = "PRIVACY"; col = 0xE74C3C;
           } else if (s.rfind("armed", 0) == 0) {
             text = "SCHARF"; col = 0xE74C3C;
           } else {
@@ -303,6 +308,22 @@ script:
             code: !lambda "return id(g_alarm_pin);"
       - script.execute: close_alarm_popup
 
+  # ARM PRIVACY = Alarmo "Custom bypass" (FR-8): HA has no renameable
+  # arm modes, so armed_custom_bypass is used as the "Privacy" mode.
+  # fram-homeassistant closes the Fram-1 privacy shutter in this state
+  # (and only in this state).
+  - id: act_alarm_arm_privacy
+    then:
+      - homeassistant.service:
+          service: alarm_control_panel.alarm_arm_custom_bypass
+          data:
+            entity_id: alarm_control_panel.alarmo
+          data_template:
+            code: "{{ code }}"
+          variables:
+            code: !lambda "return id(g_alarm_pin);"
+      - script.execute: close_alarm_popup
+
   - id: act_alarm_disarm
     then:
       - homeassistant.service:
@@ -338,10 +359,12 @@ script:
           then:
             - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: true}
             - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: true}
+            - lvgl.widget.update: {id: btn_alarm_arm_privacy, hidden: true}
             - lvgl.widget.update: {id: btn_alarm_disarm, hidden: false}
           else:
             - lvgl.widget.update: {id: btn_alarm_arm_home, hidden: false}
             - lvgl.widget.update: {id: btn_alarm_arm_away, hidden: false}
+            - lvgl.widget.update: {id: btn_alarm_arm_privacy, hidden: false}
             - lvgl.widget.update: {id: btn_alarm_disarm, hidden: true}
 
   # ---- Pre-alarm (YouTrack FRA-98, step 2) ----------------------------
@@ -1018,13 +1041,16 @@ lvgl:
               # 344px span as one button - all three bigger than before,
               # per the repo-owner's own "können dann auch grösser
               # werden".
+              # FR-8 (07.11.2026): third arm button ARM PRIVACY added -
+              # ARM HOME / ARM AWAY / ARM PRIVACY now stack in the same
+              # y:110-454 span, 104px each + 16px gaps (110/230/350).
               - button:
                   id: btn_alarm_arm_home
                   align: TOP_LEFT
                   x: 460
                   y: 110
                   width: 200
-                  height: 160
+                  height: 104
                   radius: 12
                   bg_color: 0x202124
                   border_width: 1
@@ -1041,9 +1067,9 @@ lvgl:
                   id: btn_alarm_arm_away
                   align: TOP_LEFT
                   x: 460
-                  y: 294
+                  y: 230
                   width: 200
-                  height: 160
+                  height: 104
                   radius: 12
                   bg_color: 0x202124
                   border_width: 1
@@ -1056,6 +1082,25 @@ lvgl:
                         text_color: 0xBDC1C6
                   on_click:
                     - script.execute: act_alarm_arm_away
+              - button:
+                  id: btn_alarm_arm_privacy
+                  align: TOP_LEFT
+                  x: 460
+                  y: 350
+                  width: 200
+                  height: 104
+                  radius: 12
+                  bg_color: 0x202124
+                  border_width: 1
+                  border_color: 0x3C4043
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ARM PRIVACY"
+                        text_font: font_ui_20
+                        text_color: 0xBDC1C6
+                  on_click:
+                    - script.execute: act_alarm_arm_privacy
               - button:
                   id: btn_alarm_disarm
                   align: TOP_LEFT
