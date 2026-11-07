@@ -348,16 +348,18 @@ script:
             lv_label_set_text(id(lbl_electric_shore_sub_r), buf);
           }
 
-          // ---- Shore state line (FR-114): CONNECTED / DISCONNECTED from
-          // binary_sensor.fram_shore_power, "---" while HA has no value or
-          // the MultiPlus can't evaluate its input (off / inverter only).
+          // ---- Shore state line (FR-114): CONNECTED (green) from
+          // binary_sensor.fram_shore_power; unplugged = line hidden (empty),
+          // because on this display shore power is the good state and its
+          // absence is nothing to show. "---" while HA has no value or the
+          // MultiPlus can't evaluate its input (off / inverter only).
           {
             const char *st = "---";
             uint32_t stc = 0x555555;
             if (api_ok && id(s_fram_shore_power).has_state()) {
               const std::string &v = id(s_fram_shore_power).state;
               if (v == "on") { st = "CONNECTED"; stc = 0x2ECC71; }
-              else if (v == "off") { st = "DISCONNECTED"; stc = 0x707070; }
+              else if (v == "off") { st = ""; stc = 0x707070; }  // unplugged: hidden
             }
             lv_label_set_text(id(lbl_electric_shore_status), st);
             lv_obj_set_style_text_color(id(lbl_electric_shore_status), lv_color_hex(stc), 0);
