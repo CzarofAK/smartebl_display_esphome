@@ -134,13 +134,22 @@ globals:
     restore_value: false
     initial_value: "0"
 
-  # FR-114 (2026-11-07): true from the first -/+ tap until the debounced
-  # write has been sent - drives the amber label and blocks the resync
-  # from HA while the user is still stepping.
-  - id: g_multiplus_limit_editing
-    type: bool
+  # FR-114 (2026-11-07): confirmation state of the shore-current limit
+  # label. 0 = in sync (white: HA reports exactly the value this display
+  # sent, or nothing sent since the popup opened), 1 = -/+ tapped, not yet
+  # sent (amber), 2 = sent, no readback from HA yet (amber), 3 = HA
+  # reports a different value than sent - MultiPlus/Cerbo overrode it
+  # (red, label shows HA's value).
+  - id: g_multiplus_limit_phase
+    type: int
     restore_value: false
-    initial_value: "false"
+    initial_value: "0"
+
+  # Last value this display wrote (-1 = none since the popup opened).
+  - id: g_multiplus_limit_sent
+    type: float
+    restore_value: false
+    initial_value: "-1"
 
   - id: g_mppt_limit_pending
     type: float
@@ -269,13 +278,19 @@ sensor:
       - lambda: |-
           // FR-114 (2026-11-07): adopt HA's value whenever no edit is in
           // flight (popup closed, or open but no -/+ tap waiting to be
-          // sent). The MultiPlus/Cerbo may report back a different
+          // sent) - see g_multiplus_limit_phase. The MultiPlus/Cerbo may report back a different
           // limit than the one written (seen: set 4A -> reads 6A, set 5A
           // -> reads 7A ~30-45s later); the popup then shows that real
           // value instead of staying amber forever on the requested one.
+          // Phase 1 (user still stepping): don't touch the edit.
+          // Otherwise show HA's value and compare it with what was sent.
           if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)
-              || !id(g_multiplus_limit_editing)) {
+              || id(g_multiplus_limit_phase) != 1) {
             id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
+            if (id(g_multiplus_limit_sent) >= 0.0f) {
+              bool same = fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_sent)) <= 0.25f;
+              id(g_multiplus_limit_phase) = same ? 0 : 3;
+            }
           }
       - script.execute: draw_electric
 
@@ -631,13 +646,12 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_multiplus_limit_pending));
             lv_label_set_text(id(lbl_multiplus_limit), buf);
-            // FR-114 (2026-11-07): amber only while the 1s debounce is
-            // running (value not yet sent). Afterwards the label follows
-            // HA's reported value (see s_multiplus_limit on_value), so a
-            // value the MultiPlus overrides no longer leaves it amber.
-            bool dirty = id(g_multiplus_limit_editing);
-            lv_obj_set_style_text_color(id(lbl_multiplus_limit),
-                lv_color_hex(dirty ? 0xF39C12 : 0xBDC1C6), 0);
+            // FR-114 (2026-11-07): amber = tapped or sent but not yet
+            // confirmed, white = HA reports exactly the sent value,
+            // red = HA reports a different value (MultiPlus override).
+            int ph = id(g_multiplus_limit_phase);
+            uint32_t col = (ph == 1 || ph == 2) ? 0xF39C12 : (ph == 3 ? 0xE74C3C : 0xBDC1C6);
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(col), 0);
           }
 
   # ---- Everything below is unchanged from page_electric.yaml: popup
@@ -739,7 +753,8 @@ script:
       - lambda: |-
           id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
               ? id(s_multiplus_limit).state : 0.0f;
-          id(g_multiplus_limit_editing) = false;
+          id(g_multiplus_limit_phase) = 0;
+          id(g_multiplus_limit_sent) = -1.0f;
       - script.execute: draw_electric
       - lvgl.widget.update:
           id: obj_electric_popup_backdrop
@@ -773,7 +788,7 @@ script:
   - id: act_multiplus_limit_up
     then:
       - lambda: |-
-          id(g_multiplus_limit_editing) = true;
+          id(g_multiplus_limit_phase) = 1;
           float v = id(g_multiplus_limit_pending) + 1.0f;
           if (v > 16.0f) v = 16.0f;
           id(g_multiplus_limit_pending) = v;
@@ -783,7 +798,7 @@ script:
   - id: act_multiplus_limit_down
     then:
       - lambda: |-
-          id(g_multiplus_limit_editing) = true;
+          id(g_multiplus_limit_phase) = 1;
           float v = id(g_multiplus_limit_pending) - 1.0f;
           if (v < 0.0f) v = 0.0f;
           id(g_multiplus_limit_pending) = v;
@@ -810,8 +825,14 @@ script:
     mode: restart
     then:
       - delay: 1s
+      - lambda: |-
+          id(g_multiplus_limit_sent) = id(g_multiplus_limit_pending);
+          // Same value as HA already reports -> HA sends no new state,
+          // so nothing would ever confirm it: in sync right away.
+          bool same = id(s_multiplus_limit).has_state()
+              && fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_pending)) <= 0.25f;
+          id(g_multiplus_limit_phase) = same ? 0 : 2;
       - script.execute: multiplus_limit_write_now
-      - lambda: "id(g_multiplus_limit_editing) = false;"
       - script.execute: draw_electric
 
   - id: show_solar_popup

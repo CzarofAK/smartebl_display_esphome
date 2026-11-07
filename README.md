@@ -828,7 +828,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
 
 - [x] **Heating fan entity fixed: `switch.fan_heater_bed`** - the Shelly 1 was reflashed to ESPHome (FR-117), so the old Shelly-integration entity `switch.shelly_fan_heater_bed_fan_heater_bed` no longer exists and the HEIZFAN button showed "---". Must change together with `smartebl`'s `heating_fan_entity` substitution.
 
-- [x] **Shore-current limit popup: follow HA's reported value** (repo-owner, 2026-11-07: "orange geht nie weg"). The MultiPlus/Cerbo reports back a different limit than the one written ~30-45s later (set 4A -> 6A, set 5A -> 7A, root cause open, FR-114), so comparing pending vs. HA kept the label amber forever. Now amber means only "tapped, not yet sent" (`g_multiplus_limit_editing`, cleared after the debounced write); otherwise the label follows `number.multiplus_strombegrenzung` even with the popup open. Both Electric variants.
+- [x] **Shore-current limit popup: real confirmation colors** (repo-owner, 2026-11-07: "orange geht nie weg", then "weiss ist nicht gleich Wert confirmed"). The MultiPlus/Cerbo reports back a different limit than the one written ~30-45s later (set 4A -> 6A, 5A -> 7A, 7A -> 8A; root cause open, FR-114). State machine `g_multiplus_limit_phase`: amber = tapped or sent but HA has not reported the sent value yet; white = HA reports exactly the value sent (`g_multiplus_limit_sent`); red = HA reports a different value (override) - the label then shows HA's value. Reset on popup open. Both Electric variants.
 
 ## Building & Flashing
 
