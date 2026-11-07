@@ -719,7 +719,11 @@ script:
           } else {
             snprintf(buf, sizeof(buf), "LIMIT %.0fA", id(g_multiplus_limit_pending));
             lv_label_set_text(id(lbl_multiplus_limit), buf);
-            lv_obj_set_style_text_color(id(lbl_multiplus_limit), lv_color_hex(0xBDC1C6), 0);
+            // Amber while the edit is not yet confirmed by HA (pending write
+            // or MultiPlus did not accept it), neutral once in sync.
+            bool dirty = fabsf(id(g_multiplus_limit_pending) - id(s_multiplus_limit).state) > 0.25f;
+            lv_obj_set_style_text_color(id(lbl_multiplus_limit),
+                lv_color_hex(dirty ? 0xF39C12 : 0xBDC1C6), 0);
           }
 
   # ---- Electric page (page_electric) - MultiPlus mode/shore-limit popup
@@ -887,10 +891,15 @@ script:
           variables:
             val: !lambda "return str_sprintf(\"%.0f\", id(g_multiplus_limit_pending));"
 
+  # Debounced write (repo-owner, 2026-11-07): sent only once the value has
+  # not changed for 1s - was 400ms, which wrote intermediate values while
+  # stepping through bigger changes. mode: restart -> every -/+ tap
+  # restarts the 1s timer. While the pending value differs from HA's
+  # confirmed one it is shown amber (draw_electric).
   - id: multiplus_limit_write_debounced
     mode: restart
     then:
-      - delay: 400ms
+      - delay: 1s
       - script.execute: multiplus_limit_write_now
 
   # ---- Solar Yield popup (obj_solar_popup_panel) - ON/OFF (switch.

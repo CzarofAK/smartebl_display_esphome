@@ -824,6 +824,10 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       the temp row's own margin above the Alarmo gap stays close to
       round 3's, rather than opening a much bigger, unrequested gap.
 
+- [x] **Shore-current limit popup: 1s debounce + amber pending value** (repo-owner, 2026-11-07: "sendet sofort den neuen Wert, das erschwert grössere Änderungen"). The 400ms debounce wrote intermediate values to `number.multiplus_strombegrenzung` whenever the -/+ taps paused briefly. Now the value is written only after it has not changed for 1s; until HA confirms it, the value is shown amber (stays amber if the MultiPlus did not accept it). Mode buttons (OFF/CHG/INV/ON) still act on tap. Applied to both Electric variants (`page_electric.yaml`, `page_electric_widget.yaml`).
+
+- [x] **Heating fan entity fixed: `switch.fan_heater_bed`** - the Shelly 1 was reflashed to ESPHome (FR-117), so the old Shelly-integration entity `switch.shelly_fan_heater_bed_fan_heater_bed` no longer exists and the HEIZFAN button showed "---". Must change together with `smartebl`'s `heating_fan_entity` substitution.
+
 ## Building & Flashing
 
 ```bash
