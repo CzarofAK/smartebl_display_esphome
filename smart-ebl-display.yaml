@@ -1044,8 +1044,6 @@ interval:
                         id(s_leisure_battery_voltage).publish_state(f);
                       } else if (key == "starter_battery_voltage") {
                         id(s_starter_battery_voltage).publish_state(f);
-                      } else if (key == "ac_charger_voltage") {
-                        id(s_ac_charger_voltage).publish_state(f);
                       } else if (key == "switch_pump") {
                         // publish_state(), not turn_on()/turn_off():
                         // reflects smartebl's actual state without

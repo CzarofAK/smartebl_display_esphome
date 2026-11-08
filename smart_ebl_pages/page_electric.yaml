@@ -107,13 +107,8 @@ sensor:
     on_value:
       - script.execute: draw_electric
 
-  - platform: template
-    id: s_ac_charger_voltage
-    name: "AC Charger Voltage (via link)"
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    on_value:
-      - script.execute: draw_electric
+  # s_ac_charger_voltage (smartebl link) removed 2026-11-08: nothing wired to the
+  # Smart EBL AC charger input in the FRAM; smartebl still sends the key.
 
   # ---- Electric page (page_electric) - real Victron entities, HA-fed,
   # NOT the link. Exact same entities m5dial_fram's page_power_1/2/3.yaml
@@ -279,7 +274,8 @@ sensor:
 
 binary_sensor:
   # s_shore_power_connected (smartebl link) removed 2026-11-08: the Smart EBL
-  # has no 230 V detection on that input, the reading was meaningless.
+  # has nothing wired to that input in the FRAM; smartebl still sends
+  # the key (other EBL users rely on it), the parser ignores it here.
   # Shore power comes only from binary_sensor.fram_shore_power (FR-114).
 
   # ---- Electric page (page_electric) popups - MPPT on/off and the
