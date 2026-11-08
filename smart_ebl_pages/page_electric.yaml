@@ -107,13 +107,8 @@ sensor:
     on_value:
       - script.execute: draw_electric
 
-  - platform: template
-    id: s_ac_charger_voltage
-    name: "AC Charger Voltage (via link)"
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    on_value:
-      - script.execute: draw_electric
+  # s_ac_charger_voltage (smartebl link) removed 2026-11-08: nothing wired to the
+  # Smart EBL AC charger input in the FRAM; smartebl still sends the key.
 
   # ---- Electric page (page_electric) - real Victron entities, HA-fed,
   # NOT the link. Exact same entities m5dial_fram's page_power_1/2/3.yaml

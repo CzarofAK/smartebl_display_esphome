@@ -143,7 +143,7 @@ itself: no need to send both the raw value and its derived boolean).
 | `light_l_output_voltage` | planned |
 | `contour_light_output_voltage` | planned |
 | `voltage_3v3_bus` | planned |
-| `ac_charger_voltage` | planned |
+| `ac_charger_voltage` | sent by `smartebl`, ignored on the display since 2026-11-08 – nothing wired to that input in the FRAM |
 | `duocontrol_voltage` | planned |
 | `dplus_voltage` | planned |
 | `f10_abs_voltage` | planned |
