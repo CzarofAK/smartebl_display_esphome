@@ -148,7 +148,7 @@ itself: no need to send both the raw value and its derived boolean).
 | `dplus_voltage` | planned |
 | `f10_abs_voltage` | planned |
 | `dplus_active` (`bool`, derived on `smartebl` side same as today) | planned |
-| `shore_power_connected` (`bool`) | planned |
+| ~~`shore_power_connected` (`bool`)~~ | removed 2026-11-08 – Smart EBL has no 230 V detection on that input; shore power comes from `binary_sensor.fram_shore_power` (FR-114) |
 
 ### Group 4 — Switches (`bool`, also the command target)
 

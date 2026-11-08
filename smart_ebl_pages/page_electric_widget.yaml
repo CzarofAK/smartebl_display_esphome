@@ -305,12 +305,7 @@ sensor:
       - script.execute: draw_electric
 
 binary_sensor:
-  - platform: template
-    id: s_shore_power_connected
-    name: "Shore Power Connected (via link)"
-    device_class: plug
-    on_state:
-      - script.execute: draw_electric
+  # s_shore_power_connected (smartebl link) removed 2026-11-08, see page_electric.yaml.
 
   - platform: homeassistant
     id: s_mppt_on
