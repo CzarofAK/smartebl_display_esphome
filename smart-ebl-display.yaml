@@ -1046,8 +1046,6 @@ interval:
                         id(s_starter_battery_voltage).publish_state(f);
                       } else if (key == "ac_charger_voltage") {
                         id(s_ac_charger_voltage).publish_state(f);
-                      } else if (key == "shore_power_connected") {
-                        id(s_shore_power_connected).publish_state(on);
                       } else if (key == "switch_pump") {
                         // publish_state(), not turn_on()/turn_off():
                         // reflects smartebl's actual state without

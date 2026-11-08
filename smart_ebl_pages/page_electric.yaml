@@ -39,8 +39,8 @@ text_sensor:
   # ---- Shore state line (FR-114) - binary_sensor.fram_shore_power from
   # HA (MultiPlus active AC input, delay_off 2 min), read as a text
   # sensor so "unavailable" (MultiPlus off / inverter only) stays
-  # distinct from "off". Replaces the removed smartebl-link reading
-  # (s_shore_power_connected) - same source as the W/V/Hz above it now,
+  # distinct from "off". Replaces the smartebl-link reading
+  # (s_shore_power_connected, removed entirely 2026-11-08) - same source as the W/V/Hz above it now,
   # so the two can no longer disagree.
   - platform: homeassistant
     id: s_fram_shore_power
@@ -278,17 +278,9 @@ sensor:
       - script.execute: draw_electric
 
 binary_sensor:
-  # Not shown on this page any more (draw_electric's own comment, above,
-  # on why the Shore box's CONNECTED/DISCONNECTED line was removed) -
-  # kept defined since smartebl's link still publishes it and a future
-  # page/use may still want it, same "reserved, not deleted" treatment
-  # this repo gives other now-unused-but-still-real entities.
-  - platform: template
-    id: s_shore_power_connected
-    name: "Shore Power Connected (via link)"
-    device_class: plug
-    on_state:
-      - script.execute: draw_electric
+  # s_shore_power_connected (smartebl link) removed 2026-11-08: the Smart EBL
+  # has no 230 V detection on that input, the reading was meaningless.
+  # Shore power comes only from binary_sensor.fram_shore_power (FR-114).
 
   # ---- Electric page (page_electric) popups - MPPT on/off and the
   # `fram_parkmodus` switch, mirrored read-only the same way as the
