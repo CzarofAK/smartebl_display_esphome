@@ -10,7 +10,7 @@
 #
 # Fresh/Waste were originally smartebl's own tank1_level/tank2_level over
 # the RS232 link - TEMPORARILY switched to Victron instead (HA
-# `sensor.fresh_stand`/`sensor.waste_stand`), 2026-09-12, per explicit
+# `sensor.tech_fresh_water_tank_level`/`sensor.tech_waste_water_tank_level`), 2026-09-12, per explicit
 # repo-owner request. The link-fed originals are commented out in the
 # sensor: block below, not deleted - see that comment for how to revert.
 # tank3_level is wired but not shown on this page (reserved, see the
@@ -20,8 +20,8 @@
 sensor:
   # ---- FRESH / WASTE - TEMPORARY switch to Victron (HA), 2026-09-12 ----
   # Repo-owner request: pull Fresh/Waste from Victron instead of
-  # smartebl's own link (`tank1_level`/`tank2_level`) - `sensor.fresh_stand`/
-  # `sensor.waste_stand`, explicitly called out as a TEMPORARY fix, not a
+  # smartebl's own link (`tank1_level`/`tank2_level`) - `sensor.tech_fresh_water_tank_level`/
+  # `sensor.tech_waste_water_tank_level`, explicitly called out as a TEMPORARY fix, not a
   # decision to stop using the link's own tank sensing for good. Same HA
   # precedent this page already uses for Gas A/Gas I/Diesel (below) -
   # `homeassistant` platform, `on_value` -> `draw_levels`, `api_ok`-gated
@@ -37,13 +37,13 @@ sensor:
   # (see that script's own git history for the exact prior shape).
   - platform: homeassistant
     id: s_fresh_stand
-    entity_id: sensor.fresh_stand
+    entity_id: sensor.tech_fresh_water_tank_level
     on_value:
       - script.execute: draw_levels
 
   - platform: homeassistant
     id: s_waste_stand
-    entity_id: sensor.waste_stand
+    entity_id: sensor.tech_waste_water_tank_level
     on_value:
       - script.execute: draw_levels
 
@@ -114,7 +114,7 @@ sensor:
 
 script:
   # ---- Levels (page_levels) - pages.md §5's original "Levels" row:
-  # Fresh (HA `sensor.fresh_stand`) / Waste (HA `sensor.waste_stand`) -
+  # Fresh (HA `sensor.tech_fresh_water_tank_level`) / Waste (HA `sensor.tech_waste_water_tank_level`) -
   # TEMPORARY Victron swap, 2026-09-12, was `tank1_level`/`tank2_level`
   # over the link (see the sensor: block's own comment) / Gas A, außen/
   # "in use" (HA `sensor.exterior_gas_bottle_1_level`) / Gas I, innen/"reserve" (HA
@@ -127,11 +127,11 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.fresh_stand
+            entity_id: sensor.tech_fresh_water_tank_level
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.waste_stand
+            entity_id: sensor.tech_waste_water_tank_level
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
@@ -156,7 +156,7 @@ script:
           #endif
           char buf[32];
 
-          // ---- FRISCH (Victron, HA `sensor.fresh_stand`) - TEMPORARY
+          // ---- FRISCH (Victron, HA `sensor.tech_fresh_water_tank_level`) - TEMPORARY
           // source swap, 2026-09-12 (see the sensor: block's own comment
           // above) - was tank1_level over the link, gated on the link's
           // own `connected`; now HA-fed like Gas A/Gas I/Diesel below, so
@@ -191,14 +191,14 @@ script:
             // 180 L, m5dial_fram/page_water.yaml's own constant for
             // its link-fed tank1 reading of what may not even be the
             // same physical tank now that FRISCH reads Victron's own
-            // sensor.fresh_stand instead - flag to the repo owner if
+            // sensor.tech_fresh_water_tank_level instead - flag to the repo owner if
             // page_water.yaml's own 180 L should change too, or if
             // these are genuinely two different tanks).
             snprintf(buf, sizeof(buf), "%.0f L", fresh * 1.20f);
             lv_label_set_text(id(lbl_levels_fresh_l), buf);
           }
 
-          // ---- WASTE (Victron, HA `sensor.waste_stand`) - same
+          // ---- WASTE (Victron, HA `sensor.tech_waste_water_tank_level`) - same
           // TEMPORARY source swap as FRISCH above, same >=80%/>=95%
           // critical/warning thresholds as m5dial_fram/page_water.yaml's
           // grey ring.
