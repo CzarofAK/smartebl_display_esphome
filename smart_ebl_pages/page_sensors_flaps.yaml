@@ -62,37 +62,37 @@ binary_sensor:
   # ASSUMED, same convention as page_sensors_windows.yaml.
   - platform: homeassistant
     id: s_gasflaschenklappe_contact
-    entity_id: binary_sensor.gasflaschenklappe_contact
+    entity_id: binary_sensor.exterior_gas_locker_hatch_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_hinten_contact
-    entity_id: binary_sensor.garagenklappe_hinten_contact
+    entity_id: binary_sensor.garage_hatch_rear_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_rechts_contact
-    entity_id: binary_sensor.garagenklappe_rechts_contact
+    entity_id: binary_sensor.garage_hatch_right_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_serviceklappe_contact
-    entity_id: binary_sensor.serviceklappe_contact
+    entity_id: binary_sensor.exterior_service_hatch_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_schuhklappe_contact
-    entity_id: binary_sensor.schuhklappe_contact
+    entity_id: binary_sensor.exterior_shoe_hatch_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_katzenkloklappe_contact
-    entity_id: binary_sensor.katzenkloklappe_contact
+    entity_id: binary_sensor.exterior_litter_box_hatch_contact
     on_state:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_wascheklappe_contact
-    entity_id: binary_sensor.wascheklappe_contact
+    entity_id: binary_sensor.exterior_laundry_hatch_contact
     on_state:
       - script.execute: draw_sensors_flaps
 
@@ -101,107 +101,107 @@ sensor:
   # diagnostics, same pattern as page_sensors_windows.yaml.
   - platform: homeassistant
     id: s_gasflaschenklappe_battery
-    entity_id: sensor.gasflaschenklappe_battery
+    entity_id: sensor.exterior_gas_locker_hatch_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_gasflaschenklappe_voltage
-    entity_id: sensor.gasflaschenklappe_voltage
+    entity_id: sensor.exterior_gas_locker_hatch_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_gasflaschenklappe_device_temperature
-    entity_id: sensor.gasflaschenklappe_device_temperature
+    entity_id: sensor.exterior_gas_locker_hatch_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_hinten_battery
-    entity_id: sensor.garagenklappe_hinten_battery
+    entity_id: sensor.garage_hatch_rear_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_hinten_voltage
-    entity_id: sensor.garagenklappe_hinten_voltage
+    entity_id: sensor.garage_hatch_rear_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_hinten_device_temperature
-    entity_id: sensor.garagenklappe_hinten_device_temperature
+    entity_id: sensor.garage_hatch_rear_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_rechts_battery
-    entity_id: sensor.garagenklappe_rechts_battery
+    entity_id: sensor.garage_hatch_right_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_rechts_voltage
-    entity_id: sensor.garagenklappe_rechts_voltage
+    entity_id: sensor.garage_hatch_right_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_rechts_device_temperature
-    entity_id: sensor.garagenklappe_rechts_device_temperature
+    entity_id: sensor.garage_hatch_right_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_serviceklappe_battery
-    entity_id: sensor.serviceklappe_battery
+    entity_id: sensor.exterior_service_hatch_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_serviceklappe_voltage
-    entity_id: sensor.serviceklappe_voltage
+    entity_id: sensor.exterior_service_hatch_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_serviceklappe_device_temperature
-    entity_id: sensor.serviceklappe_device_temperature
+    entity_id: sensor.exterior_service_hatch_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_schuhklappe_battery
-    entity_id: sensor.schuhklappe_battery
+    entity_id: sensor.exterior_shoe_hatch_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_schuhklappe_voltage
-    entity_id: sensor.schuhklappe_voltage
+    entity_id: sensor.exterior_shoe_hatch_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_schuhklappe_device_temperature
-    entity_id: sensor.schuhklappe_device_temperature
+    entity_id: sensor.exterior_shoe_hatch_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_katzenkloklappe_battery
-    entity_id: sensor.katzenkloklappe_battery
+    entity_id: sensor.exterior_litter_box_hatch_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_katzenkloklappe_voltage
-    entity_id: sensor.katzenkloklappe_voltage
+    entity_id: sensor.exterior_litter_box_hatch_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_katzenkloklappe_device_temperature
-    entity_id: sensor.katzenkloklappe_device_temperature
+    entity_id: sensor.exterior_litter_box_hatch_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_wascheklappe_battery
-    entity_id: sensor.wascheklappe_battery
+    entity_id: sensor.exterior_laundry_hatch_battery
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_wascheklappe_voltage
-    entity_id: sensor.wascheklappe_voltage
+    entity_id: sensor.exterior_laundry_hatch_voltage
     on_value:
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_wascheklappe_device_temperature
-    entity_id: sensor.wascheklappe_device_temperature
+    entity_id: sensor.exterior_laundry_hatch_device_temperature
     on_value:
       - script.execute: draw_sensors_flaps
 
@@ -210,49 +210,49 @@ text_sensor:
   # timestamp value - see page_sensors_windows.yaml's own header.
   - platform: homeassistant
     id: s_gasflaschenklappe_last_seen
-    entity_id: sensor.gasflaschenklappe_last_seen
+    entity_id: sensor.exterior_gas_locker_hatch_last_seen
     on_value:
       - lambda: |-
           id(g_gasflaschenklappe_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_hinten_last_seen
-    entity_id: sensor.garagenklappe_hinten_last_seen
+    entity_id: sensor.garage_hatch_rear_last_seen
     on_value:
       - lambda: |-
           id(g_garagenklappe_hinten_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_garagenklappe_rechts_last_seen
-    entity_id: sensor.garagenklappe_rechts_last_seen
+    entity_id: sensor.garage_hatch_right_last_seen
     on_value:
       - lambda: |-
           id(g_garagenklappe_rechts_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_serviceklappe_last_seen
-    entity_id: sensor.serviceklappe_last_seen
+    entity_id: sensor.exterior_service_hatch_last_seen
     on_value:
       - lambda: |-
           id(g_serviceklappe_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_schuhklappe_last_seen
-    entity_id: sensor.schuhklappe_last_seen
+    entity_id: sensor.exterior_shoe_hatch_last_seen
     on_value:
       - lambda: |-
           id(g_schuhklappe_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_katzenkloklappe_last_seen
-    entity_id: sensor.katzenkloklappe_last_seen
+    entity_id: sensor.exterior_litter_box_hatch_last_seen
     on_value:
       - lambda: |-
           id(g_katzenkloklappe_last_seen_ms) = millis();
       - script.execute: draw_sensors_flaps
   - platform: homeassistant
     id: s_wascheklappe_last_seen
-    entity_id: sensor.wascheklappe_last_seen
+    entity_id: sensor.exterior_laundry_hatch_last_seen
     on_value:
       - lambda: |-
           id(g_wascheklappe_last_seen_ms) = millis();
