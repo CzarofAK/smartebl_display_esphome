@@ -16,15 +16,15 @@ text_sensor:
   # real entities from m5dial_fram/page_power_3.yaml.
   - platform: homeassistant
     id: s_multiplus_state
-    entity_id: sensor.multiplus_zustand
+    entity_id: sensor.tech_inverter_state
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_mode
-    entity_id: select.multiplus
+    entity_id: select.tech_inverter_mode
     # Same filter as m5dial_fram/page_power_3.yaml's s_power_3_mode -
-    # options of select.multiplus: charger_only · inverter_only · on ·
+    # options of select.tech_inverter_mode: charger_only · inverter_only · on ·
     # off (confirmed real values, from that file's own comment).
     filters:
       - lambda: |-
@@ -36,7 +36,7 @@ text_sensor:
     on_value:
       - script.execute: draw_electric
 
-  # ---- Shore state line (FR-114) - binary_sensor.fram_shore_power from
+  # ---- Shore state line (FR-114) - binary_sensor.energy_shore_power from
   # HA (MultiPlus active AC input, delay_off 2 min), read as a text
   # sensor so "unavailable" (MultiPlus off / inverter only) stays
   # distinct from "off". Replaces the smartebl-link reading
@@ -44,7 +44,7 @@ text_sensor:
   # so the two can no longer disagree.
   - platform: homeassistant
     id: s_fram_shore_power
-    entity_id: binary_sensor.fram_shore_power
+    entity_id: binary_sensor.energy_shore_power
     on_value:
       - script.execute: draw_electric
 
@@ -52,13 +52,13 @@ text_sensor:
   # humanized state" pattern, see draw_electric.
   - platform: homeassistant
     id: s_mppt_zustand
-    entity_id: sensor.mppt_190w_zustand
+    entity_id: sensor.tech_solar_charger_state
     on_value:
       - script.execute: draw_electric
 
 globals:
   # ---- Electric page (page_electric) popup - shore/grid current limit
-  # (number.multiplus_strombegrenzung) being locally edited, same
+  # (number.tech_inverter_current_limit) being locally edited, same
   # debounced-write pattern as m5dial_fram/page_power_2.yaml's own
   # g_power_2_assist_pending.
   - id: g_multiplus_limit_pending
@@ -116,19 +116,19 @@ sensor:
   # MultiPlus (inverter/charger) - real entity_ids, not a guess.
   - platform: homeassistant
     id: s_battery_soc
-    entity_id: sensor.smartshunt_ladestand
+    entity_id: sensor.tech_battery_shunt_soc
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_dc_v
-    entity_id: sensor.smartshunt_dc_bus_spannung
+    entity_id: sensor.tech_battery_shunt_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_dc_a
-    entity_id: sensor.smartshunt_dc_bus_stromstarke
+    entity_id: sensor.tech_battery_shunt_current
     on_value:
       - script.execute: draw_electric
 
@@ -137,41 +137,41 @@ sensor:
   # not shown anywhere on this box any more.
   - platform: homeassistant
     id: s_multiplus_in_w
-    entity_id: sensor.multiplus_eingangsleistung_l1
+    entity_id: sensor.tech_inverter_input_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_in_v
-    entity_id: sensor.multiplus_eingangsspannung_l1
+    entity_id: sensor.tech_inverter_input_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_in_hz
-    entity_id: sensor.multiplus_eingangsfrequenz_l1
+    entity_id: sensor.tech_inverter_input_frequency
     on_value:
       - script.execute: draw_electric
 
   # ---- AC Loads - main = output power, sub-left/right = voltage/
   # frequency (repo-owner spec) - replaces the old %-of-1600W-nominal
-  # figure (sensor.multiplus_0_wr_leistung) with the per-phase output
+  # figure (sensor.tech_inverter_power) with the per-phase output
   # power entity directly.
   - platform: homeassistant
     id: s_multiplus_out_w
-    entity_id: sensor.multiplus_ausgangsleistung_l1
+    entity_id: sensor.tech_inverter_output_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_out_v
-    entity_id: sensor.multiplus_ausgangsspannung_l1
+    entity_id: sensor.tech_inverter_output_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_out_hz
-    entity_id: sensor.multiplus_ausgangsfrequenz_l1
+    entity_id: sensor.tech_inverter_output_frequency
     on_value:
       - script.execute: draw_electric
 
@@ -183,19 +183,19 @@ sensor:
   # of it).
   - platform: homeassistant
     id: s_mppt_pv_yield
-    entity_id: sensor.mppt_190w_leistung_pv_ertrag
+    entity_id: sensor.tech_solar_charger_pv_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_batt_v
-    entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+    entity_id: sensor.tech_solar_charger_battery_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_batt_a
-    entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+    entity_id: sensor.tech_solar_charger_battery_current
     on_value:
       - script.execute: draw_electric
 
@@ -203,13 +203,13 @@ sensor:
   # power, alongside the SOC/V/A this box already showed.
   - platform: homeassistant
     id: s_battery_remaining_time
-    entity_id: sensor.smartshunt_verbleibende_zeit
+    entity_id: sensor.tech_battery_shunt_time_remaining
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_power
-    entity_id: sensor.smartshunt_leistung
+    entity_id: sensor.tech_battery_shunt_power
     on_value:
       - script.execute: draw_electric
 
@@ -219,7 +219,7 @@ sensor:
   # not the SmartShunt's net current already shown in the Battery box.
   - platform: homeassistant
     id: s_dc_loads
-    entity_id: sensor.gx_device_dc_verbrauch
+    entity_id: sensor.tech_cerbo_gx_dc_consumption
     on_value:
       - script.execute: draw_electric
 
@@ -228,7 +228,7 @@ sensor:
   # as m5dial_fram/page_power_2.yaml's own s_power_2_limit.
   - platform: homeassistant
     id: s_multiplus_limit
-    entity_id: number.multiplus_strombegrenzung
+    entity_id: number.tech_inverter_current_limit
     on_value:
       - lambda: |-
           // Resync the locally-edited pending value from HA's confirmed
@@ -254,8 +254,8 @@ sensor:
           }
       - script.execute: draw_electric
 
-  # ---- Solar Yield popup - charge-current limit (number.mppt_190w_
-  # stromstarke), same resync-while-closed pattern as s_multiplus_limit
+  # ---- Solar Yield popup - charge-current limit
+  # (number.tech_solar_charger_current_limit), same resync-while-closed pattern as s_multiplus_limit
   # above. ⚠ No documented safe ceiling for this specific MPPT 190W unit
   # in this session (unlike the Charger popup's 16A, which is this
   # installation's actual shore-cable rating) - act_mppt_limit_up/down's
@@ -264,7 +264,7 @@ sensor:
   # once the charger's own datasheet/real max is known.
   - platform: homeassistant
     id: s_mppt_limit
-    entity_id: number.mppt_190w_stromstarke
+    entity_id: number.tech_solar_charger_current_limit
     on_value:
       - lambda: |-
           if (lv_obj_has_flag(id(obj_solar_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
@@ -276,7 +276,7 @@ binary_sensor:
   # s_shore_power_connected (smartebl link) removed 2026-11-08: the Smart EBL
   # has nothing wired to that input in the FRAM; smartebl still sends
   # the key (other EBL users rely on it), the parser ignores it here.
-  # Shore power comes only from binary_sensor.fram_shore_power (FR-114).
+  # Shore power comes only from binary_sensor.energy_shore_power (FR-114).
 
   # ---- Electric page (page_electric) popups - MPPT on/off and the
   # `fram_parkmodus` switch, mirrored read-only the same way as the
@@ -286,13 +286,13 @@ binary_sensor:
   # convention rather than mixing in a second way to do the same thing).
   - platform: homeassistant
     id: s_mppt_on
-    entity_id: switch.mppt_190w
+    entity_id: switch.tech_solar_charger
     on_state:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_fram_parkmodus_on
-    entity_id: switch.fram_parkmodus
+    entity_id: switch.energy_park_mode
     on_state:
       - script.execute: draw_electric
 
@@ -330,7 +330,7 @@ script:
           // (repo-owner spec, replacing the old W+A sub-line).
           //
           // 2026-11-05 (FR-114): the state line is back, now fed from HA
-          // (binary_sensor.fram_shore_power, see below) - same MultiPlus
+          // (binary_sensor.energy_shore_power, see below) - same MultiPlus
           // source as the W/V/Hz values, so it agrees with them. History:
           // the CONNECTED/DISCONNECTED status line (smartebl's own
           // physical shore-sense input) that used to sit here was REMOVED
@@ -367,7 +367,7 @@ script:
           }
 
           // ---- Shore state line (FR-114): CONNECTED (green) from
-          // binary_sensor.fram_shore_power; unplugged = line hidden (empty),
+          // binary_sensor.energy_shore_power; unplugged = line hidden (empty),
           // because on this display shore power is the good state and its
           // absence is nothing to show. "---" while HA has no value or the
           // MultiPlus can't evaluate its input (off / inverter only).
@@ -499,7 +499,7 @@ script:
             lv_label_set_text(id(lbl_electric_solar_sub_r), buf);
           }
 
-          // ---- Solar Yield popup - ON/OFF (switch.mppt_190w) + charge-
+          // ---- Solar Yield popup - ON/OFF (switch.tech_solar_charger) + charge-
           // current limit, same shape as the Charger popup's mode/limit
           // pair below.
           bool mppt_known = api_ok && id(s_mppt_on).has_state();
@@ -521,7 +521,7 @@ script:
             lv_obj_set_style_text_color(id(lbl_mppt_limit), lv_color_hex(0xBDC1C6), 0);
           }
 
-          // ---- Battery popup - switch.fram_parkmodus, simple on/off.
+          // ---- Battery popup - switch.energy_park_mode, simple on/off.
           bool park_on = api_ok && id(s_fram_parkmodus_on).has_state() && id(s_fram_parkmodus_on).state;
           lv_label_set_text(id(lbl_park_state), park_on ? "AN" : "AUS");
           lv_obj_set_style_text_color(id(lbl_park_state), lv_color_hex(park_on ? 0x2ECC71 : 0xBDC1C6), 0);
@@ -595,7 +595,7 @@ script:
           // charging, so it's blanked rather than showing a
           // meaningless number the rest of the time.
           if (discharging && api_ok && id(s_battery_remaining_time).has_state()) {
-            // sensor.smartshunt_verbleibende_zeit comes from the Victron
+            // sensor.tech_battery_shunt_time_remaining comes from the Victron
             // GX integration in HOURS (device_class duration, unit h),
             // not minutes - e.g. 54.95 = 54h57m. Convert, then show
             // days+hours once it exceeds a day so it stays readable.
@@ -754,91 +754,91 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_ladestand
+            entity_id: sensor.tech_battery_shunt_soc
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_dc_bus_spannung
+            entity_id: sensor.tech_battery_shunt_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_dc_bus_stromstarke
+            entity_id: sensor.tech_battery_shunt_current
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_verbleibende_zeit
+            entity_id: sensor.tech_battery_shunt_time_remaining
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_leistung
+            entity_id: sensor.tech_battery_shunt_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsleistung_l1
+            entity_id: sensor.tech_inverter_input_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsspannung_l1
+            entity_id: sensor.tech_inverter_input_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsfrequenz_l1
+            entity_id: sensor.tech_inverter_input_frequency
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsleistung_l1
+            entity_id: sensor.tech_inverter_output_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsspannung_l1
+            entity_id: sensor.tech_inverter_output_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsfrequenz_l1
+            entity_id: sensor.tech_inverter_output_frequency
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_zustand
+            entity_id: sensor.tech_inverter_state
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: select.multiplus
+            entity_id: select.tech_inverter_mode
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.multiplus_strombegrenzung
+            entity_id: number.tech_inverter_current_limit
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_leistung_pv_ertrag
+            entity_id: sensor.tech_solar_charger_pv_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_zustand
+            entity_id: sensor.tech_solar_charger_state
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+            entity_id: sensor.tech_solar_charger_battery_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+            entity_id: sensor.tech_solar_charger_battery_current
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.mppt_190w_stromstarke
+            entity_id: number.tech_solar_charger_current_limit
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.mppt_190w
+            entity_id: switch.tech_solar_charger
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.gx_device_dc_verbrauch
+            entity_id: sensor.tech_cerbo_gx_dc_consumption
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.fram_parkmodus
+            entity_id: switch.energy_park_mode
 
   - id: show_charger_popup
     then:
@@ -866,7 +866,7 @@ script:
 
   # Direct-set, not a cycle (unlike m5dial_fram/page_power_3.yaml's
   # single ON->CHG->INV->OFF button - this popup has room for four
-  # separate buttons, one per real option of select.multiplus, so
+  # separate buttons, one per real option of select.tech_inverter_mode, so
   # picking any mode is one tap instead of up to three).
   - id: act_multiplus_set_mode
     parameters:
@@ -875,7 +875,7 @@ script:
       - homeassistant.service:
           service: select.select_option
           data:
-            entity_id: select.multiplus
+            entity_id: select.tech_inverter_mode
           data_template:
             option: "{{ opt }}"
           variables:
@@ -883,8 +883,8 @@ script:
 
   # 1A step, clamped 0-16A - same real-world wiring ceiling
   # m5dial_fram/page_power_2.yaml's identical control uses for this
-  # installation's 2.5mm² shore cable (not number.multiplus_
-  # strombegrenzung's own 0-63A range).
+  # installation's 2.5mm² shore cable (not
+  # number.tech_inverter_current_limit's own 0-63A range).
   - id: act_multiplus_limit_up
     then:
       - lambda: |-
@@ -910,7 +910,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.multiplus_strombegrenzung
+            entity_id: number.tech_inverter_current_limit
           data_template:
             value: "{{ val }}"
           variables:
@@ -936,7 +936,7 @@ script:
       - script.execute: draw_electric
 
   # ---- Solar Yield popup (obj_solar_popup_panel) - ON/OFF (switch.
-  # mppt_190w) + charge-current limit (number.mppt_190w_stromstarke),
+  # mppt_190w) + charge-current limit (number.tech_solar_charger_current_limit),
   # same backdrop/panel/debounced-write shapes as the Charger popup
   # above, just with 2 mode buttons instead of 4.
   - id: show_solar_popup
@@ -958,7 +958,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.mppt_190w
+            entity_id: switch.tech_solar_charger
 
   - id: act_mppt_limit_up
     then:
@@ -983,7 +983,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.mppt_190w_stromstarke
+            entity_id: number.tech_solar_charger_current_limit
           data_template:
             value: "{{ val }}"
           variables:
@@ -995,7 +995,7 @@ script:
       - delay: 400ms
       - script.execute: mppt_limit_write_now
 
-  # ---- Battery popup (obj_battery_popup_panel) - switch.fram_parkmodus
+  # ---- Battery popup (obj_battery_popup_panel) - switch.energy_park_mode
   # only, a single toggle rather than a mode picker - simple on/off.
   - id: show_battery_popup
     then:
@@ -1013,7 +1013,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.fram_parkmodus
+            entity_id: switch.energy_park_mode
 
 esphome:
   on_boot:
@@ -1155,7 +1155,7 @@ lvgl:
               # uses except AC Loads (its former duplicate %-of-1600W
               # line was removed outright, not reflowed - see that box's
               # own comment). Shore's state line: CONNECTED/DISCONNECTED
-              # from binary_sensor.fram_shore_power (FR-114, written by
+              # from binary_sensor.energy_shore_power (FR-114, written by
               # draw_electric). This widget also carries the
               # `&row_state` anchor's position/font for the other boxes'
               # `<<: *row_state` merges (Charger/Solar/Battery/DC Loads).
@@ -1254,7 +1254,7 @@ lvgl:
               # from this session (still unconfirmed against a real GX
               # device): AC output power as a % of the MultiPlus's own
               # max rated output, NOT input/throughput. Reuses AC Loads'
-              # own entity (sensor.multiplus_ausgangsleistung_l1,
+              # own entity (sensor.tech_inverter_output_power,
               # s_multiplus_out_w) and its 1600W-nominal assumption
               # (same Multiplus 12/1600 caveat as that box) rather than
               # inventing a second calculation for the same underlying
@@ -1603,8 +1603,8 @@ lvgl:
                   id: lbl_electric_dc_loads_sub_r
                   text: "---"
 
-        # ---- Charger/Inverter popup: mode (select.multiplus) + shore
-        # current limit (number.multiplus_strombegrenzung). Hidden by
+        # ---- Charger/Inverter popup: mode (select.tech_inverter_mode) + shore
+        # current limit (number.tech_inverter_current_limit). Hidden by
         # default; shown/hidden by show_charger_popup/close_charger_popup.
         # button:, not obj: - on_click only reliably registers on a
         # button widget in this file's own established convention (see
@@ -1816,8 +1816,8 @@ lvgl:
                   on_click:
                     - script.execute: close_charger_popup
 
-        # ---- Solar Yield popup: ON/OFF (switch.mppt_190w) + charge-
-        # current limit (number.mppt_190w_stromstarke) - same backdrop/
+        # ---- Solar Yield popup: ON/OFF (switch.tech_solar_charger) + charge-
+        # current limit (number.tech_solar_charger_current_limit) - same backdrop/
         # panel shape as the Charger popup above, 2 mode buttons instead
         # of 4.
         - button:
@@ -1978,7 +1978,7 @@ lvgl:
                   on_click:
                     - script.execute: close_solar_popup
 
-        # ---- Battery popup: switch.fram_parkmodus, a single toggle.
+        # ---- Battery popup: switch.energy_park_mode, a single toggle.
         - button:
             id: obj_battery_popup_backdrop
             align: TOP_LEFT

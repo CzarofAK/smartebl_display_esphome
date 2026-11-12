@@ -148,7 +148,7 @@ itself: no need to send both the raw value and its derived boolean).
 | `dplus_voltage` | planned |
 | `f10_abs_voltage` | planned |
 | `dplus_active` (`bool`, derived on `smartebl` side same as today) | planned |
-| `shore_power_connected` (`bool`) | sent by `smartebl`, ignored on the display since 2026-11-08 – nothing wired to that input in the FRAM; shore power comes from `binary_sensor.fram_shore_power` (FR-114) |
+| `shore_power_connected` (`bool`) | sent by `smartebl`, ignored on the display since 2026-11-08 – nothing wired to that input in the FRAM; shore power comes from `binary_sensor.energy_shore_power` (FR-114) |
 
 ### Group 4 — Switches (`bool`, also the command target)
 

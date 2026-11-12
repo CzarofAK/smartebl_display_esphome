@@ -542,14 +542,14 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       replacing the old W+A sub-line); AC Loads mirrors that shape with
       output power/voltage/frequency (replacing the old %-of-1600W-
       nominal figure); Solar Yield is now a button opening its own
-      ON/OFF (`switch.mppt_190w`) + charge-limit
-      (`number.mppt_190w_stromstarke`) popup, sub-left/right now the
+      ON/OFF (`switch.tech_solar_charger`) + charge-limit
+      (`number.tech_solar_charger_current_limit`) popup, sub-left/right now the
       MPPT's own DC battery-bus voltage/current; Battery gained an
       IDLE/CHARGING/DISCHARGING state line (interpreted from the
       SmartShunt's net current) and a remaining-time line between the
       SOC and a proper 3-across V/A/W bottom row (fixing a real overlap
       bug between the old mid-line and the starter-voltage line), plus
-      its own popup for `switch.fram_parkmodus`. Also fixed: the
+      its own popup for `switch.energy_park_mode`. Also fixed: the
       Charger popup's mode buttons were left-to-right ON/CHG/INV/OFF,
       now OFF/CHARGER/INVERTER/ON; its own OFF button's "active"
       highlight used to be styled identically to "inactive" (never
@@ -562,8 +562,8 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       asked what it represents. Best guess from this session (NOT
       confirmed against Victron's own source or a live GX device): the
       AC input current as a percentage of the configured input current
-      limit, i.e. `sensor.multiplus_eingangsstromstarke_l1` relative to
-      `number.multiplus_strombegrenzung` (already wired into this page's
+      limit, i.e. `sensor.tech_inverter_input_current` relative to
+      `number.tech_inverter_current_limit` (already wired into this page's
       Charger popup). Confirm on a real GX Touch/VRM before wiring an
       indicator to it - this is a guess, not a verified finding.
 - [ ] **Clock jitter root-caused, fixed upstream in `m5dial_clock_sbb`,
@@ -594,7 +594,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       it "planned" - `smartebl` already broadcasts it, this display just
       hadn't parsed it), physical identity unconfirmed, shown generically
       rather than guessed. GAS A/GAS I are the same real
-      `sensor.gas_1_stand`/`sensor.gas_2_stand` HA entities
+      `sensor.exterior_gas_bottle_1_level`/`sensor.exterior_gas_bottle_2_level` HA entities
       `m5dial_fram/page_gas.yaml` already reads for this vehicle's actual
       (separate) gas monitoring - same precedent as this repo's own
       Electric page reusing `m5dial_fram`'s real Victron entities.
@@ -695,7 +695,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       same "reserved" status `tank1`/`tank2` had before this page
       existed. Gas A = außen (outside, "in use")/Gas I = innen (inside,
       "reserve"), confirmed by the repo owner - matches the existing
-      `sensor.gas_1_stand`/`sensor.gas_2_stand` mapping already in place.
+      `sensor.exterior_gas_bottle_1_level`/`sensor.exterior_gas_bottle_2_level` mapping already in place.
 - [x] **`lvgl: buffer_size: 25%` REVERTED** - the repo owner reported
       visible flicker on real hardware on the same flash this landed on
       (alongside `page_levels`). Consistent with a smaller LVGL draw
@@ -824,7 +824,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       the temp row's own margin above the Alarmo gap stays close to
       round 3's, rather than opening a much bigger, unrequested gap.
 
-- [x] **Shore-current limit popup: 1s debounce + amber pending value** (repo-owner, 2026-11-07: "sendet sofort den neuen Wert, das erschwert grössere Änderungen"). The 400ms debounce wrote intermediate values to `number.multiplus_strombegrenzung` whenever the -/+ taps paused briefly. Now the value is written only after it has not changed for 1s; until HA confirms it, the value is shown amber (stays amber if the MultiPlus did not accept it). Mode buttons (OFF/CHG/INV/ON) still act on tap. Applied to both Electric variants (`page_electric.yaml`, `page_electric_widget.yaml`).
+- [x] **Shore-current limit popup: 1s debounce + amber pending value** (repo-owner, 2026-11-07: "sendet sofort den neuen Wert, das erschwert grössere Änderungen"). The 400ms debounce wrote intermediate values to `number.tech_inverter_current_limit` whenever the -/+ taps paused briefly. Now the value is written only after it has not changed for 1s; until HA confirms it, the value is shown amber (stays amber if the MultiPlus did not accept it). Mode buttons (OFF/CHG/INV/ON) still act on tap. Applied to both Electric variants (`page_electric.yaml`, `page_electric_widget.yaml`).
 
 - [x] **Heating fan entity fixed: `switch.fan_heater_bed`** - the Shelly 1 was reflashed to ESPHome (FR-117), so the old Shelly-integration entity `switch.shelly_fan_heater_bed_fan_heater_bed` no longer exists and the HEIZFAN button showed "---". Must change together with `smartebl`'s `heating_fan_entity` substitution.
 

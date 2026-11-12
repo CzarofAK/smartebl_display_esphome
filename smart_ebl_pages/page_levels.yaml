@@ -96,13 +96,13 @@ sensor:
   # can be fixed to match.
   - platform: homeassistant
     id: s_gas_a
-    entity_id: sensor.gas_1_stand
+    entity_id: sensor.exterior_gas_bottle_1_level
     on_value:
       - script.execute: draw_levels
 
   - platform: homeassistant
     id: s_gas_i
-    entity_id: sensor.gas_2_stand
+    entity_id: sensor.exterior_gas_bottle_2_level
     on_value:
       - script.execute: draw_levels
 
@@ -117,8 +117,8 @@ script:
   # Fresh (HA `sensor.fresh_stand`) / Waste (HA `sensor.waste_stand`) -
   # TEMPORARY Victron swap, 2026-09-12, was `tank1_level`/`tank2_level`
   # over the link (see the sensor: block's own comment) / Gas A, außen/
-  # "in use" (HA `sensor.gas_1_stand`) / Gas I, innen/"reserve" (HA
-  # `sensor.gas_2_stand`) / Diesel (HA `sensor.nw19939_fuel_level`,
+  # "in use" (HA `sensor.exterior_gas_bottle_1_level`) / Gas I, innen/"reserve" (HA
+  # `sensor.exterior_gas_bottle_2_level`) / Diesel (HA `sensor.nw19939_fuel_level`,
   # repo-owner-supplied) - see the sensor: block's own comment (above,
   # where s_fresh_stand/s_waste_stand/s_gas_a/s_gas_i/s_diesel_level are
   # declared) for the entity-level detail.
@@ -135,11 +135,11 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.gas_1_stand
+            entity_id: sensor.exterior_gas_bottle_1_level
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.gas_2_stand
+            entity_id: sensor.exterior_gas_bottle_2_level
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
@@ -254,7 +254,7 @@ script:
             lv_label_set_text(id(lbl_levels_diesel_l), buf);
           }
 
-          // ---- GAS A / GAS I (HA, sensor.gas_1_stand/gas_2_stand) -
+          // ---- GAS A / GAS I (HA, sensor.exterior_gas_bottle_1_level/gas_2_stand) -
           // same 10%/25% thresholds as m5dial_fram/page_gas.yaml.
           // Normal-state color unified to blue for both (Gas I was
           // 0x9AA0A6 grey - see FRISCH's own comment above) - the
@@ -558,7 +558,7 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
-        # ---- GAS A (HA, sensor.gas_1_stand) -----------------------------
+        # ---- GAS A (HA, sensor.exterior_gas_bottle_1_level) -----------------------------
         # scrollbar_mode/height/bar-height/label-y - same fixes and same
         # reasoning as FRISCH, above.
         - obj:
@@ -610,7 +610,7 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
-        # ---- GAS I (HA, sensor.gas_2_stand) -----------------------------
+        # ---- GAS I (HA, sensor.exterior_gas_bottle_2_level) -----------------------------
         # scrollbar_mode/height/bar-height/label-y - same fixes and same
         # reasoning as FRISCH, above.
         - obj:

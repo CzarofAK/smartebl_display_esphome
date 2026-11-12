@@ -97,13 +97,13 @@ color:
 text_sensor:
   - platform: homeassistant
     id: s_multiplus_state
-    entity_id: sensor.multiplus_zustand
+    entity_id: sensor.tech_inverter_state
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_mode
-    entity_id: select.multiplus
+    entity_id: select.tech_inverter_mode
     filters:
       - lambda: |-
           std::string s = x;
@@ -118,13 +118,13 @@ text_sensor:
   # s_fram_shore_power comment, identical binding.
   - platform: homeassistant
     id: s_fram_shore_power
-    entity_id: binary_sensor.fram_shore_power
+    entity_id: binary_sensor.energy_shore_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_zustand
-    entity_id: sensor.mppt_190w_zustand
+    entity_id: sensor.tech_solar_charger_state
     on_value:
       - script.execute: draw_electric
 
@@ -178,97 +178,97 @@ sensor:
 
   - platform: homeassistant
     id: s_battery_soc
-    entity_id: sensor.smartshunt_ladestand
+    entity_id: sensor.tech_battery_shunt_soc
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_dc_v
-    entity_id: sensor.smartshunt_dc_bus_spannung
+    entity_id: sensor.tech_battery_shunt_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_dc_a
-    entity_id: sensor.smartshunt_dc_bus_stromstarke
+    entity_id: sensor.tech_battery_shunt_current
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_in_w
-    entity_id: sensor.multiplus_eingangsleistung_l1
+    entity_id: sensor.tech_inverter_input_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_in_v
-    entity_id: sensor.multiplus_eingangsspannung_l1
+    entity_id: sensor.tech_inverter_input_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_in_hz
-    entity_id: sensor.multiplus_eingangsfrequenz_l1
+    entity_id: sensor.tech_inverter_input_frequency
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_out_w
-    entity_id: sensor.multiplus_ausgangsleistung_l1
+    entity_id: sensor.tech_inverter_output_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_out_v
-    entity_id: sensor.multiplus_ausgangsspannung_l1
+    entity_id: sensor.tech_inverter_output_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_out_hz
-    entity_id: sensor.multiplus_ausgangsfrequenz_l1
+    entity_id: sensor.tech_inverter_output_frequency
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_pv_yield
-    entity_id: sensor.mppt_190w_leistung_pv_ertrag
+    entity_id: sensor.tech_solar_charger_pv_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_batt_v
-    entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+    entity_id: sensor.tech_solar_charger_battery_voltage
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_mppt_batt_a
-    entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+    entity_id: sensor.tech_solar_charger_battery_current
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_remaining_time
-    entity_id: sensor.smartshunt_verbleibende_zeit
+    entity_id: sensor.tech_battery_shunt_time_remaining
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_battery_power
-    entity_id: sensor.smartshunt_leistung
+    entity_id: sensor.tech_battery_shunt_power
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_dc_loads
-    entity_id: sensor.gx_device_dc_verbrauch
+    entity_id: sensor.tech_cerbo_gx_dc_consumption
     on_value:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_multiplus_limit
-    entity_id: number.multiplus_strombegrenzung
+    entity_id: number.tech_inverter_current_limit
     on_value:
       - lambda: |-
           // FR-114 (2026-11-07): adopt HA's value whenever no edit is in
@@ -291,7 +291,7 @@ sensor:
 
   - platform: homeassistant
     id: s_mppt_limit
-    entity_id: number.mppt_190w_stromstarke
+    entity_id: number.tech_solar_charger_current_limit
     on_value:
       - lambda: |-
           if (lv_obj_has_flag(id(obj_solar_popup_panel), LV_OBJ_FLAG_HIDDEN)) {
@@ -304,13 +304,13 @@ binary_sensor:
 
   - platform: homeassistant
     id: s_mppt_on
-    entity_id: switch.mppt_190w
+    entity_id: switch.tech_solar_charger
     on_state:
       - script.execute: draw_electric
 
   - platform: homeassistant
     id: s_fram_parkmodus_on
-    entity_id: switch.fram_parkmodus
+    entity_id: switch.energy_park_mode
     on_state:
       - script.execute: draw_electric
 
@@ -360,7 +360,7 @@ script:
           }
 
           // ---- Shore state line (FR-114): CONNECTED (green) from
-          // binary_sensor.fram_shore_power; unplugged = line hidden (empty),
+          // binary_sensor.energy_shore_power; unplugged = line hidden (empty),
           // because on this display shore power is the good state and its
           // absence is nothing to show. "---" while HA has no value or the
           // MultiPlus can't evaluate its input (off / inverter only).
@@ -540,7 +540,7 @@ script:
           // file's own header §2). Plain labels in the box_battery_extra
           // overlay (widgets: below), ids unchanged from page_electric.yaml.
           if (discharging && api_ok && id(s_battery_remaining_time).has_state()) {
-            // sensor.smartshunt_verbleibende_zeit comes from the Victron
+            // sensor.tech_battery_shunt_time_remaining comes from the Victron
             // GX integration in HOURS (device_class duration, unit h),
             // not minutes - e.g. 54.95 = 54h57m. Convert, then show
             // days+hours once it exceeds a day so it stays readable.
@@ -652,91 +652,91 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_ladestand
+            entity_id: sensor.tech_battery_shunt_soc
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_dc_bus_spannung
+            entity_id: sensor.tech_battery_shunt_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_dc_bus_stromstarke
+            entity_id: sensor.tech_battery_shunt_current
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_verbleibende_zeit
+            entity_id: sensor.tech_battery_shunt_time_remaining
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.smartshunt_leistung
+            entity_id: sensor.tech_battery_shunt_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsleistung_l1
+            entity_id: sensor.tech_inverter_input_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsspannung_l1
+            entity_id: sensor.tech_inverter_input_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_eingangsfrequenz_l1
+            entity_id: sensor.tech_inverter_input_frequency
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsleistung_l1
+            entity_id: sensor.tech_inverter_output_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsspannung_l1
+            entity_id: sensor.tech_inverter_output_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_ausgangsfrequenz_l1
+            entity_id: sensor.tech_inverter_output_frequency
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.multiplus_zustand
+            entity_id: sensor.tech_inverter_state
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: select.multiplus
+            entity_id: select.tech_inverter_mode
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.multiplus_strombegrenzung
+            entity_id: number.tech_inverter_current_limit
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_leistung_pv_ertrag
+            entity_id: sensor.tech_solar_charger_pv_power
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_zustand
+            entity_id: sensor.tech_solar_charger_state
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_dc_batterie_bus_spannung
+            entity_id: sensor.tech_solar_charger_battery_voltage
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mppt_190w_dc_batterie_bus_stromstarke
+            entity_id: sensor.tech_solar_charger_battery_current
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.mppt_190w_stromstarke
+            entity_id: number.tech_solar_charger_current_limit
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.mppt_190w
+            entity_id: switch.tech_solar_charger
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.gx_device_dc_verbrauch
+            entity_id: sensor.tech_cerbo_gx_dc_consumption
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: switch.fram_parkmodus
+            entity_id: switch.energy_park_mode
 
   - id: show_charger_popup
     then:
@@ -769,7 +769,7 @@ script:
       - homeassistant.service:
           service: select.select_option
           data:
-            entity_id: select.multiplus
+            entity_id: select.tech_inverter_mode
           data_template:
             option: "{{ opt }}"
           variables:
@@ -800,7 +800,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.multiplus_strombegrenzung
+            entity_id: number.tech_inverter_current_limit
           data_template:
             value: "{{ val }}"
           variables:
@@ -844,7 +844,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.mppt_190w
+            entity_id: switch.tech_solar_charger
 
   - id: act_mppt_limit_up
     then:
@@ -869,7 +869,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.mppt_190w_stromstarke
+            entity_id: number.tech_solar_charger_current_limit
           data_template:
             value: "{{ val }}"
           variables:
@@ -897,7 +897,7 @@ script:
       - homeassistant.service:
           service: switch.toggle
           data:
-            entity_id: switch.fram_parkmodus
+            entity_id: switch.energy_park_mode
 
 esphome:
   on_boot:
