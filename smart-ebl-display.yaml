@@ -997,7 +997,7 @@ interval:
                       // tank1_level/tank2_level (Fresh/Waste) - TEMPORARY,
                       // 2026-09-12: commented out, not removed, while
                       // page_levels.yaml sources Fresh/Waste from Victron
-                      // (HA sensor.fresh_stand/sensor.waste_stand) instead -
+                      // (HA sensor.tech_fresh_water_tank_level/sensor.tech_waste_water_tank_level) instead -
                       // see that file's own sensor: block comment for why
                       // and how to revert (uncomment these two cases AND
                       // s_tank1_level/s_tank2_level there).
