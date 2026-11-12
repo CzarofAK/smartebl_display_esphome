@@ -108,57 +108,57 @@ binary_sensor:
   # not separately confirmed per-entity.
   - platform: homeassistant
     id: s_beifahrerture_contact
-    entity_id: binary_sensor.beifahrerture_contact
+    entity_id: binary_sensor.cab_passenger_door_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_fahrerture_contact
-    entity_id: binary_sensor.fahrerture_contact
+    entity_id: binary_sensor.cab_driver_door_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_eingangsture_contact
-    entity_id: binary_sensor.eingangsture_contact
+    entity_id: binary_sensor.entrance_door_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_kuchenfenster_contact
-    entity_id: binary_sensor.kuchenfenster_contact
+    entity_id: binary_sensor.kitchen_window_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_tischfenster_contact
-    entity_id: binary_sensor.tischfenster_contact
+    entity_id: binary_sensor.living_window_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_links_contact
-    entity_id: binary_sensor.bettfenster_links_contact
+    entity_id: binary_sensor.bedroom_window_left_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_rechts_contact
-    entity_id: binary_sensor.bettfenster_rechts_contact
+    entity_id: binary_sensor.bedroom_window_right_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_links_contact
-    entity_id: binary_sensor.miniheki_links_contact
+    entity_id: binary_sensor.bathroom_roof_window_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_rechts_contact
-    entity_id: binary_sensor.miniheki_rechts_contact
+    entity_id: binary_sensor.kitchen_roof_window_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_midiheki_vorne_contact
-    entity_id: binary_sensor.midiheki_vorne_contact
+    entity_id: binary_sensor.living_roof_window_contact
     on_state:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_heki3_hinten_contact
-    entity_id: binary_sensor.heki3_hinten_contact
+    entity_id: binary_sensor.bedroom_roof_window_contact
     on_state:
       - script.execute: draw_sensors_windows
 
@@ -169,167 +169,167 @@ sensor:
   # convention).
   - platform: homeassistant
     id: s_beifahrerture_battery
-    entity_id: sensor.beifahrerture_battery
+    entity_id: sensor.cab_passenger_door_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_beifahrerture_voltage
-    entity_id: sensor.beifahrerture_voltage
+    entity_id: sensor.cab_passenger_door_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_beifahrerture_device_temperature
-    entity_id: sensor.beifahrerture_device_temperature
+    entity_id: sensor.cab_passenger_door_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_fahrerture_battery
-    entity_id: sensor.fahrerture_battery
+    entity_id: sensor.cab_driver_door_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_fahrerture_voltage
-    entity_id: sensor.fahrerture_voltage
+    entity_id: sensor.cab_driver_door_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_fahrerture_device_temperature
-    entity_id: sensor.fahrerture_device_temperature
+    entity_id: sensor.cab_driver_door_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_eingangsture_battery
-    entity_id: sensor.eingangsture_battery
+    entity_id: sensor.entrance_door_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_eingangsture_voltage
-    entity_id: sensor.eingangsture_voltage
+    entity_id: sensor.entrance_door_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_eingangsture_device_temperature
-    entity_id: sensor.eingangsture_device_temperature
+    entity_id: sensor.entrance_door_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_kuchenfenster_battery
-    entity_id: sensor.kuchenfenster_battery
+    entity_id: sensor.kitchen_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_kuchenfenster_voltage
-    entity_id: sensor.kuchenfenster_voltage
+    entity_id: sensor.kitchen_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_kuchenfenster_device_temperature
-    entity_id: sensor.kuchenfenster_device_temperature
+    entity_id: sensor.kitchen_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_tischfenster_battery
-    entity_id: sensor.tischfenster_battery
+    entity_id: sensor.living_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_tischfenster_voltage
-    entity_id: sensor.tischfenster_voltage
+    entity_id: sensor.living_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_tischfenster_device_temperature
-    entity_id: sensor.tischfenster_device_temperature
+    entity_id: sensor.living_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_links_battery
-    entity_id: sensor.bettfenster_links_battery
+    entity_id: sensor.bedroom_window_left_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_links_voltage
-    entity_id: sensor.bettfenster_links_voltage
+    entity_id: sensor.bedroom_window_left_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_links_device_temperature
-    entity_id: sensor.bettfenster_links_device_temperature
+    entity_id: sensor.bedroom_window_left_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_rechts_battery
-    entity_id: sensor.bettfenster_rechts_battery
+    entity_id: sensor.bedroom_window_right_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_rechts_voltage
-    entity_id: sensor.bettfenster_rechts_voltage
+    entity_id: sensor.bedroom_window_right_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_rechts_device_temperature
-    entity_id: sensor.bettfenster_rechts_device_temperature
+    entity_id: sensor.bedroom_window_right_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_links_battery
-    entity_id: sensor.miniheki_links_battery
+    entity_id: sensor.bathroom_roof_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_links_voltage
-    entity_id: sensor.miniheki_links_voltage
+    entity_id: sensor.bathroom_roof_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_links_device_temperature
-    entity_id: sensor.miniheki_links_device_temperature
+    entity_id: sensor.bathroom_roof_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_rechts_battery
-    entity_id: sensor.miniheki_rechts_battery
+    entity_id: sensor.kitchen_roof_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_rechts_voltage
-    entity_id: sensor.miniheki_rechts_voltage
+    entity_id: sensor.kitchen_roof_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_rechts_device_temperature
-    entity_id: sensor.miniheki_rechts_device_temperature
+    entity_id: sensor.kitchen_roof_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_midiheki_vorne_battery
-    entity_id: sensor.midiheki_vorne_battery
+    entity_id: sensor.living_roof_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_midiheki_vorne_voltage
-    entity_id: sensor.midiheki_vorne_voltage
+    entity_id: sensor.living_roof_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_midiheki_vorne_device_temperature
-    entity_id: sensor.midiheki_vorne_device_temperature
+    entity_id: sensor.living_roof_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_heki3_hinten_battery
-    entity_id: sensor.heki3_hinten_battery
+    entity_id: sensor.bedroom_roof_window_battery
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_heki3_hinten_voltage
-    entity_id: sensor.heki3_hinten_voltage
+    entity_id: sensor.bedroom_roof_window_voltage
     on_value:
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_heki3_hinten_device_temperature
-    entity_id: sensor.heki3_hinten_device_temperature
+    entity_id: sensor.bedroom_roof_window_device_temperature
     on_value:
       - script.execute: draw_sensors_windows
 
@@ -340,77 +340,77 @@ text_sensor:
   # for why.
   - platform: homeassistant
     id: s_beifahrerture_last_seen
-    entity_id: sensor.beifahrerture_last_seen
+    entity_id: sensor.cab_passenger_door_last_seen
     on_value:
       - lambda: |-
           id(g_beifahrerture_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_fahrerture_last_seen
-    entity_id: sensor.fahrerture_last_seen
+    entity_id: sensor.cab_driver_door_last_seen
     on_value:
       - lambda: |-
           id(g_fahrerture_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_eingangsture_last_seen
-    entity_id: sensor.eingangsture_last_seen
+    entity_id: sensor.entrance_door_last_seen
     on_value:
       - lambda: |-
           id(g_eingangsture_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_kuchenfenster_last_seen
-    entity_id: sensor.kuchenfenster_last_seen
+    entity_id: sensor.kitchen_window_last_seen
     on_value:
       - lambda: |-
           id(g_kuchenfenster_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_tischfenster_last_seen
-    entity_id: sensor.tischfenster_last_seen
+    entity_id: sensor.living_window_last_seen
     on_value:
       - lambda: |-
           id(g_tischfenster_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_links_last_seen
-    entity_id: sensor.bettfenster_links_last_seen
+    entity_id: sensor.bedroom_window_left_last_seen
     on_value:
       - lambda: |-
           id(g_bettfenster_links_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_bettfenster_rechts_last_seen
-    entity_id: sensor.bettfenster_rechts_last_seen
+    entity_id: sensor.bedroom_window_right_last_seen
     on_value:
       - lambda: |-
           id(g_bettfenster_rechts_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_links_last_seen
-    entity_id: sensor.miniheki_links_last_seen
+    entity_id: sensor.bathroom_roof_window_last_seen
     on_value:
       - lambda: |-
           id(g_miniheki_links_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_miniheki_rechts_last_seen
-    entity_id: sensor.miniheki_rechts_last_seen
+    entity_id: sensor.kitchen_roof_window_last_seen
     on_value:
       - lambda: |-
           id(g_miniheki_rechts_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_midiheki_vorne_last_seen
-    entity_id: sensor.midiheki_vorne_last_seen
+    entity_id: sensor.living_roof_window_last_seen
     on_value:
       - lambda: |-
           id(g_midiheki_vorne_last_seen_ms) = millis();
       - script.execute: draw_sensors_windows
   - platform: homeassistant
     id: s_heki3_hinten_last_seen
-    entity_id: sensor.heki3_hinten_last_seen
+    entity_id: sensor.bedroom_roof_window_last_seen
     on_value:
       - lambda: |-
           id(g_heki3_hinten_last_seen_ms) = millis();
