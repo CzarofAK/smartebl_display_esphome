@@ -687,7 +687,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
       as `docs/pages.md` always specified, sourcing what `smartebl`
       itself can't (Gas A/I, Diesel) from HA, the same pattern the
       Electric page already established for its own Victron entities.
-      Diesel is `sensor.nw19939_fuel_level` (repo-owner-supplied, real -
+      Diesel is `sensor.vehicle_mercedes_fuel_level` (repo-owner-supplied, real -
       the earlier "no known entity anywhere in this project" finding was
       about `m5dial_fram`, not the actual vehicle) - ASSUMED already a
       0-100% reading like the other four; flag if that's wrong.
@@ -826,7 +826,7 @@ Boiler, Fans, Light/Features, Sensors+Levelling) — read that before
 
 - [x] **Shore-current limit popup: 1s debounce + amber pending value** (repo-owner, 2026-11-07: "sendet sofort den neuen Wert, das erschwert grössere Änderungen"). The 400ms debounce wrote intermediate values to `number.tech_inverter_current_limit` whenever the -/+ taps paused briefly. Now the value is written only after it has not changed for 1s; until HA confirms it, the value is shown amber (stays amber if the MultiPlus did not accept it). Mode buttons (OFF/CHG/INV/ON) still act on tap. Applied to both Electric variants (`page_electric.yaml`, `page_electric_widget.yaml`).
 
-- [x] **Heating fan entity fixed: `switch.fan_heater_bed`** - the Shelly 1 was reflashed to ESPHome (FR-117), so the old Shelly-integration entity `switch.shelly_fan_heater_bed_fan_heater_bed` no longer exists and the HEIZFAN button showed "---". Must change together with `smartebl`'s `heating_fan_entity` substitution.
+- [x] **Heating fan entity fixed: `switch.bedroom_heater_fan`** - the Shelly 1 was reflashed to ESPHome (FR-117), so the old Shelly-integration entity `switch.shelly_fan_heater_bed_fan_heater_bed` no longer exists and the HEIZFAN button showed "---". Must change together with `smartebl`'s `heating_fan_entity` substitution.
 
 - [x] **Shore-current limit popup: real confirmation colors** (repo-owner, 2026-11-07: "orange geht nie weg", then "weiss ist nicht gleich Wert confirmed"). The MultiPlus/Cerbo reports back a different limit than the one written ~30-45s later (set 4A -> 6A, 5A -> 7A, 7A -> 8A; root cause open, FR-114). State machine `g_multiplus_limit_phase`: amber = tapped or sent but HA has not reported the sent value yet; white = HA reports exactly the value sent (`g_multiplus_limit_sent`); red = HA reports a different value (override) - the label then shows HA's value. Reset on popup open. Both Electric variants.
 

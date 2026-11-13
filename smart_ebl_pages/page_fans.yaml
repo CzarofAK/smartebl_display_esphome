@@ -4,14 +4,14 @@
 # =============================================================================
 # Real entities (repo-owner-confirmed, 2026-09-06 - corrects this file's
 # earlier m5dial_fram-borrowed guesses):
-#   - FANBOARD setpoint: number.fan_board_fan_speed (was
+#   - FANBOARD setpoint: number.bedroom_fan_board_fan_speed (was
 #     number.fan_speed_control)
-#   - FANBOARD per-fan readout: sensor.fan_board_fan_speed_1 .. _4, the
+#   - FANBOARD per-fan readout: sensor.bedroom_fan_board_fan_speed_1 .. _4, the
 #     fan board's own four individual fans - read-only, NOT written to;
 #     shown as a small row under the FANBOARD arc/setpoint/+-, same
 #     "assumed 0-100%" shape as everything else on this page unless it
 #     turns out otherwise.
-#   - HVAC (Sprinter OEM blower motor): number.relay_2ch_hvac_hvac_fan_battery
+#   - HVAC (Sprinter OEM blower motor): number.cab_hvac_relay_fan_battery
 #     (was number.hvac_fan_battery - same physical relay-2ch-hvac
 #     ESPHome device m5dial_fram/page_fans.yaml already drives, just the
 #     full real entity_id rather than the shorter guess).
@@ -20,8 +20,8 @@
 # =============================================================================
 
 globals:
-  # ---- Fans (page_fans) - HA-fed via number.fan_board_fan_speed/
-  # number.relay_2ch_hvac_hvac_fan_battery. Touch has no rotary encoder
+  # ---- Fans (page_fans) - HA-fed via number.bedroom_fan_board_fan_speed/
+  # number.cab_hvac_relay_fan_battery. Touch has no rotary encoder
   # to "arm" - each column's own +/- buttons write directly - so unlike
   # m5dial_fram's g_edit_target dance, these two pendings are always
   # live: synced from the real HA value on every on_value push (see the
@@ -41,7 +41,7 @@ sensor:
   # blower motor (see this file's own header for both real entity_ids).
   - platform: homeassistant
     id: s_fans_board_speed
-    entity_id: number.fan_board_fan_speed
+    entity_id: number.bedroom_fan_board_fan_speed
     on_value:
       # Keep g_fans_board_pending in sync with HA's own confirmed value -
       # see the globals: block's own comment for why (no "armed" state to
@@ -50,40 +50,40 @@ sensor:
       - script.execute: draw_fans
   - platform: homeassistant
     id: s_fans_hvac_speed
-    entity_id: number.relay_2ch_hvac_hvac_fan_battery
+    entity_id: number.cab_hvac_relay_fan_battery
     on_value:
       - globals.set: {id: g_fans_hvac_pending, value: !lambda "return x;"}
       - script.execute: draw_fans
 
   # ---- FANBOARD's own four individual fans - read-only, no setpoint of
-  # their own (number.fan_board_fan_speed above is the ONE setpoint the
+  # their own (number.bedroom_fan_board_fan_speed above is the ONE setpoint the
   # fan board itself fans out to all four internally) - shown so the
   # repo owner can see whether all four are actually spinning together,
   # not just that the board accepted a setpoint.
   #
   # RPM, not % (repo-owner-confirmed, 2026-09-06: "beim Fanboard sind
   # die Prozent RPMs" - "indeed. its RPM not %!") - unlike every other
-  # level/speed reading on this page, sensor.fan_board_fan_speed_1..4
+  # level/speed reading on this page, sensor.bedroom_fan_board_fan_speed_1..4
   # are each fan's real spin speed in RPM, not a 0-100% value; set_fan_n
   # (draw_fans, below) formats/labels them accordingly.
   - platform: homeassistant
     id: s_fans_board_speed_1
-    entity_id: sensor.fan_board_fan_speed_1
+    entity_id: sensor.bedroom_fan_board_fan_speed_1
     on_value:
       - script.execute: draw_fans
   - platform: homeassistant
     id: s_fans_board_speed_2
-    entity_id: sensor.fan_board_fan_speed_2
+    entity_id: sensor.bedroom_fan_board_fan_speed_2
     on_value:
       - script.execute: draw_fans
   - platform: homeassistant
     id: s_fans_board_speed_3
-    entity_id: sensor.fan_board_fan_speed_3
+    entity_id: sensor.bedroom_fan_board_fan_speed_3
     on_value:
       - script.execute: draw_fans
   - platform: homeassistant
     id: s_fans_board_speed_4
-    entity_id: sensor.fan_board_fan_speed_4
+    entity_id: sensor.bedroom_fan_board_fan_speed_4
     on_value:
       - script.execute: draw_fans
 
@@ -99,29 +99,29 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.fan_board_fan_speed
+            entity_id: number.bedroom_fan_board_fan_speed
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: number.relay_2ch_hvac_hvac_fan_battery
+            entity_id: number.cab_hvac_relay_fan_battery
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.fan_board_fan_speed_1
+            entity_id: sensor.bedroom_fan_board_fan_speed_1
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.fan_board_fan_speed_2
+            entity_id: sensor.bedroom_fan_board_fan_speed_2
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.fan_board_fan_speed_3
+            entity_id: sensor.bedroom_fan_board_fan_speed_3
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.fan_board_fan_speed_4
+            entity_id: sensor.bedroom_fan_board_fan_speed_4
 
-  # 5%-step, clamped 0-100, matches number.fan_board_fan_speed's own step.
+  # 5%-step, clamped 0-100, matches number.bedroom_fan_board_fan_speed's own step.
   - id: act_fans_board_up
     then:
       - lambda: |-
@@ -145,7 +145,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.fan_board_fan_speed
+            entity_id: number.bedroom_fan_board_fan_speed
           data_template:
             value: "{{ val }}"
           variables:
@@ -157,7 +157,7 @@ script:
       - delay: 400ms
       - script.execute: fans_board_write_now
 
-  # 10%-step (matches number.relay_2ch_hvac_hvac_fan_battery's own
+  # 10%-step (matches number.cab_hvac_relay_fan_battery's own
   # `step: 10`), clamped 0-100. See m5dial_fram/page_fans.yaml's own
   # header for why HVAC steps 10% at a time while FANBOARD steps 5%.
   - id: act_fans_hvac_up
@@ -183,7 +183,7 @@ script:
       - homeassistant.service:
           service: number.set_value
           data:
-            entity_id: number.relay_2ch_hvac_hvac_fan_battery
+            entity_id: number.cab_hvac_relay_fan_battery
           data_template:
             value: "{{ val }}"
           variables:
@@ -225,9 +225,9 @@ script:
           // set_tile/set_flow-style helpers elsewhere in this repo.
           //
           // RPM, not % (repo-owner-confirmed, 2026-09-06 - see the
-          // sensor: block's own comment): sensor.fan_board_fan_speed_1..
+          // sensor: block's own comment): sensor.bedroom_fan_board_fan_speed_1..
           // 4 are each fan's real spin speed, unrelated to the 0-100%
-          // setpoint (number.fan_board_fan_speed, lbl_fans_board_pct,
+          // setpoint (number.bedroom_fan_board_fan_speed, lbl_fans_board_pct,
           // above) they're all fanned out from - "%" was simply the
           // wrong unit for a raw RPM number. Buffer widened 8->16 for
           // " RPM" (the old 8 only ever needed to hold "100%").
@@ -416,7 +416,7 @@ lvgl:
                   on_click:
                     - script.execute: act_fans_board_up
 
-              # ---- Per-fan readout row (sensor.fan_board_fan_speed_1..4)
+              # ---- Per-fan readout row (sensor.bedroom_fan_board_fan_speed_1..4)
               # - read-only, see the sensor: block's own comment. Sits
               # below the +/- buttons (which now end at y=443) with
               # plenty of room left in this 620px-tall half.

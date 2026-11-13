@@ -89,7 +89,7 @@ sensor:
   # vehicle's actual gas monitoring is external to smartebl) - same
   # precedent as page_electric reusing m5dial_fram's real Victron
   # entities; "A"/"I" = außen (outside)/innen (inside), confirmed by the
-  # repo owner. Diesel is `sensor.nw19939_fuel_level` (repo-owner-
+  # repo owner. Diesel is `sensor.vehicle_mercedes_fuel_level` (repo-owner-
   # supplied, an OBD/vehicle-telematics entity by the naming) -
   # ASSUMED already a 0-100% reading like the other four levels here;
   # flag if that's wrong (a raw liter value, say) so the bar/thresholds
@@ -108,7 +108,7 @@ sensor:
 
   - platform: homeassistant
     id: s_diesel_level
-    entity_id: sensor.nw19939_fuel_level
+    entity_id: sensor.vehicle_mercedes_fuel_level
     on_value:
       - script.execute: draw_levels
 
@@ -118,7 +118,7 @@ script:
   # TEMPORARY Victron swap, 2026-09-12, was `tank1_level`/`tank2_level`
   # over the link (see the sensor: block's own comment) / Gas A, außen/
   # "in use" (HA `sensor.exterior_gas_bottle_1_level`) / Gas I, innen/"reserve" (HA
-  # `sensor.exterior_gas_bottle_2_level`) / Diesel (HA `sensor.nw19939_fuel_level`,
+  # `sensor.exterior_gas_bottle_2_level`) / Diesel (HA `sensor.vehicle_mercedes_fuel_level`,
   # repo-owner-supplied) - see the sensor: block's own comment (above,
   # where s_fresh_stand/s_waste_stand/s_gas_a/s_gas_i/s_diesel_level are
   # declared) for the entity-level detail.
@@ -143,7 +143,7 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.nw19939_fuel_level
+            entity_id: sensor.vehicle_mercedes_fuel_level
 
   - id: draw_levels
     mode: restart
@@ -225,7 +225,7 @@ script:
             lv_label_set_text(id(lbl_levels_waste_l), buf);
           }
 
-          // ---- DIESEL (HA, sensor.nw19939_fuel_level) - ASSUMED
+          // ---- DIESEL (HA, sensor.vehicle_mercedes_fuel_level) - ASSUMED
           // already a 0-100% reading like the other four (see sensor:
           // block's own comment - flag if that's wrong). Thresholds are
           // a generic low-fuel-warning guess (10%/25%, same shape as
@@ -503,7 +503,7 @@ lvgl:
                   text_font: font_ui_16
                   text_color: 0xBDC1C6
 
-        # ---- DIESEL (HA, sensor.nw19939_fuel_level) ---------------------
+        # ---- DIESEL (HA, sensor.vehicle_mercedes_fuel_level) ---------------------
         # scrollbar_mode/height/bar-height/label-y - same fixes and same
         # reasoning as FRISCH, above.
         - obj:
