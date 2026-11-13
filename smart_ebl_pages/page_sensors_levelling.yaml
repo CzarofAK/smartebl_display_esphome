@@ -65,32 +65,32 @@ sensor:
   # why the degrees-to-cm math happens in HA, not on any display).
   - platform: homeassistant
     id: s_levelling_lon
-    entity_id: sensor.mpu6050_pitch
+    entity_id: sensor.vehicle_level_pitch
     on_value:
       - script.execute: draw_levelling
   - platform: homeassistant
     id: s_levelling_lat
-    entity_id: sensor.mpu6050_roll
+    entity_id: sensor.vehicle_level_roll
     on_value:
       - script.execute: draw_levelling
   - platform: homeassistant
     id: s_levelling_vl
-    entity_id: sensor.mpu6050_womo_vl_cm
+    entity_id: sensor.vehicle_level_wheel_front_left_cm
     on_value:
       - script.execute: draw_levelling
   - platform: homeassistant
     id: s_levelling_vr
-    entity_id: sensor.mpu6050_womo_vr_cm
+    entity_id: sensor.vehicle_level_wheel_front_right_cm
     on_value:
       - script.execute: draw_levelling
   - platform: homeassistant
     id: s_levelling_hl
-    entity_id: sensor.mpu6050_womo_hl_cm
+    entity_id: sensor.vehicle_level_wheel_rear_left_cm
     on_value:
       - script.execute: draw_levelling
   - platform: homeassistant
     id: s_levelling_hr
-    entity_id: sensor.mpu6050_womo_hr_cm
+    entity_id: sensor.vehicle_level_wheel_rear_right_cm
     on_value:
       - script.execute: draw_levelling
 
@@ -109,27 +109,27 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_pitch
+            entity_id: sensor.vehicle_level_pitch
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_roll
+            entity_id: sensor.vehicle_level_roll
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_womo_vl_cm
+            entity_id: sensor.vehicle_level_wheel_front_left_cm
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_womo_vr_cm
+            entity_id: sensor.vehicle_level_wheel_front_right_cm
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_womo_hl_cm
+            entity_id: sensor.vehicle_level_wheel_rear_left_cm
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: sensor.mpu6050_womo_hr_cm
+            entity_id: sensor.vehicle_level_wheel_rear_right_cm
 
   - id: draw_levelling
     mode: restart
