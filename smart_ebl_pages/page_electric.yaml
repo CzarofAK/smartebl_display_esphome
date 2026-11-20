@@ -69,9 +69,9 @@ globals:
   # FR-114 (2026-11-07): confirmation state of the shore-current limit
   # label. 0 = in sync (white: HA reports exactly the value this display
   # sent, or nothing sent since the popup opened), 1 = -/+ tapped, not yet
-  # sent (amber), 2 = sent, no readback from HA yet (amber), 3 = HA
-  # reports a different value than sent - MultiPlus/Cerbo overrode it
-  # (red, label shows HA's value).
+  # sent (amber), 2 = sent, settle window running (amber), 3 = after the
+  # settle window and one automatic resend HA still reports a different
+  # value than sent (red, label shows HA's value = what the Cerbo has).
   - id: g_multiplus_limit_phase
     type: int
     restore_value: false
@@ -82,6 +82,24 @@ globals:
     type: float
     restore_value: false
     initial_value: "-1"
+
+  # FR-114 (2026-11-20): true while a written limit is in its 60s settle
+  # window (multiplus_limit_settle). Only one write is in flight at a
+  # time: the path touch -> ESP32 -> HA -> Cerbo answers only after
+  # 30-45s, and two writes in quick succession could leave the Cerbo on
+  # the earlier value while the display showed the later one. Taps
+  # during the window are kept and sent when it ends.
+  - id: g_multiplus_limit_busy
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+  # True once the current value was resent automatically after a
+  # mismatch (one retry only, then red). Reset by every -/+ tap.
+  - id: g_multiplus_limit_retried
+    type: bool
+    restore_value: false
+    initial_value: "false"
 
   # ---- Electric page (page_electric) - Solar Yield popup, same shape as
   # g_multiplus_limit_pending above.
@@ -244,12 +262,19 @@ sensor:
           // value instead of staying amber forever on the requested one.
           // Phase 1 (user still stepping): don't touch the edit.
           // Otherwise show HA's value and compare it with what was sent.
-          if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)
+          // FR-114 (2026-11-20): while a write is settling
+          // (g_multiplus_limit_busy) HA's intermediate values are ignored -
+          // multiplus_limit_settle compares HA with the sent value once
+          // the window is over. Outside the window HA's value (= Cerbo)
+          // is adopted, e.g. a change made on the Cerbo, VRM or M5 Dial.
+          if (id(g_multiplus_limit_busy)) {
+            // keep showing the sent/pending value (amber)
+          } else if (lv_obj_has_flag(id(obj_electric_popup_panel), LV_OBJ_FLAG_HIDDEN)
               || id(g_multiplus_limit_phase) != 1) {
             id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
-            if (id(g_multiplus_limit_sent) >= 0.0f) {
-              bool same = fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_sent)) <= 0.25f;
-              id(g_multiplus_limit_phase) = same ? 0 : 3;
+            if (id(g_multiplus_limit_phase) == 3 && id(g_multiplus_limit_sent) >= 0.0f
+                && fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_sent)) <= 0.25f) {
+              id(g_multiplus_limit_phase) = 0;
             }
           }
       - script.execute: draw_electric
@@ -843,10 +868,15 @@ script:
   - id: show_charger_popup
     then:
       - lambda: |-
-          id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
-              ? id(s_multiplus_limit).state : 0.0f;
-          id(g_multiplus_limit_phase) = 0;
-          id(g_multiplus_limit_sent) = -1.0f;
+          // A write still debouncing or settling keeps its state
+          // (popup closed and reopened meanwhile).
+          if (!id(g_multiplus_limit_busy)
+              && !id(multiplus_limit_write_debounced).is_running()) {
+            id(g_multiplus_limit_pending) = id(s_multiplus_limit).has_state()
+                ? id(s_multiplus_limit).state : 0.0f;
+            id(g_multiplus_limit_phase) = 0;
+            id(g_multiplus_limit_sent) = -1.0f;
+          }
       - script.execute: draw_electric
       - lvgl.widget.update:
           id: obj_electric_popup_backdrop
@@ -889,6 +919,7 @@ script:
     then:
       - lambda: |-
           id(g_multiplus_limit_phase) = 1;
+          id(g_multiplus_limit_retried) = false;
           float v = id(g_multiplus_limit_pending) + 1.0f;
           if (v > 16.0f) v = 16.0f;
           id(g_multiplus_limit_pending) = v;
@@ -899,6 +930,7 @@ script:
     then:
       - lambda: |-
           id(g_multiplus_limit_phase) = 1;
+          id(g_multiplus_limit_retried) = false;
           float v = id(g_multiplus_limit_pending) - 1.0f;
           if (v < 0.0f) v = 0.0f;
           id(g_multiplus_limit_pending) = v;
@@ -916,24 +948,81 @@ script:
           variables:
             val: !lambda "return str_sprintf(\"%.0f\", id(g_multiplus_limit_pending));"
 
-  # Debounced write (repo-owner, 2026-11-07): sent only once the value has
-  # not changed for 1s - was 400ms, which wrote intermediate values while
-  # stepping through bigger changes. mode: restart -> every -/+ tap
-  # restarts the 1s timer. While the pending value differs from HA's
-  # confirmed one it is shown amber (draw_electric).
+  # Debounced write (FR-114, 2026-11-20): sent only once no -/+ was
+  # tapped for 2s (was 1s, before that 400ms - both still let
+  # intermediate values through when stepping a bit slower).
+  # mode: restart -> every tap restarts the 2s timer. If a previous
+  # write is still settling, nothing is sent now: multiplus_limit_settle
+  # sends the latest value when its window ends.
   - id: multiplus_limit_write_debounced
     mode: restart
     then:
-      - delay: 1s
+      - delay: 2s
+      - if:
+          condition:
+            lambda: "return !id(g_multiplus_limit_busy);"
+          then:
+            - script.execute: multiplus_limit_send
+
+  # Write g_multiplus_limit_pending and start the settle window.
+  - id: multiplus_limit_send
+    mode: single
+    then:
       - lambda: |-
           id(g_multiplus_limit_sent) = id(g_multiplus_limit_pending);
-          // Same value as HA already reports -> HA sends no new state,
-          // so nothing would ever confirm it: in sync right away.
+          // Same value as HA already reports (and nothing settling) ->
+          // nothing to write, in sync right away.
           bool same = id(s_multiplus_limit).has_state()
               && fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_pending)) <= 0.25f;
           id(g_multiplus_limit_phase) = same ? 0 : 2;
-      - script.execute: multiplus_limit_write_now
+          id(g_multiplus_limit_busy) = !same;
+      - if:
+          condition:
+            lambda: "return id(g_multiplus_limit_busy);"
+          then:
+            - script.execute: multiplus_limit_write_now
+            - script.execute: multiplus_limit_settle
       - script.execute: draw_electric
+
+  # Settle window: the Cerbo reports the applied limit back 30-45s after
+  # a write (victron_gx shows the requested value immediately, the real
+  # one comes later). After 60s:
+  # - new taps meanwhile (phase 1) -> send them now (unless the 2s
+  #   debounce is still running, it sends on its own);
+  # - HA == sent -> in sync (white);
+  # - HA != sent -> resend once, if it still differs -> red with HA's
+  #   value (= what the Cerbo really has).
+  - id: multiplus_limit_settle
+    mode: restart
+    then:
+      - delay: 60s
+      - lambda: |-
+          id(g_multiplus_limit_busy) = false;
+      - if:
+          condition:
+            lambda: "return id(g_multiplus_limit_phase) == 1;"
+          then:
+            - if:
+                condition:
+                  lambda: "return !id(multiplus_limit_write_debounced).is_running();"
+                then:
+                  - script.execute: multiplus_limit_send
+          else:
+            - lambda: |-
+                bool same = id(s_multiplus_limit).has_state()
+                    && fabsf(id(s_multiplus_limit).state - id(g_multiplus_limit_sent)) <= 0.25f;
+                if (same) {
+                  id(g_multiplus_limit_phase) = 0;
+                } else if (!id(g_multiplus_limit_retried)) {
+                  id(g_multiplus_limit_retried) = true;
+                  id(g_multiplus_limit_pending) = id(g_multiplus_limit_sent);
+                  id(multiplus_limit_send).execute();
+                } else {
+                  id(g_multiplus_limit_phase) = 3;
+                  if (id(s_multiplus_limit).has_state())
+                    id(g_multiplus_limit_pending) = id(s_multiplus_limit).state;
+                }
+            - script.execute: draw_electric
 
   # ---- Solar Yield popup (obj_solar_popup_panel) - ON/OFF (switch.
   # mppt_190w) + charge-current limit (number.tech_solar_charger_current_limit),
@@ -989,10 +1078,12 @@ script:
           variables:
             val: !lambda "return str_sprintf(\"%.0f\", id(g_mppt_limit_pending));"
 
+  # FR-114 (2026-11-20): 2s like the shore limit, so stepping through
+  # several values writes only the final one.
   - id: mppt_limit_write_debounced
     mode: restart
     then:
-      - delay: 400ms
+      - delay: 2s
       - script.execute: mppt_limit_write_now
 
   # ---- Battery popup (obj_battery_popup_panel) - switch.energy_park_mode
