@@ -170,20 +170,19 @@ esp32:
     # ESP-IDF's own early startup (before ESPHome's logger even printed
     # a line), not anything in this repo's own YAML content.
     #
-    # Pinning BOTH ends to the same known release sidesteps the mismatch
-    # rather than trying to detect it: 2.12.12 was the current stable
-    # (non-3.x) release at the time this was fixed - keep this in sync
-    # with whatever the C6-firmware update entity is actually running,
-    # if that ever changes again.
-    components:
-      - espressif/esp_hosted==2.12.12
-    # CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM/CONFIG_ESP_MAIN_TASK_STACK_SIZE
-    # and advanced: loop_task_stack_size below all came from the same
-    # fix, reported working on the same P4+C6-hosted board family - kept
-    # together as one known-good set rather than trimmed to "the one
-    # that mattered", since that wasn't isolated on real hardware.
+    # The 2.12.12 pin that used to live here was REMOVED for ESPHome
+    # 2026.11.0: its esp32_hosted component (and the update platform
+    # below) is built against esp_hosted 3.1.0 and no longer compiles
+    # against 2.12.x (EH_HOST_CP_OTA_CHUNK_MAX missing). The host now
+    # uses whatever ESPHome bundles (3.1.0 in 2026.11.0); keep the C6 on
+    # the same release via the "C6 Firmware" update entity - host >= C6
+    # is the supported direction, per the maintainer quote above.
+    # CONFIG_ESP_MAIN_TASK_STACK_SIZE and advanced: loop_task_stack_size
+    # below came from the same fix, reported working on the same
+    # P4+C6-hosted board family. CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM
+    # no longer exists in esp_hosted 3.x - replaced by `use_psram: true`
+    # in esp32_hosted: below (sets CONFIG_EH_HOST_PORT_DMA_PREFER_SPIRAM).
     sdkconfig_options:
-      CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM: "y"
       CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
     advanced:
       # Required by esp32_hosted (WiFi 6/BLE via the ESP32-C6, below),
@@ -286,7 +285,9 @@ packages:
 esp32_hosted:
   type: sdio
   variant: ESP32C6
-  active_high: true
+  # Transport buffers in PSRAM (successor of the old
+  # CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM, see esp32: block above).
+  use_psram: true
   clk_pin: GPIO18
   cmd_pin: GPIO19
   d0_pin: GPIO14
